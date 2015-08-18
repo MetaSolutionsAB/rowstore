@@ -60,6 +60,8 @@ public class RowStoreApplication extends Application {
 
 	public static String KEY = "org.entrystore.rowstore.RowStoreApplication";
 
+	public static String NAME = "RowStore";
+
 	private static String VERSION = null;
 
 	RowStore rowstore;
