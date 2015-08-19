@@ -16,18 +16,13 @@
 
 package org.entrystore.rowstore.filters;
 
-import org.entrystore.rowstore.resources.BaseResource;
 import org.restlet.Request;
 import org.restlet.Response;
-import org.restlet.data.MediaType;
 import org.restlet.data.Method;
 import org.restlet.data.Status;
 import org.restlet.routing.Filter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.IOException;
-import java.util.HashMap;
 
 
 /**

@@ -16,12 +16,7 @@
 
 package org.entrystore.rowstore.resources;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import org.restlet.data.MediaType;
 import org.restlet.data.Status;
-import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.representation.StringRepresentation;
 import org.restlet.resource.Get;
