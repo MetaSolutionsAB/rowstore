@@ -16,9 +16,14 @@
 
 package org.entrystore.rowstore.store;
 
+import java.sql.Connection;
+import java.sql.SQLException;
+
 /**
  * @author Hannes Ebner
  */
 public interface RowStore {
+
+	public Connection getConnection() throws SQLException;
 
 }
