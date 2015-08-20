@@ -1,8 +1,11 @@
 {
-    "database": {
-        "type": "postgresql",
-        "host": "",
-        "indexes": ""
-    },
-    "loglevel": "debug"
+  "database": {
+    "type": "postgresql",
+    "host": "",
+    "database": "",
+    "user": "",
+    "password": "",
+    "maxconnections": "10"
+  },
+  "loglevel": "debug"
 }
