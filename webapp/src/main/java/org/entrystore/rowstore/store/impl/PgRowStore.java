@@ -1,5 +1,6 @@
 package org.entrystore.rowstore.store.impl;
 
+import org.entrystore.rowstore.store.Datasets;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStoreConfig;
 import org.postgresql.ds.PGPoolingDataSource;
@@ -13,14 +14,16 @@ import java.sql.SQLException;
  */
 public class PgRowStore implements RowStore {
 
-	DataSource ds;
+	DataSource datasource;
+
+	Datasets datasets;
 
 	public PgRowStore(RowStoreConfig config) {
 		if (config == null) {
 			throw new IllegalArgumentException("Configuration must not be null");
 		}
-		ds = new PGPoolingDataSource();
-		PGPoolingDataSource pgDs = (PGPoolingDataSource) ds;
+		datasource = new PGPoolingDataSource();
+		PGPoolingDataSource pgDs = (PGPoolingDataSource) datasource;
 		pgDs.setMaxConnections(config.getDbMaxConnections());
 		pgDs.setUser(config.getDbUser());
 		pgDs.setPassword(config.getDbPassword());
@@ -30,7 +33,16 @@ public class PgRowStore implements RowStore {
 
 	@Override
 	public Connection getConnection() throws SQLException {
-		return ds.getConnection();
+		return datasource.getConnection();
+	}
+
+	public Datasets getDatasets() {
+		synchronized (datasource) {
+			if (datasets == null) {
+				this.datasets = new PgDatasets(this);
+			}
+		}
+		return this.datasets;
 	}
 
 }
