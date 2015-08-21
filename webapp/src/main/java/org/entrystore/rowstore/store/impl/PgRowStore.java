@@ -11,11 +11,11 @@ import java.sql.SQLException;
 /**
  * @author Hannes Ebner
  */
-public class RowStoreImpl implements RowStore {
+public class PgRowStore implements RowStore {
 
 	DataSource ds;
 
-	public RowStoreImpl(RowStoreConfig config) {
+	public PgRowStore(RowStoreConfig config) {
 		if (config == null) {
 			throw new IllegalArgumentException("Configuration must not be null");
 		}

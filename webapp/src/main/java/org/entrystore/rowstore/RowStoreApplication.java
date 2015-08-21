@@ -26,7 +26,7 @@ import org.entrystore.rowstore.resources.DefaultResource;
 import org.entrystore.rowstore.resources.StatusResource;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStoreConfig;
-import org.entrystore.rowstore.store.impl.RowStoreImpl;
+import org.entrystore.rowstore.store.impl.PgRowStore;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.restlet.Application;
@@ -84,7 +84,7 @@ public class RowStoreApplication extends Application {
 		if (configURI != null && "file".equals(configURI.getScheme())) {
 			config = new JSONObject(new String(Files.readAllBytes(Paths.get(configURI))));
 			configureLogging(config);
-			rowstore = new RowStoreImpl(new RowStoreConfig(config));
+			rowstore = new PgRowStore(new RowStoreConfig(config));
 		} else {
 			log.error("No configuration found");
 			System.exit(1);
