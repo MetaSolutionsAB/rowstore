@@ -21,4 +21,6 @@ package org.entrystore.rowstore.store;
  */
 public interface Dataset {
 
+	String getId();
+
 }
