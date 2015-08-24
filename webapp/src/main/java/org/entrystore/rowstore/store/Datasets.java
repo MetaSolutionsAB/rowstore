@@ -9,8 +9,8 @@ public interface Datasets {
 
 	Set<Dataset> getDatasets();
 
-	void addDataset(Dataset ds);
+	Dataset createDataset(String id);
 
-	void removeDataset(Dataset ds);
+	void purgeDataset(String id);
 
 }

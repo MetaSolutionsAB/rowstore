@@ -16,11 +16,23 @@
 
 package org.entrystore.rowstore.store;
 
+import org.entrystore.rowstore.etl.EtlStatus;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.Date;
+
 /**
  * @author Hannes Ebner
  */
 public interface Dataset {
 
 	String getId();
+
+	int getStatus();
+
+	Date getCreationDate();
+
+	boolean populate(File csvFile) throws IOException;
 
 }

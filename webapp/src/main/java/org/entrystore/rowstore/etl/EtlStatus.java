@@ -5,12 +5,14 @@ package org.entrystore.rowstore.etl;
  */
 public class EtlStatus {
 
-	public static String ACCEPTED = "accepted";
+	public static int UNKNOWN = 0;
 
-	public static String PROCESSING = "processing";
+	public static int ACCEPTED = 1;
 
-	public static String ERROR = "error";
+	public static int PROCESSING = 2;
 
-	public static String AVAILABLE = "available";
+	public static int AVAILABLE = 3;
+
+	public static int ERROR = 4;
 
 }

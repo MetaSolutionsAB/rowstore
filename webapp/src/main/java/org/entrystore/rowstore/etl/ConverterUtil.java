@@ -20,7 +20,7 @@ public class ConverterUtil {
 
 	private static Logger log = LoggerFactory.getLogger(ConverterUtil.class);
 
-	protected static JSONObject csvLineToJsonObject(String[] line, String[] labels) throws JSONException {
+	public static JSONObject csvLineToJsonObject(String[] line, String[] labels) throws JSONException {
 		if (line.length != labels.length) {
 			throw new IllegalArgumentException("Arrays must not be of different length");
 		}
