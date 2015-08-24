@@ -18,6 +18,7 @@ package org.entrystore.rowstore.resources;
 
 import org.apache.log4j.Logger;
 import org.entrystore.rowstore.RowStoreApplication;
+import org.entrystore.rowstore.store.RowStore;
 import org.restlet.Context;
 import org.restlet.Request;
 import org.restlet.Response;
@@ -81,8 +82,8 @@ public class BaseResource extends ServerResource {
 		return null;
 	}
 
-	public RowStoreApplication getRowStore() {
-		return ((RowStoreApplication) getContext().getAttributes().get(RowStoreApplication.KEY));
+	public RowStore getRowStore() {
+		return ((RowStoreApplication) getContext().getAttributes().get(RowStoreApplication.KEY)).getStore();
 	}
 
 }

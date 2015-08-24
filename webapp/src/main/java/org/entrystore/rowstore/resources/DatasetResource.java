@@ -38,17 +38,10 @@ public class DatasetResource extends BaseResource {
 
 		/* TODO
 
-		0. read id from /dataset/{id}
-
-		1. return whole dataset
-		1a. CSV
-		1b. JSON
-
-		*/
+		1. read id from /dataset/{id}
+		2. return whole dataset in JSON
 
 		// OR
-
-		/*
 
 		2. reply to query if parameters are present: /dataset/{id}?[{column-name}={value},{column-name={value}]
 

@@ -7,10 +7,12 @@ import java.util.Set;
  */
 public interface Datasets {
 
-	Set<Dataset> getDatasets();
+	Set<Dataset> getAll();
 
 	Dataset createDataset(String id);
 
 	void purgeDataset(String id);
+
+	Dataset getDataset(String id);
 
 }

@@ -35,7 +35,7 @@ public class PgDataset implements Dataset {
 
 	private RowStore rowstore;
 
-	public PgDataset(RowStore rowstore, String id) {
+	protected PgDataset(RowStore rowstore, String id) {
 		this.rowstore = rowstore;
 		this.id = id;
 		initFromDb();

@@ -31,7 +31,7 @@ public class PgDatasets implements Datasets {
 	}
 
 	@Override
-	public Set<Dataset> getDatasets() {
+	public Set<Dataset> getAll() {
 		Set<Dataset> result = new HashSet<>();
 		Connection conn = null;
 		PreparedStatement stmt = null;
@@ -154,6 +154,14 @@ public class PgDatasets implements Datasets {
 				}
 			}
 		}
+	}
+
+	@Override
+	public Dataset getDataset(String id) {
+		if (id == null) {
+			throw new IllegalArgumentException("Dataset ID must not be null");
+		}
+		return new PgDataset(rowstore, id);
 	}
 
 	private void createTableIfNotExists() {
