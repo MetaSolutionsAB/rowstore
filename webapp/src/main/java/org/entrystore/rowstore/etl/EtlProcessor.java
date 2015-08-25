@@ -22,7 +22,7 @@ public class EtlProcessor {
 
 	private RowStore rowstore;
 
-	private final ConcurrentLinkedQueue<JSONObject> postQueue = new ConcurrentLinkedQueue<JSONObject>(); // FIXME should probably not be a JSONObject
+	private final ConcurrentLinkedQueue<EtlResource> postQueue = new ConcurrentLinkedQueue<>();
 
 	public class DatasetSubmitter extends Thread {
 
@@ -58,8 +58,8 @@ public class EtlProcessor {
 		this.rowstore = rowstore;
 	}
 
-	public void submit() {
-
+	public void submit(EtlResource etlResource) {
+		postQueue.add(etlResource);
 	}
 
 	public void shutdown() {
