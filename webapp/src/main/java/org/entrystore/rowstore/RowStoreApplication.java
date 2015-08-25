@@ -221,6 +221,13 @@ public class RowStoreApplication extends Application {
 		return null;
 	}
 
-	// TODO handle shutdown, i.e., close connections, wait until stuff finished, etc
+	@Override
+	public synchronized void stop() throws Exception {
+		log.info("Shutting down");
+		if (rowstore != null) {
+			rowstore.shutdown();
+		}
+		super.stop();
+	}
 
 }

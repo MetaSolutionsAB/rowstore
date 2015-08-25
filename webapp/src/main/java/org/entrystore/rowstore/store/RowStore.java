@@ -16,6 +16,8 @@
 
 package org.entrystore.rowstore.store;
 
+import org.entrystore.rowstore.etl.EtlProcessor;
+
 import java.sql.Connection;
 import java.sql.SQLException;
 
@@ -24,6 +26,10 @@ import java.sql.SQLException;
  */
 public interface RowStore {
 
-	public Connection getConnection() throws SQLException;
+	Connection getConnection() throws SQLException;
+
+	EtlProcessor getEtlProcessor();
+
+	void shutdown();
 
 }

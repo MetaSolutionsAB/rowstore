@@ -1,5 +1,6 @@
 package org.entrystore.rowstore.store.impl;
 
+import org.entrystore.rowstore.etl.EtlProcessor;
 import org.entrystore.rowstore.store.Datasets;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStoreConfig;
@@ -18,6 +19,8 @@ public class PgRowStore implements RowStore {
 
 	Datasets datasets;
 
+	EtlProcessor etlProcessor;
+
 	public PgRowStore(RowStoreConfig config) {
 		if (config == null) {
 			throw new IllegalArgumentException("Configuration must not be null");
@@ -29,11 +32,18 @@ public class PgRowStore implements RowStore {
 		pgDs.setPassword(config.getDbPassword());
 		pgDs.setServerName(config.getDbHost());
 		pgDs.setDatabaseName(config.getDbName());
+
+		etlProcessor = new EtlProcessor(this);
 	}
 
 	@Override
 	public Connection getConnection() throws SQLException {
 		return datasource.getConnection();
+	}
+
+	@Override
+	public EtlProcessor getEtlProcessor() {
+		return etlProcessor;
 	}
 
 	public Datasets getDatasets() {
@@ -43,6 +53,11 @@ public class PgRowStore implements RowStore {
 			}
 		}
 		return this.datasets;
+	}
+
+	@Override
+	public void shutdown() {
+		etlProcessor.shutdown();
 	}
 
 }
