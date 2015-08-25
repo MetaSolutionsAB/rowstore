@@ -1,5 +1,6 @@
 package org.entrystore.rowstore.etl;
 
+import org.entrystore.rowstore.store.RowStore;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,9 +20,7 @@ public class EtlProcessor {
 
 	private Thread datasetSubmitter;
 
-	private static EtlProcessor INSTANCE;
-
-	private static Object mutex = new Object();
+	private RowStore rowstore;
 
 	private final ConcurrentLinkedQueue<JSONObject> postQueue = new ConcurrentLinkedQueue<JSONObject>(); // FIXME should probably not be a JSONObject
 
@@ -53,24 +52,20 @@ public class EtlProcessor {
 
 	}
 
-	private EtlProcessor() {
+	public EtlProcessor(RowStore rowstore) {
 		datasetSubmitter = new DatasetSubmitter();
 		datasetSubmitter.start();
+		this.rowstore = rowstore;
+	}
+
+	public void submit() {
+
 	}
 
 	public void shutdown() {
 		if (datasetSubmitter != null) {
 			datasetSubmitter.interrupt();
 		}
-	}
-
-	public static EtlProcessor getInstance() {
-		synchronized (mutex) {
-			if (INSTANCE == null) {
-				INSTANCE = new EtlProcessor();
-			}
-		}
-		return INSTANCE;
 	}
 
 }
