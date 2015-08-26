@@ -55,7 +55,43 @@ public class PgDataset implements Dataset {
 
 	@Override
 	public int getStatus() {
+		// we reload the info from the DB because the status may have changed
+		initFromDb();
 		return status;
+	}
+
+	@Override
+	public void setStatus(int status) {
+		Connection conn = null;
+		PreparedStatement stmt = null;
+		try {
+			conn = rowstore.getConnection();
+			conn.setAutoCommit(true);
+			stmt = conn.prepareStatement("UPDATE ? SET status = ? WHERE id = ?");
+			stmt.setString(1, PgDatasets.TABLE_NAME);
+			stmt.setInt(2, status);
+			stmt.setString(3, getId());
+			stmt.executeUpdate();
+		} catch (SQLException e) {
+			log.error(e.getMessage());
+		} finally {
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					log.error(e.getMessage());
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					log.error(e.getMessage());
+				}
+			}
+		}
+
+		this.status = status;
 	}
 
 	@Override
@@ -90,7 +126,7 @@ public class PgDataset implements Dataset {
 			String[] line;
 
 			conn.setAutoCommit(false);
-			stmt = conn.prepareStatement("INSERT INTO ? (id, data) VALUES (?, ?)");
+			stmt = conn.prepareStatement("INSERT INTO ? (row, data) VALUES (?, ?)");
 			while ((line = cr.readNext()) != null) {
 				if (lineCount == 0) {
 					labels = line;
@@ -189,7 +225,6 @@ public class PgDataset implements Dataset {
 				}
 			}
 		}
-
 	}
 
 }

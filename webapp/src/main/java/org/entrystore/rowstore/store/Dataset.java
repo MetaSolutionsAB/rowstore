@@ -31,6 +31,8 @@ public interface Dataset {
 
 	int getStatus();
 
+	void setStatus(int status);
+
 	Date getCreationDate();
 
 	boolean populate(File csvFile) throws IOException;

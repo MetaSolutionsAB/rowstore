@@ -89,7 +89,7 @@ public class PgDatasets implements Datasets {
 			ps.execute();
 			ps.close();
 
-			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS ? (id PRIMARY KEY, data JSONB NOT NULL)");
+			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS ? (row PRIMARY KEY, data JSONB NOT NULL)");
 			ps.setString(1, dataTable);
 			ps.execute();
 			ps.close();
