@@ -34,7 +34,7 @@ public class StatusResource extends BaseResource {
 	public Representation getJSON() throws JSONException {
 		JSONObject result = new JSONObject();
 		result.put("service", "RowStore");
-		result.put("version", getRowStore().getVersion());
+		result.put("version", getRowStoreApplication().getVersion());
 		return new JsonRepresentation(result);
 	}
 

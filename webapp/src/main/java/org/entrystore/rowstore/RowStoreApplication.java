@@ -108,7 +108,7 @@ public class RowStoreApplication extends Application {
 		return jsCallback;
 	}
 
-	public RowStore getStore() {
+	public RowStore getRowStore() {
 		return this.rowstore;
 	}
 

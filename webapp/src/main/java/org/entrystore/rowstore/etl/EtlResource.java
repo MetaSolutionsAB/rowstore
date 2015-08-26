@@ -1,5 +1,6 @@
 package org.entrystore.rowstore.etl;
 
+import org.entrystore.rowstore.store.Dataset;
 import org.restlet.data.MediaType;
 
 import java.io.File;
@@ -9,20 +10,20 @@ import java.io.File;
  */
 public class EtlResource {
 
-	String id;
+	Dataset dataset;
 
 	File dataSource;
 
 	MediaType format;
 
-	EtlResource(String id, File dataSource, MediaType format) {
-		this.id = id;
+	EtlResource(Dataset dataset, File dataSource, MediaType format) {
+		this.dataset = dataset;
 		this.dataSource = dataSource;
 		this.format = format;
 	}
 
-	String getId() {
-		return id;
+	Dataset getId() {
+		return dataset;
 	}
 
 	File getDataSource() {

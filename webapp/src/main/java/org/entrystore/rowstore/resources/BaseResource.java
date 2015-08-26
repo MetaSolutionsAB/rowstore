@@ -82,8 +82,12 @@ public class BaseResource extends ServerResource {
 		return null;
 	}
 
+	public RowStoreApplication getRowStoreApplication() {
+		return (RowStoreApplication) getContext().getAttributes().get(RowStoreApplication.KEY);
+	}
+
 	public RowStore getRowStore() {
-		return ((RowStoreApplication) getContext().getAttributes().get(RowStoreApplication.KEY)).getStore();
+		return getRowStoreApplication().getRowStore();
 	}
 
 }
