@@ -18,9 +18,13 @@ package org.entrystore.rowstore.resources;
 
 import org.apache.log4j.Logger;
 import org.entrystore.rowstore.RowStoreApplication;
+import org.entrystore.rowstore.etl.EtlResource;
 import org.entrystore.rowstore.etl.EtlStatus;
+import org.entrystore.rowstore.store.Dataset;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.restlet.data.MediaType;
 import org.restlet.data.Status;
 import org.restlet.engine.io.IoUtils;
 import org.restlet.ext.json.JsonRepresentation;
@@ -33,6 +37,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -44,15 +49,14 @@ public class DatasetsResource extends BaseResource {
 
 	@Get("application/json")
 	public Representation represent() {
-		if (!hasAllParameters()) {
-			getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
-			return null;
+		JSONArray result = new JSONArray();
+		Set<Dataset> datasets = getRowStore().getDatasets().getAll();
+		for (Dataset ds : datasets) {
+			result.put(ds.getId());
 		}
 
-		// TODO return list of datasets
-
-		getResponse().setStatus(Status.CLIENT_ERROR_NOT_FOUND);
-		return null;
+		setStatus(Status.SUCCESS_OK);
+		return new JsonRepresentation(result);
 	}
 
 	@Post("text/csv")
@@ -73,35 +77,53 @@ public class DatasetsResource extends BaseResource {
 				OutputStream dst = null;
 
 				try {
-					src = getRequest().getEntity().getStream();
-				} catch (IOException ioe) {
-					log.error(ioe.getMessage());
-					getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
-					return;
-				}
+					try {
+						src = getRequest().getEntity().getStream();
+					} catch (IOException ioe) {
+						log.error(ioe.getMessage());
+						getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
+						return;
+					}
 
-				try {
-					dst = new FileOutputStream(tmpFile);
-				} catch (IOException ioe) {
-					log.error(ioe.getMessage());
-					getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
-					return;
-				}
+					try {
+						dst = new FileOutputStream(tmpFile);
+					} catch (IOException ioe) {
+						log.error(ioe.getMessage());
+						getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
+						return;
+					}
 
-				try {
-					IoUtils.copy(src, dst);
-				} catch (IOException ioe) {
-					log.error(ioe.getMessage());
-					getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
-					return;
+					try {
+						IoUtils.copy(src, dst);
+					} catch (IOException ioe) {
+						log.error(ioe.getMessage());
+						getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
+						return;
+					}
+				} finally {
+					if (src != null) {
+						try {
+							src.close();
+						} catch (IOException e) {
+							log.error(e.getMessage());
+						}
+					}
+					if (dst != null) {
+						try {
+							dst.close();
+						} catch (IOException e) {
+							log.error(e.getMessage());
+						}
+					}
 				}
 			}
 
 			String uuid = UUID.randomUUID().toString();
 
-			// TODO submit File and UUID to ETL processor
-
-			// TODO set dataset status to accepted
+			Dataset newDataset = getRowStore().getDatasets().createDataset(uuid);
+			newDataset.setStatus(EtlStatus.ACCEPTED);
+			EtlResource etlResource = new EtlResource(newDataset, tmpFile, MediaType.TEXT_CSV);
+			getRowStore().getEtlProcessor().submit(etlResource);
 
 			JSONObject result = new JSONObject();
 			try {
@@ -120,10 +142,6 @@ public class DatasetsResource extends BaseResource {
 				tmpFile.delete();
 			}
 		}
-	}
-
-	private boolean hasAllParameters() {
-		return true;
 	}
 
 }

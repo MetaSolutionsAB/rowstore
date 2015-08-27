@@ -17,10 +17,21 @@
 package org.entrystore.rowstore.resources;
 
 import org.apache.log4j.Logger;
+import org.entrystore.rowstore.store.Dataset;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.restlet.Context;
+import org.restlet.Request;
+import org.restlet.Response;
 import org.restlet.data.Status;
+import org.restlet.ext.json.JsonRepresentation;
+import org.restlet.ext.json.JsonpRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.resource.Delete;
 import org.restlet.resource.Get;
+
+import java.util.List;
 
 /**
  * @author Hannes Ebner
@@ -29,41 +40,65 @@ public class DatasetResource extends BaseResource {
 
 	static Logger log = Logger.getLogger(DatasetResource.class);
 
-	@Get
+	private Dataset dataset;
+
+	@Override
+	public void init(Context c, Request request, Response response) {
+		String datasetId = (String) request.getAttributes().get("id");
+		if (datasetId != null) {
+			dataset = getRowStore().getDatasets().getDataset(datasetId);
+		}
+	}
+
+	@Get("application/json")
 	public Representation represent() {
-		if (!hasAllParameters()) {
-			getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
+		if (dataset == null) {
+			getResponse().setStatus(Status.CLIENT_ERROR_NOT_FOUND);
 			return null;
 		}
 
-		/* TODO
+		// query parameters: /dataset/{id}?[{column-name}={value},{column-name={value}]
 
-		1. read id from /dataset/{id}
-		2. return whole dataset in JSON
+		JSONArray result = new JSONArray();
+		List<JSONObject> qResult = dataset.query(parameters);
+		for (JSONObject row : qResult) {
+			result.put(row);
+		}
 
-		// OR
-
-		2. reply to query if parameters are present: /dataset/{id}?[{column-name}={value},{column-name={value}]
-
-		 */
-
-		getResponse().setStatus(Status.CLIENT_ERROR_NOT_FOUND);
-		return null;
+		getResponse().setStatus(Status.SUCCESS_OK);
+		return new JsonRepresentation(result);
 	}
 
 	@Override
 	public Representation head() {
-		// TODO return conversion status or dataset metadata
-		return null;
+		JSONObject result = new JSONObject();
+		if (dataset != null) {
+			try {
+				result.put("status", dataset.getStatus());
+				result.put("created", dataset.getCreationDate());
+			} catch (JSONException e) {
+				log.error(e.getMessage());
+			}
+		} else {
+			setStatus(Status.CLIENT_ERROR_NOT_FOUND);
+		}
+
+		return new JsonRepresentation(result);
 	}
 
 	@Delete
 	public void purgeDataset() {
-		// TODO
-	}
-
-	private boolean hasAllParameters() {
-		return true;
+		JSONObject result = new JSONObject();
+		if (dataset != null) {
+			boolean successful = getRowStore().getDatasets().purgeDataset(dataset.getId());
+			if (successful) {
+				setStatus(Status.SUCCESS_OK);
+			} else {
+				setStatus(Status.SERVER_ERROR_INTERNAL);
+			}
+		} else {
+			setStatus(Status.CLIENT_ERROR_NOT_FOUND);
+		}
 	}
 
 }
