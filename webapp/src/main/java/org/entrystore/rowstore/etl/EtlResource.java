@@ -10,11 +10,11 @@ import java.io.File;
  */
 public class EtlResource {
 
-	Dataset dataset;
+	private Dataset dataset;
 
-	File dataSource;
+	private File dataSource;
 
-	MediaType format;
+	private MediaType format;
 
 	EtlResource(Dataset dataset, File dataSource, MediaType format) {
 		this.dataset = dataset;
@@ -22,7 +22,7 @@ public class EtlResource {
 		this.format = format;
 	}
 
-	Dataset getId() {
+	Dataset getDataset() {
 		return dataset;
 	}
 

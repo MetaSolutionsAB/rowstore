@@ -1,10 +1,13 @@
 package org.entrystore.rowstore.etl;
 
+import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -18,6 +21,8 @@ public class EtlProcessor {
 
 	private int runningConversions = 0;
 
+	private Object mutex = new Object();
+
 	private Thread datasetSubmitter;
 
 	private RowStore rowstore;
@@ -29,15 +34,13 @@ public class EtlProcessor {
 		@Override
 		public void run() {
 			while (!interrupted()) {
-				if (!postQueue.isEmpty()) {
-					for (; runningConversions < CONCURRENT_CONVERSIONS; runningConversions++) {
-						// TODO
-						// - get dataset from the queue
-						// - submit dataset to a new conversion thread (in a new class?)
-
-						// Note to self: a finished conversion thread should be able to report back
-						// (finished()-method and an instance of EtlProcessor in the constructor of
-						// the child thread?) to the EtlProcessor (e.g. to decrease the running count)
+				if (!postQueue.isEmpty() && runningConversions <= CONCURRENT_CONVERSIONS) {
+					EtlResource res = postQueue.poll();
+					if (res != null) {
+						new DatasetLoader(res).start();
+						synchronized (mutex) {
+							runningConversions++;
+						}
 					}
 				} else {
 					try {
@@ -52,6 +55,29 @@ public class EtlProcessor {
 
 	}
 
+	public class DatasetLoader extends Thread {
+
+		private EtlResource etlResource;
+
+		DatasetLoader(EtlResource etlResource) {
+			this.etlResource = etlResource;
+		}
+
+		@Override
+		public void run() {
+			try {
+				File fileToLoad = etlResource.getDataSource();
+				Dataset dataset = etlResource.getDataset();
+				dataset.populate(fileToLoad);
+			} catch (IOException e) {
+				log.error(e.getMessage());
+			} finally {
+				notifyFinished(etlResource);
+			}
+		}
+
+	}
+
 	public EtlProcessor(RowStore rowstore) {
 		datasetSubmitter = new DatasetSubmitter();
 		datasetSubmitter.start();
@@ -60,6 +86,12 @@ public class EtlProcessor {
 
 	public void submit(EtlResource etlResource) {
 		postQueue.add(etlResource);
+	}
+
+	public void notifyFinished(EtlResource etlResource) {
+		synchronized (mutex) {
+			runningConversions--;
+		}
 	}
 
 	public void shutdown() {
