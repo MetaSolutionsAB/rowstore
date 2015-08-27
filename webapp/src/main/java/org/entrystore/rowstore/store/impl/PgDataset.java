@@ -2,6 +2,7 @@ package org.entrystore.rowstore.store.impl;
 
 import com.opencsv.CSVReader;
 import org.entrystore.rowstore.etl.ConverterUtil;
+import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
 import org.json.JSONException;
@@ -115,6 +116,8 @@ public class PgDataset implements Dataset {
 			return false;
 		}
 
+		this.setStatus(EtlStatus.PROCESSING);
+
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		CSVReader cr = null;
@@ -158,6 +161,7 @@ public class PgDataset implements Dataset {
 
 			// we commit the transaction and free the resources of the statement
 			conn.commit();
+			this.setStatus(EtlStatus.AVAILABLE);
 			return true;
 		} catch (SQLException e) {
 			log.error(e.getMessage());
@@ -166,6 +170,7 @@ public class PgDataset implements Dataset {
 			} catch (SQLException e1) {
 				log.error(e1.getMessage());
 			}
+			this.setStatus(EtlStatus.ERROR);
 			return false;
 		} finally {
 			if (cr != null) {
