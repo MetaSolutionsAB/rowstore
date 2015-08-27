@@ -101,6 +101,8 @@ public class DatasetsResource extends BaseResource {
 
 			// TODO submit File and UUID to ETL processor
 
+			// TODO set dataset status to accepted
+
 			JSONObject result = new JSONObject();
 			try {
 				result.put("id", uuid);
