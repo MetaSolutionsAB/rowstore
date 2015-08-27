@@ -16,7 +16,7 @@ public class EtlResource {
 
 	private MediaType format;
 
-	EtlResource(Dataset dataset, File dataSource, MediaType format) {
+	public EtlResource(Dataset dataset, File dataSource, MediaType format) {
 		this.dataset = dataset;
 		this.dataSource = dataSource;
 		this.format = format;
