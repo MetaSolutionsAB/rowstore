@@ -28,6 +28,8 @@ public interface RowStore {
 
 	Connection getConnection() throws SQLException;
 
+	public Datasets getDatasets();
+
 	EtlProcessor getEtlProcessor();
 
 	void shutdown();
