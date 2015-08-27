@@ -16,7 +16,11 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 /**
  * @author Hannes Ebner
@@ -194,6 +198,75 @@ public class PgDataset implements Dataset {
 				}
 			}
 		}
+	}
+
+	@Override
+	public List<JSONObject> query(Map<String, String> tuples) {
+		Connection conn = null;
+		PreparedStatement stmt = null;
+		List<JSONObject> result = new ArrayList<>();
+		try {
+			conn = rowstore.getConnection();
+			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM ? WHERE id = ?");
+			if (tuples != null && tuples.size() > 0) {
+				for (int i = 0; i < tuples.size(); i++) {
+					queryTemplate.append(" AND ? = ?");
+				}
+			}
+
+			stmt = conn.prepareStatement(queryTemplate.toString());
+			stmt.setString(1, getDataTable());
+			stmt.setString(2, getId());
+
+			if (tuples != null && tuples.size() > 0) {
+				Iterator<String> keys = tuples.keySet().iterator();
+				int paramPos = 3;
+				while (keys.hasNext()) {
+					String key = keys.next();
+					stmt.setString(paramPos, key);
+					stmt.setString(paramPos + 1, tuples.get(key));
+					paramPos += 2;
+				}
+			}
+
+			log.info("Executing query: " + stmt);
+
+			ResultSet rs = stmt.executeQuery();
+			int columnCount = rs.getMetaData().getColumnCount();
+			if (rs.next()) {
+				for (int i = 1; i <= columnCount; i++) {
+					String key = rs.getMetaData().getColumnName(i);
+					String value = rs.getString(i);
+					JSONObject row = new JSONObject();
+					try {
+						row.put(key, value);
+					} catch (JSONException e) {
+						log.error(e.getMessage());
+					}
+					result.add(row);
+				}
+			}
+			rs.close();
+		} catch (SQLException e) {
+			log.error(e.getMessage());
+		} finally {
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					log.error(e.getMessage());
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					log.error(e.getMessage());
+				}
+			}
+		}
+
+		return null;
 	}
 
 	private void initFromDb() {
