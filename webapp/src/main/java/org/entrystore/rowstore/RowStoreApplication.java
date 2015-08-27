@@ -68,7 +68,7 @@ public class RowStoreApplication extends Application {
 
 	RowStore rowstore;
 
-	JSONObject config;
+	RowStoreConfig config;
 
 	public RowStoreApplication(Context parentContext) throws IOException, JSONException {
 		this(parentContext, null);
@@ -82,9 +82,9 @@ public class RowStoreApplication extends Application {
 		}
 
 		if (configURI != null && "file".equals(configURI.getScheme())) {
-			config = new JSONObject(new String(Files.readAllBytes(Paths.get(configURI))));
-			configureLogging(config);
-			rowstore = new PgRowStore(new RowStoreConfig(config));
+			config = new RowStoreConfig(new JSONObject(new String(Files.readAllBytes(Paths.get(configURI)))));
+			setLogLevel(config.getLogLevel());
+			rowstore = new PgRowStore(config);
 		} else {
 			log.error("No configuration found");
 			System.exit(1);
@@ -188,15 +188,11 @@ public class RowStoreApplication extends Application {
 		}
 	}
 
-	private void configureLogging(JSONObject config) {
+	private void setLogLevel(String logLevel) {
 		BasicConfigurator.configure();
 		Level l = Level.INFO;
-		if (config.has("loglevel")) {
-			try {
-				l = Level.toLevel(config.getString("loglevel"), Level.INFO);
-			} catch (JSONException e) {
-				log.error(e.getMessage());
-			}
+		if (logLevel != null) {
+			l = Level.toLevel(logLevel, Level.INFO);
 		}
 		Logger.getRootLogger().setLevel(l);
 		log.info("Log level set to " + l);
