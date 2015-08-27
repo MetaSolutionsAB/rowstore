@@ -118,7 +118,7 @@ public class PgDatasets implements Datasets {
 	}
 
 	@Override
-	public void purgeDataset(String id) {
+	public boolean purgeDataset(String id) {
 		if (id == null) {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
@@ -138,6 +138,7 @@ public class PgDatasets implements Datasets {
 			ps.close();
 
 			conn.commit();
+			return true;
 		} catch (SQLException e) {
 			try {
 				conn.rollback();
@@ -145,6 +146,7 @@ public class PgDatasets implements Datasets {
 				log.error(e1.getMessage());
 			}
 			log.error(e.getMessage());
+			return false;
 		} finally {
 			if (conn != null) {
 				try {
