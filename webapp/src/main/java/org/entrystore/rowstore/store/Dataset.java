@@ -17,10 +17,13 @@
 package org.entrystore.rowstore.store;
 
 import org.entrystore.rowstore.etl.EtlStatus;
+import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.Date;
+import java.util.List;
+import java.util.Map;
 
 /**
  * @author Hannes Ebner
@@ -36,5 +39,7 @@ public interface Dataset {
 	Date getCreationDate();
 
 	boolean populate(File csvFile) throws IOException;
+
+	List<JSONObject> query(Map<String, String> tuples);
 
 }

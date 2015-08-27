@@ -11,7 +11,7 @@ public interface Datasets {
 
 	Dataset createDataset(String id);
 
-	void purgeDataset(String id);
+	boolean purgeDataset(String id);
 
 	Dataset getDataset(String id);
 
