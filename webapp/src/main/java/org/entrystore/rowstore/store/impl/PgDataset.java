@@ -1,7 +1,6 @@
 package org.entrystore.rowstore.store.impl;
 
 import com.opencsv.CSVReader;
-import org.entrystore.rowstore.etl.ConverterUtil;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
@@ -135,7 +134,7 @@ public class PgDataset implements Dataset {
 					labels = line;
 				} else {
 					try {
-						JSONObject jsonLine = ConverterUtil.csvLineToJsonObject(line, labels);
+						JSONObject jsonLine = csvLineToJsonObject(line, labels);
 						stmt.setString(1, dataTable);
 						stmt.setString(2, jsonLine.toString());
 						stmt.addBatch();
@@ -230,6 +229,19 @@ public class PgDataset implements Dataset {
 				}
 			}
 		}
+	}
+
+	public JSONObject csvLineToJsonObject(String[] line, String[] labels) throws JSONException {
+		if (line.length != labels.length) {
+			throw new IllegalArgumentException("Arrays must not be of different length");
+		}
+
+		JSONObject result = new JSONObject();
+		for (int i = 0; i < line.length; i++) {
+			result.put(labels[i], line[i]);
+		}
+
+		return result;
 	}
 
 }
