@@ -184,7 +184,6 @@ public class PgDatasets implements Datasets {
 			log.info("Executing query: " + ps);
 			ps.execute();
 			ps.close();
-			conn.commit();
 		} catch (SQLException e) {
 			log.error(e.getMessage());
 		} finally {
