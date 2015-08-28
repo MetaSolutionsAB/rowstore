@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * @author Hannes Ebner
@@ -41,5 +42,7 @@ public interface Dataset {
 	boolean populate(File csvFile) throws IOException;
 
 	List<JSONObject> query(Map<String, String> tuples);
+
+	Set<String> getColumnNames();
 
 }

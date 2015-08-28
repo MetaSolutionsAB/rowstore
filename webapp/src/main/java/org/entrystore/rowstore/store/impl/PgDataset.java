@@ -18,9 +18,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * @author Hannes Ebner
@@ -204,12 +206,14 @@ public class PgDataset implements Dataset {
 	public List<JSONObject> query(Map<String, String> tuples) {
 		Connection conn = null;
 		PreparedStatement stmt = null;
+		ResultSet rs = null;
 		List<JSONObject> result = new ArrayList<>();
 		try {
 			conn = rowstore.getConnection();
 			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM ? WHERE id = ?");
 			if (tuples != null && tuples.size() > 0) {
 				for (int i = 0; i < tuples.size(); i++) {
+					// FIXME JSON!
 					queryTemplate.append(" AND ? = ?");
 				}
 			}
@@ -231,7 +235,7 @@ public class PgDataset implements Dataset {
 
 			log.info("Executing query: " + stmt);
 
-			ResultSet rs = stmt.executeQuery();
+			rs = stmt.executeQuery();
 			int columnCount = rs.getMetaData().getColumnCount();
 			if (rs.next()) {
 				for (int i = 1; i <= columnCount; i++) {
@@ -246,10 +250,16 @@ public class PgDataset implements Dataset {
 					result.add(row);
 				}
 			}
-			rs.close();
 		} catch (SQLException e) {
 			log.error(e.getMessage());
 		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					log.error(e.getMessage());
+				}
+			}
 			if (stmt != null) {
 				try {
 					stmt.close();
@@ -266,18 +276,68 @@ public class PgDataset implements Dataset {
 			}
 		}
 
-		return null;
+		return result;
+	}
+
+	@Override
+	public Set<String> getColumnNames() {
+		Connection conn = null;
+		PreparedStatement stmt = null;
+		ResultSet rs = null;
+		Set<String> result = new HashSet<>();
+		try {
+			conn = rowstore.getConnection();
+			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM ? WHERE id = ? LIMIT 1");
+			stmt = conn.prepareStatement(queryTemplate.toString());
+			stmt.setString(1, getDataTable());
+			stmt.setString(2, getId());
+			log.info("Executing query: " + stmt);
+
+			rs = stmt.executeQuery();
+			if (rs.next()) {
+				for (int i = 1; i <= rs.getMetaData().getColumnCount(); i++) {
+					result.add(rs.getMetaData().getColumnName(i));
+				}
+			}
+		} catch (SQLException e) {
+			log.error(e.getMessage());
+		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					log.error(e.getMessage());
+				}
+			}
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					log.error(e.getMessage());
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					log.error(e.getMessage());
+				}
+			}
+		}
+
+		return result;
 	}
 
 	private void initFromDb() {
 		Connection conn = null;
 		PreparedStatement stmt = null;
+		ResultSet rs = null;
 		try {
 			conn = rowstore.getConnection();
 			stmt = conn.prepareStatement("SELECT * FROM ? WHERE id = ?");
 			stmt.setString(1, PgDatasets.TABLE_NAME);
 			stmt.setString(2, getId());
-			ResultSet rs = stmt.executeQuery();
+			rs = stmt.executeQuery();
 			if (rs.next()) {
 				this.status = rs.getInt("status");
 				this.created = rs.getTimestamp("created");
@@ -287,6 +347,13 @@ public class PgDataset implements Dataset {
 		} catch (SQLException e) {
 			log.error(e.getMessage());
 		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					log.error(e.getMessage());
+				}
+			}
 			if (stmt != null) {
 				try {
 					stmt.close();

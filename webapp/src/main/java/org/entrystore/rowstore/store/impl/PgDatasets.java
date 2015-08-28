@@ -35,11 +35,12 @@ public class PgDatasets implements Datasets {
 		Set<Dataset> result = new HashSet<>();
 		Connection conn = null;
 		PreparedStatement stmt = null;
+		ResultSet rs = null;
 		try {
 			conn = rowstore.getConnection();
 			stmt = conn.prepareStatement("SELECT * FROM ?");
 			stmt.setString(1, TABLE_NAME);
-			ResultSet rs = stmt.executeQuery();
+			rs = stmt.executeQuery();
 			while (rs.next()) {
 				String id = rs.getString("id");
 				int status = rs.getInt("status");
@@ -50,6 +51,13 @@ public class PgDatasets implements Datasets {
 		} catch (SQLException e) {
 			log.error(e.getMessage());
 		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					log.error(e.getMessage());
+				}
+			}
 			if (stmt != null) {
 				try {
 					stmt.close();
