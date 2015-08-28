@@ -295,8 +295,15 @@ public class PgDataset implements Dataset {
 
 			rs = stmt.executeQuery();
 			if (rs.next()) {
-				for (int i = 1; i <= rs.getMetaData().getColumnCount(); i++) {
-					result.add(rs.getMetaData().getColumnName(i));
+				String strRow = rs.getString("data");
+				try {
+					JSONObject jsonRow = new JSONObject(strRow);
+					Iterator<String> keys = jsonRow.keys();
+					while (keys.hasNext()) {
+						result.add(keys.next());
+					}
+				} catch (JSONException e) {
+					log.error(e.getMessage());
 				}
 			}
 		} catch (SQLException e) {
