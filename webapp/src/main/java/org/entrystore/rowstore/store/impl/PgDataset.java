@@ -73,10 +73,9 @@ public class PgDataset implements Dataset {
 		try {
 			conn = rowstore.getConnection();
 			conn.setAutoCommit(true);
-			stmt = conn.prepareStatement("UPDATE ? SET status = ? WHERE id = ?");
-			stmt.setString(1, PgDatasets.TABLE_NAME);
-			stmt.setInt(2, status);
-			stmt.setString(3, getId());
+			stmt = conn.prepareStatement("UPDATE " + PgDatasets.TABLE_NAME + " SET status = ? WHERE id = ?");
+			stmt.setInt(1, status);
+			stmt.setString(2, getId());
 			stmt.executeUpdate();
 		} catch (SQLException e) {
 			log.error(e.getMessage());
@@ -134,14 +133,14 @@ public class PgDataset implements Dataset {
 			String[] line;
 
 			conn.setAutoCommit(false);
-			stmt = conn.prepareStatement("INSERT INTO ? (row, data) VALUES (?, ?)");
+			stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (row, data) VALUES (?, ?)");
 			while ((line = cr.readNext()) != null) {
 				if (lineCount == 0) {
 					labels = line;
 				} else {
 					try {
 						JSONObject jsonLine = csvLineToJsonObject(line, labels);
-						stmt.setString(1, dataTable);
+						stmt.setLong(1, lineCount);
 						stmt.setString(2, jsonLine.toString());
 						stmt.addBatch();
 						// we execute the batch every 100th line
@@ -211,25 +210,29 @@ public class PgDataset implements Dataset {
 		List<JSONObject> result = new ArrayList<>();
 		try {
 			conn = rowstore.getConnection();
-			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM ? WHERE id = ?");
+			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM " + getDataTable());
 			if (tuples != null && tuples.size() > 0) {
 				for (int i = 0; i < tuples.size(); i++) {
+					if (i == 0) {
+						queryTemplate.append(" WHERE ");
+					} else {
+						queryTemplate.append(" AND ");
+					}
 					if (regexp) {
 						// we match using ~ to enable regular expressions
-						queryTemplate.append(" AND data->>? ~ ?");
+						queryTemplate.append(" data->>? ~ ?");
 					} else {
-						queryTemplate.append(" AND data->>? = ?");
+						queryTemplate.append(" data->>? = ?");
 					}
 				}
 			}
 
 			stmt = conn.prepareStatement(queryTemplate.toString());
-			stmt.setString(1, getDataTable());
-			stmt.setString(2, getId());
+			stmt.setString(1, getId());
 
 			if (tuples != null && tuples.size() > 0) {
 				Iterator<String> keys = tuples.keySet().iterator();
-				int paramPos = 3;
+				int paramPos = 2;
 				while (keys.hasNext()) {
 					String key = keys.next();
 					stmt.setString(paramPos, key);
@@ -292,10 +295,9 @@ public class PgDataset implements Dataset {
 		Set<String> result = new HashSet<>();
 		try {
 			conn = rowstore.getConnection();
-			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM ? WHERE id = ? LIMIT 1");
+			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM " + getDataTable() + " LIMIT 1");
 			stmt = conn.prepareStatement(queryTemplate.toString());
-			stmt.setString(1, getDataTable());
-			stmt.setString(2, getId());
+			stmt.setString(1, getId());
 			log.info("Executing query: " + stmt);
 
 			rs = stmt.executeQuery();
@@ -346,9 +348,8 @@ public class PgDataset implements Dataset {
 		ResultSet rs = null;
 		try {
 			conn = rowstore.getConnection();
-			stmt = conn.prepareStatement("SELECT * FROM ? WHERE id = ?");
-			stmt.setString(1, PgDatasets.TABLE_NAME);
-			stmt.setString(2, getId());
+			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.TABLE_NAME + " WHERE id = ?");
+			stmt.setString(1, getId());
 			rs = stmt.executeQuery();
 			if (rs.next()) {
 				this.status = rs.getInt("status");

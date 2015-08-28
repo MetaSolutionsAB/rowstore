@@ -38,8 +38,8 @@ public class PgDatasets implements Datasets {
 		ResultSet rs = null;
 		try {
 			conn = getRowStore().getConnection();
-			stmt = conn.prepareStatement("SELECT * FROM ?");
-			stmt.setString(1, TABLE_NAME);
+			stmt = conn.prepareStatement("SELECT * FROM " + TABLE_NAME);
+			log.info("Executing query: " + stmt);
 			rs = stmt.executeQuery();
 			while (rs.next()) {
 				String id = rs.getString("id");
@@ -88,18 +88,18 @@ public class PgDatasets implements Datasets {
 			conn = getRowStore().getConnection();
 			conn.setAutoCommit(false);
 
-			PreparedStatement ps = conn.prepareStatement("INSERT INTO ? (id, status, created, data_table) VALUES (?, ?, ?, ?)");
-			ps.setString(1, TABLE_NAME);
-			ps.setString(2, id);
-			ps.setInt(3, EtlStatus.UNKNOWN);
+			PreparedStatement ps = conn.prepareStatement("INSERT INTO " + TABLE_NAME + " (id, status, created, data_table) VALUES (?, ?, ?, ?)");
+			ps.setString(1, id);
+			ps.setInt(2, EtlStatus.UNKNOWN);
 			java.util.Date created = new java.util.Date();
-			ps.setTimestamp(4, new Timestamp(created.getTime()));
-			ps.setString(5, dataTable);
+			ps.setTimestamp(3, new Timestamp(created.getTime()));
+			ps.setString(4, dataTable);
+			log.info("Executing query: " + ps);
 			ps.execute();
 			ps.close();
 
-			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS ? (row PRIMARY KEY, data JSONB NOT NULL)");
-			ps.setString(1, dataTable);
+			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + dataTable + " (row PRIMARY KEY, data JSONB NOT NULL)");
+			log.info("Executing query: " + ps);
 			ps.execute();
 			ps.close();
 
@@ -136,14 +136,14 @@ public class PgDatasets implements Datasets {
 			conn = getRowStore().getConnection();
 			conn.setAutoCommit(false);
 
-			PreparedStatement ps = conn.prepareStatement("DROP TABLE ?");
-			ps.setString(1, id);
+			PreparedStatement ps = conn.prepareStatement("DROP TABLE " + TABLE_NAME);
+			log.info("Executing query: " + ps);
 			ps.execute();
 			ps.close();
 
-			ps = conn.prepareStatement("DELETE FROM ? WHERE id = ?");
-			ps.setString(1, TABLE_NAME);
-			ps.setString(2, id);
+			ps = conn.prepareStatement("DELETE FROM " + TABLE_NAME + " WHERE id = ?");
+			ps.setString(1, id);
+			log.info("Executing query: " + ps);
 			ps.execute();
 			ps.close();
 
@@ -180,8 +180,8 @@ public class PgDatasets implements Datasets {
 		Connection conn = null;
 		try {
 			conn = getRowStore().getConnection();
-			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS ? (id UUID PRIMARY KEY, status INT NOT NULL, created TIMESTAMP NOT NULL, data_table VARCHAR(48))");
-			ps.setString(1, TABLE_NAME);
+			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + TABLE_NAME + " (id UUID PRIMARY KEY, status INT NOT NULL, created TIMESTAMP NOT NULL, data_table VARCHAR(48))");
+			log.info("Executing query: " + ps);
 			ps.execute();
 			ps.close();
 			conn.commit();
