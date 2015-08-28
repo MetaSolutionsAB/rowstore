@@ -125,14 +125,18 @@ public class DatasetsResource extends BaseResource {
 			EtlResource etlResource = new EtlResource(newDataset, tmpFile, MediaType.TEXT_CSV);
 			getRowStore().getEtlProcessor().submit(etlResource);
 
+			String datasetURL = buildDatasetURL(getRowStore().getConfig().getBaseURL(), uuid);
+
 			JSONObject result = new JSONObject();
 			try {
 				result.put("id", uuid);
+				result.put("url", datasetURL);
 				result.put("status", EtlStatus.ACCEPTED);
 			} catch (JSONException e) {
 				log.error(e.getMessage());
 			}
 
+			getResponse().setLocationRef(datasetURL);
 			getResponse().setEntity(new JsonRepresentation(result));
 			getResponse().setStatus(Status.SUCCESS_ACCEPTED);
 		} finally {
@@ -142,6 +146,18 @@ public class DatasetsResource extends BaseResource {
 				tmpFile.delete();
 			}
 		}
+	}
+
+	private String buildDatasetURL(String baseURL, String datasetId) {
+		if (baseURL == null || datasetId == null) {
+			throw new IllegalArgumentException("Arguments must not be null");
+		}
+		StringBuilder result = new StringBuilder(baseURL);
+		if (!baseURL.endsWith("/")) {
+			result.append("/");
+		}
+		result.append(datasetId);
+		return result.toString();
 	}
 
 }
