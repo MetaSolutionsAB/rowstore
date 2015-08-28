@@ -1,0 +1,12 @@
+{
+  "baseurl": "https://domain.com/rowstore/",
+  "database": {
+    "type": "postgresql",
+    "host": "localhost",
+    "database": "rowstore",
+    "user": "rowstore",
+    "password": "",
+    "maxconnections": "10"
+  },
+  "loglevel": "debug"
+}
