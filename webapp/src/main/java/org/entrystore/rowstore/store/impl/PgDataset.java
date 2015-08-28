@@ -6,9 +6,11 @@ import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
@@ -47,11 +49,12 @@ public class PgDataset implements Dataset {
 		initFromDb();
 	}
 
-	protected PgDataset(RowStore rowstore, String id, int status, Date created) {
+	protected PgDataset(RowStore rowstore, String id, int status, Date created, String dataTable) {
 		this.rowstore = rowstore;
 		this.id = id;
 		this.status = status;
 		this.created = created;
+		this.dataTable = dataTable;
 	}
 
 	@Override
@@ -75,7 +78,11 @@ public class PgDataset implements Dataset {
 			conn.setAutoCommit(true);
 			stmt = conn.prepareStatement("UPDATE " + PgDatasets.TABLE_NAME + " SET status = ? WHERE id = ?");
 			stmt.setInt(1, status);
-			stmt.setString(2, getId());
+			PGobject uuid = new PGobject();
+			uuid.setType("uuid");
+			uuid.setValue(id);
+			stmt.setObject(2, uuid);
+			log.info("Executing: " + stmt);
 			stmt.executeUpdate();
 		} catch (SQLException e) {
 			log.error(e.getMessage());
@@ -116,7 +123,7 @@ public class PgDataset implements Dataset {
 
 		String dataTable = getDataTable();
 		if (dataTable == null) {
-			log.error("");
+			log.error("Dataset has no data table assigned");
 			return false;
 		}
 
@@ -127,21 +134,25 @@ public class PgDataset implements Dataset {
 		CSVReader cr = null;
 		try {
 			conn = rowstore.getConnection();
-			cr = new CSVReader(new FileReader(csvFile));
-			long lineCount = 0;
+			cr = new CSVReader(new FileReader(csvFile), ',' , '"');
+			int lineCount = 0;
 			String[] labels = null;
 			String[] line;
 
 			conn.setAutoCommit(false);
-			stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (row, data) VALUES (?, ?)");
+			stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (rownr, data) VALUES (?, ?)");
 			while ((line = cr.readNext()) != null) {
 				if (lineCount == 0) {
 					labels = line;
 				} else {
 					try {
 						JSONObject jsonLine = csvLineToJsonObject(line, labels);
-						stmt.setLong(1, lineCount);
-						stmt.setString(2, jsonLine.toString());
+						stmt.setInt(1, lineCount);
+						PGobject jsonb = new PGobject();
+						jsonb.setType("jsonb");
+						jsonb.setValue(jsonLine.toString());
+						stmt.setObject(2, jsonb);
+						log.info("Adding to batch: " + stmt);
 						stmt.addBatch();
 						// we execute the batch every 100th line
 						if ((lineCount % 100) == 0) {
@@ -161,6 +172,7 @@ public class PgDataset implements Dataset {
 			}
 			// in case there are some inserts left to be sent (i.e.
 			// batch size above was smaller than 100 when loop ended)
+			log.info("Executing: " + stmt);
 			stmt.executeBatch();
 
 			// we commit the transaction and free the resources of the statement
@@ -169,6 +181,7 @@ public class PgDataset implements Dataset {
 			return true;
 		} catch (SQLException e) {
 			log.error(e.getMessage());
+			log.error(e.getNextException().getMessage());
 			try {
 				conn.rollback();
 			} catch (SQLException e1) {
@@ -241,7 +254,7 @@ public class PgDataset implements Dataset {
 				}
 			}
 
-			log.info("Executing query: " + stmt);
+			log.info("Executing: " + stmt);
 
 			rs = stmt.executeQuery();
 			int columnCount = rs.getMetaData().getColumnCount();
@@ -298,7 +311,7 @@ public class PgDataset implements Dataset {
 			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM " + getDataTable() + " LIMIT 1");
 			stmt = conn.prepareStatement(queryTemplate.toString());
 			stmt.setString(1, getId());
-			log.info("Executing query: " + stmt);
+			log.info("Executing: " + stmt);
 
 			rs = stmt.executeQuery();
 			if (rs.next()) {

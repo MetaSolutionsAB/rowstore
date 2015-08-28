@@ -3,6 +3,7 @@ package org.entrystore.rowstore.store.impl;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.Datasets;
+import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,8 +12,10 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * @author Hannes Ebner
@@ -42,10 +45,11 @@ public class PgDatasets implements Datasets {
 			log.info("Executing query: " + stmt);
 			rs = stmt.executeQuery();
 			while (rs.next()) {
-				String id = rs.getString("id");
+				UUID id = (UUID) rs.getObject("id");
 				int status = rs.getInt("status");
 				Timestamp created = rs.getTimestamp("created");
-				result.add(new PgDataset(rowstore, id, status, created));
+				String dataTable = rs.getString("data_table");
+				result.add(new PgDataset(rowstore, id.toString(), status, created, dataTable));
 			}
 			rs.close();
 		} catch (SQLException e) {
@@ -83,13 +87,16 @@ public class PgDatasets implements Datasets {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
 		Connection conn = null;
-		String dataTable = "data_" + id.replaceAll("-", "");
+		String dataTable = constructDataTableName(id);
 		try {
 			conn = getRowStore().getConnection();
 			conn.setAutoCommit(false);
 
 			PreparedStatement ps = conn.prepareStatement("INSERT INTO " + TABLE_NAME + " (id, status, created, data_table) VALUES (?, ?, ?, ?)");
-			ps.setString(1, id);
+			PGobject uuid = new PGobject();
+			uuid.setType("uuid");
+			uuid.setValue(id);
+			ps.setObject(1, uuid);
 			ps.setInt(2, EtlStatus.UNKNOWN);
 			java.util.Date created = new java.util.Date();
 			ps.setTimestamp(3, new Timestamp(created.getTime()));
@@ -98,14 +105,14 @@ public class PgDatasets implements Datasets {
 			ps.execute();
 			ps.close();
 
-			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + dataTable + " (row PRIMARY KEY, data JSONB NOT NULL)");
+			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + dataTable + " (rownr INTEGER PRIMARY KEY, data JSONB NOT NULL)");
 			log.info("Executing query: " + ps);
 			ps.execute();
 			ps.close();
 
 			conn.commit();
 
-			return new PgDataset(getRowStore(), id, EtlStatus.UNKNOWN, created);
+			return new PgDataset(getRowStore(), id, EtlStatus.UNKNOWN, created, dataTable);
 		} catch (SQLException e) {
 			try {
 				conn.rollback();
@@ -180,7 +187,7 @@ public class PgDatasets implements Datasets {
 		Connection conn = null;
 		try {
 			conn = getRowStore().getConnection();
-			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + TABLE_NAME + " (id UUID PRIMARY KEY, status INT NOT NULL, created TIMESTAMP NOT NULL, data_table VARCHAR(48))");
+			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + TABLE_NAME + " (id UUID PRIMARY KEY, status INT NOT NULL, created TIMESTAMP NOT NULL, data_table CHAR(" + getDataTableNameLength() + "))");
 			log.info("Executing query: " + ps);
 			ps.execute();
 			ps.close();
@@ -199,6 +206,14 @@ public class PgDatasets implements Datasets {
 
 	public PgRowStore getRowStore() {
 		return this.rowstore;
+	}
+
+	private String constructDataTableName(String id) {
+		return "data_" + id.replaceAll("-", "");
+	}
+
+	private int getDataTableNameLength() {
+		return constructDataTableName(UUID.randomUUID().toString()).length();
 	}
 
 }

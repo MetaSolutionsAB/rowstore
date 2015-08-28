@@ -31,12 +31,16 @@ import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.resource.Get;
 import org.restlet.resource.Post;
+import sun.misc.IOUtils;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.WritableByteChannel;
 import java.util.Set;
 import java.util.UUID;
 
@@ -64,7 +68,7 @@ public class DatasetsResource extends BaseResource {
 		File tmpFile = null;
 		try {
 			try {
-				tmpFile = File.createTempFile(RowStoreApplication.NAME, "csv");
+				tmpFile = File.createTempFile(RowStoreApplication.NAME, ".csv");
 				tmpFile.deleteOnExit();
 			} catch (IOException e) {
 				log.error(e.getMessage());
@@ -73,48 +77,12 @@ public class DatasetsResource extends BaseResource {
 			}
 
 			if (tmpFile != null) {
-				InputStream src = null;
-				OutputStream dst = null;
-
 				try {
-					try {
-						src = entity.getStream();
-					} catch (IOException ioe) {
-						log.error(ioe.getMessage());
-						getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
-						return;
-					}
-
-					try {
-						dst = new FileOutputStream(tmpFile);
-					} catch (IOException ioe) {
-						log.error(ioe.getMessage());
-						getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
-						return;
-					}
-
-					try {
-						IoUtils.copy(src, dst);
-					} catch (IOException ioe) {
-						log.error(ioe.getMessage());
-						getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
-						return;
-					}
-				} finally {
-					if (src != null) {
-						try {
-							src.close();
-						} catch (IOException e) {
-							log.error(e.getMessage());
-						}
-					}
-					if (dst != null) {
-						try {
-							dst.close();
-						} catch (IOException e) {
-							log.error(e.getMessage());
-						}
-					}
+					writeFile(entity.getStream(), tmpFile);
+				} catch (IOException ioe) {
+					log.error(ioe.getMessage());
+					getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
+					return;
 				}
 			}
 
@@ -156,8 +124,39 @@ public class DatasetsResource extends BaseResource {
 		if (!baseURL.endsWith("/")) {
 			result.append("/");
 		}
+		result.append("dataset/");
 		result.append(datasetId);
 		return result.toString();
+	}
+
+	private void writeFile(InputStream src, File dst) throws IOException {
+		if (src == null || dst == null) {
+			throw new IllegalArgumentException("Parameters must not be null");
+		}
+
+		byte[] buffer = new byte[4096];
+		FileOutputStream fos = null;
+		try {
+			fos = new FileOutputStream(dst);
+			for (int length = 0; (length = src.read(buffer)) > 0; ) {
+				fos.write(buffer, 0, length);
+			}
+		} finally {
+			if (src != null) {
+				try {
+					src.close();
+				} catch (IOException e) {
+					log.error(e.getMessage());
+				}
+			}
+			if (fos != null) {
+				try {
+					fos.close();
+				} catch (IOException e) {
+					log.error(e.getMessage());
+				}
+			}
+		}
 	}
 
 }
