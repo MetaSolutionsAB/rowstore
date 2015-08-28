@@ -59,8 +59,8 @@ public class DatasetsResource extends BaseResource {
 		return new JsonRepresentation(result);
 	}
 
-	@Post("text/csv")
-	public void acceptCSV() {
+	@Post("csv")
+	public void acceptCSV(Representation entity) {
 		File tmpFile = null;
 		try {
 			try {
@@ -78,7 +78,7 @@ public class DatasetsResource extends BaseResource {
 
 				try {
 					try {
-						src = getRequest().getEntity().getStream();
+						src = entity.getStream();
 					} catch (IOException ioe) {
 						log.error(ioe.getMessage());
 						getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
