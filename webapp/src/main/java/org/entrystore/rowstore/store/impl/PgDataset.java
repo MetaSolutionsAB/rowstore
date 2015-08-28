@@ -207,14 +207,19 @@ public class PgDataset implements Dataset {
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
+		boolean regexp = rowstore.getConfig().hasRegExpQuerySupport();
 		List<JSONObject> result = new ArrayList<>();
 		try {
 			conn = rowstore.getConnection();
 			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM ? WHERE id = ?");
 			if (tuples != null && tuples.size() > 0) {
 				for (int i = 0; i < tuples.size(); i++) {
-					// FIXME JSON!
-					queryTemplate.append(" AND ? = ?");
+					if (regexp) {
+						// we match using ~ to enable regular expressions
+						queryTemplate.append(" AND data->>? ~ ?");
+					} else {
+						queryTemplate.append(" AND data->>? = ?");
+					}
 				}
 			}
 

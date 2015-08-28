@@ -1,5 +1,6 @@
 {
   "baseurl": "https://domain.com/rowstore/",
+  "regexpqueries": true,
   "database": {
     "type": "postgresql",
     "host": "localhost",

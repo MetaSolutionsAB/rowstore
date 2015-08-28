@@ -26,12 +26,17 @@ public class RowStoreConfig {
 
 	private String baseURL;
 
+	private boolean regExpSupport;
+
 	private static Logger log = LoggerFactory.getLogger(RowStoreConfig.class);
 
 	public RowStoreConfig(JSONObject config) {
 		try {
 			// Base URL
 			baseURL = config.getString("baseurl");
+
+			// Support for RegExp pattern matching
+			regExpSupport = config.optBoolean("regexpqueries", false);
 
 			// Database
 			JSONObject dbConfig = config.getJSONObject("database");
@@ -79,6 +84,10 @@ public class RowStoreConfig {
 
 	public String getBaseURL() {
 		return baseURL;
+	}
+
+	public boolean hasRegExpQuerySupport() {
+		return regExpSupport;
 	}
 
 }
