@@ -76,6 +76,7 @@ public class DatasetResource extends BaseResource {
 			try {
 				result.put("status", dataset.getStatus());
 				result.put("created", dataset.getCreationDate());
+				result.put("columnnames", dataset.getColumnNames());
 			} catch (JSONException e) {
 				log.error(e.getMessage());
 			}
