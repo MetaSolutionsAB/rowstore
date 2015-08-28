@@ -21,10 +21,14 @@ public class PgRowStore implements RowStore {
 
 	EtlProcessor etlProcessor;
 
+	RowStoreConfig config;
+
 	public PgRowStore(RowStoreConfig config) {
 		if (config == null) {
 			throw new IllegalArgumentException("Configuration must not be null");
 		}
+		this.config = config;
+
 		datasource = new PGPoolingDataSource();
 		PGPoolingDataSource pgDs = (PGPoolingDataSource) datasource;
 		pgDs.setMaxConnections(config.getDbMaxConnections());
@@ -53,6 +57,11 @@ public class PgRowStore implements RowStore {
 			}
 		}
 		return this.datasets;
+	}
+
+	@Override
+	public RowStoreConfig getConfig() {
+		return config;
 	}
 
 	@Override

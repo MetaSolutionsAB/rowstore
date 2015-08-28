@@ -24,10 +24,15 @@ public class RowStoreConfig {
 
 	private String logLevel;
 
+	private String baseURL;
+
 	private static Logger log = LoggerFactory.getLogger(RowStoreConfig.class);
 
 	public RowStoreConfig(JSONObject config) {
 		try {
+			// Base URL
+			baseURL = config.getString("baseurl");
+
 			// Database
 			JSONObject dbConfig = config.getJSONObject("database");
 			dbType = dbConfig.getString("type");
@@ -70,6 +75,10 @@ public class RowStoreConfig {
 
 	public String getLogLevel() {
 		return logLevel;
+	}
+
+	public String getBaseURL() {
+		return baseURL;
 	}
 
 }

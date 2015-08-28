@@ -28,7 +28,9 @@ public interface RowStore {
 
 	Connection getConnection() throws SQLException;
 
-	public Datasets getDatasets();
+	Datasets getDatasets();
+
+	RowStoreConfig getConfig();
 
 	EtlProcessor getEtlProcessor();
 
