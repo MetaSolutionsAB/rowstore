@@ -37,7 +37,7 @@ public class PgDatasets implements Datasets {
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
 		try {
-			conn = rowstore.getConnection();
+			conn = getRowStore().getConnection();
 			stmt = conn.prepareStatement("SELECT * FROM ?");
 			stmt.setString(1, TABLE_NAME);
 			rs = stmt.executeQuery();
@@ -85,6 +85,7 @@ public class PgDatasets implements Datasets {
 		Connection conn = null;
 		String dataTable = "data_" + id.replaceAll("-", "");
 		try {
+			conn = getRowStore().getConnection();
 			conn.setAutoCommit(false);
 
 			PreparedStatement ps = conn.prepareStatement("INSERT INTO ? (id, status, created, data_table) VALUES (?, ?, ?, ?)");
@@ -132,6 +133,7 @@ public class PgDatasets implements Datasets {
 		}
 		Connection conn = null;
 		try {
+			conn = getRowStore().getConnection();
 			conn.setAutoCommit(false);
 
 			PreparedStatement ps = conn.prepareStatement("DROP TABLE ?");
@@ -177,6 +179,7 @@ public class PgDatasets implements Datasets {
 	private void createTableIfNotExists() {
 		Connection conn = null;
 		try {
+			conn = getRowStore().getConnection();
 			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS ? (id UUID PRIMARY KEY, status INT NOT NULL, created TIMESTAMP NOT NULL, data_table VARCHAR(48))");
 			ps.setString(1, TABLE_NAME);
 			ps.execute();
