@@ -12,7 +12,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.sql.Types;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -42,7 +41,7 @@ public class PgDatasets implements Datasets {
 		try {
 			conn = getRowStore().getConnection();
 			stmt = conn.prepareStatement("SELECT * FROM " + TABLE_NAME);
-			log.info("Executing query: " + stmt);
+			log.info("Executing: " + stmt);
 			rs = stmt.executeQuery();
 			while (rs.next()) {
 				UUID id = (UUID) rs.getObject("id");
@@ -53,27 +52,27 @@ public class PgDatasets implements Datasets {
 			}
 			rs.close();
 		} catch (SQLException e) {
-			log.error(e.getMessage());
+			SqlExceptionLogUtil.error(log, e);
 		} finally {
 			if (rs != null) {
 				try {
 					rs.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 			if (stmt != null) {
 				try {
 					stmt.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 			if (conn != null) {
 				try {
 					conn.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 		}
@@ -101,12 +100,12 @@ public class PgDatasets implements Datasets {
 			java.util.Date created = new java.util.Date();
 			ps.setTimestamp(3, new Timestamp(created.getTime()));
 			ps.setString(4, dataTable);
-			log.info("Executing query: " + ps);
+			log.info("Executing: " + ps);
 			ps.execute();
 			ps.close();
 
 			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + dataTable + " (rownr INTEGER PRIMARY KEY, data JSONB NOT NULL)");
-			log.info("Executing query: " + ps);
+			log.info("Executing: " + ps);
 			ps.execute();
 			ps.close();
 
@@ -117,7 +116,7 @@ public class PgDatasets implements Datasets {
 			try {
 				conn.rollback();
 			} catch (SQLException e1) {
-				log.error(e1.getMessage());
+				SqlExceptionLogUtil.error(log, e1);
 			}
 			log.error(e.getMessage());
 		} finally {
@@ -125,7 +124,7 @@ public class PgDatasets implements Datasets {
 				try {
 					conn.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 		}
@@ -144,13 +143,13 @@ public class PgDatasets implements Datasets {
 			conn.setAutoCommit(false);
 
 			PreparedStatement ps = conn.prepareStatement("DROP TABLE " + TABLE_NAME);
-			log.info("Executing query: " + ps);
+			log.info("Executing: " + ps);
 			ps.execute();
 			ps.close();
 
 			ps = conn.prepareStatement("DELETE FROM " + TABLE_NAME + " WHERE id = ?");
 			ps.setString(1, id);
-			log.info("Executing query: " + ps);
+			log.info("Executing: " + ps);
 			ps.execute();
 			ps.close();
 
@@ -160,7 +159,7 @@ public class PgDatasets implements Datasets {
 			try {
 				conn.rollback();
 			} catch (SQLException e1) {
-				log.error(e1.getMessage());
+				SqlExceptionLogUtil.error(log, e1);
 			}
 			log.error(e.getMessage());
 			return false;
@@ -169,7 +168,7 @@ public class PgDatasets implements Datasets {
 				try {
 					conn.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 		}
@@ -188,17 +187,17 @@ public class PgDatasets implements Datasets {
 		try {
 			conn = getRowStore().getConnection();
 			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + TABLE_NAME + " (id UUID PRIMARY KEY, status INT NOT NULL, created TIMESTAMP NOT NULL, data_table CHAR(" + getDataTableNameLength() + "))");
-			log.info("Executing query: " + ps);
+			log.info("Executing: " + ps);
 			ps.execute();
 			ps.close();
 		} catch (SQLException e) {
-			log.error(e.getMessage());
+			SqlExceptionLogUtil.error(log, e);
 		} finally {
 			if (conn != null) {
 				try {
 					conn.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 		}

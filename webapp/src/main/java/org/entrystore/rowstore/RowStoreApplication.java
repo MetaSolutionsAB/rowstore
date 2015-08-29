@@ -60,7 +60,7 @@ public class RowStoreApplication extends Application {
 
 	private static boolean verbose = false;
 
-	public static String KEY = "org.entrystore.rowstore.RowStoreApplication";
+	public static String KEY = RowStoreApplication.class.getCanonicalName();
 
 	public static String NAME = "RowStore";
 

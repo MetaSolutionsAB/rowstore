@@ -10,7 +10,6 @@ import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
@@ -85,20 +84,20 @@ public class PgDataset implements Dataset {
 			log.info("Executing: " + stmt);
 			stmt.executeUpdate();
 		} catch (SQLException e) {
-			log.error(e.getMessage());
+			SqlExceptionLogUtil.error(log, e);
 		} finally {
 			if (stmt != null) {
 				try {
 					stmt.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 			if (conn != null) {
 				try {
 					conn.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 		}
@@ -159,7 +158,7 @@ public class PgDataset implements Dataset {
 							stmt.executeBatch();
 						}
 					} catch (SQLException e) {
-						log.error(e.getMessage());
+						SqlExceptionLogUtil.error(log, e);
 						conn.rollback();
 						return false;
 					} catch (JSONException e) {
@@ -180,12 +179,11 @@ public class PgDataset implements Dataset {
 			this.setStatus(EtlStatus.AVAILABLE);
 			return true;
 		} catch (SQLException e) {
-			log.error(e.getMessage());
-			log.error(e.getNextException().getMessage());
+			SqlExceptionLogUtil.error(log, e);
 			try {
 				conn.rollback();
 			} catch (SQLException e1) {
-				log.error(e1.getMessage());
+				SqlExceptionLogUtil.error(log, e1);
 			}
 			this.setStatus(EtlStatus.ERROR);
 			return false;
@@ -201,14 +199,14 @@ public class PgDataset implements Dataset {
 				try {
 					stmt.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 			if (conn != null) {
 				try {
 					conn.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 		}
@@ -272,27 +270,27 @@ public class PgDataset implements Dataset {
 				}
 			}
 		} catch (SQLException e) {
-			log.error(e.getMessage());
+			SqlExceptionLogUtil.error(log, e);
 		} finally {
 			if (rs != null) {
 				try {
 					rs.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 			if (stmt != null) {
 				try {
 					stmt.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 			if (conn != null) {
 				try {
 					conn.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 		}
@@ -327,27 +325,27 @@ public class PgDataset implements Dataset {
 				}
 			}
 		} catch (SQLException e) {
-			log.error(e.getMessage());
+			SqlExceptionLogUtil.error(log, e);
 		} finally {
 			if (rs != null) {
 				try {
 					rs.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 			if (stmt != null) {
 				try {
 					stmt.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 			if (conn != null) {
 				try {
 					conn.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 		}
@@ -362,7 +360,11 @@ public class PgDataset implements Dataset {
 		try {
 			conn = rowstore.getConnection();
 			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.TABLE_NAME + " WHERE id = ?");
-			stmt.setString(1, getId());
+			PGobject uuid = new PGobject();
+			uuid.setType("uuid");
+			uuid.setValue(getId());
+			stmt.setObject(1, uuid);
+			log.info("Executing: " + stmt);
 			rs = stmt.executeQuery();
 			if (rs.next()) {
 				this.status = rs.getInt("status");
@@ -371,27 +373,27 @@ public class PgDataset implements Dataset {
 			}
 			rs.close();
 		} catch (SQLException e) {
-			log.error(e.getMessage());
+			SqlExceptionLogUtil.error(log, e);
 		} finally {
 			if (rs != null) {
 				try {
 					rs.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 			if (stmt != null) {
 				try {
 					stmt.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 			if (conn != null) {
 				try {
 					conn.close();
 				} catch (SQLException e) {
-					log.error(e.getMessage());
+					SqlExceptionLogUtil.error(log, e);
 				}
 			}
 		}

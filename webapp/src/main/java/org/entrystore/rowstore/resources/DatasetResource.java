@@ -43,8 +43,8 @@ public class DatasetResource extends BaseResource {
 	private Dataset dataset;
 
 	@Override
-	public void init(Context c, Request request, Response response) {
-		String datasetId = (String) request.getAttributes().get("id");
+	public void doInit() {
+		String datasetId = (String) getRequest().getAttributes().get("id");
 		if (datasetId != null) {
 			dataset = getRowStore().getDatasets().getDataset(datasetId);
 		}

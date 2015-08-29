@@ -27,6 +27,7 @@ import org.restlet.resource.ServerResource;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.util.HashMap;
+import java.util.Map;
 
 /**
  * @author Hannes Ebner
@@ -83,7 +84,8 @@ public class BaseResource extends ServerResource {
 	}
 
 	public RowStoreApplication getRowStoreApplication() {
-		return (RowStoreApplication) getContext().getAttributes().get(RowStoreApplication.KEY);
+		Context c = getContext();
+		return (RowStoreApplication) c.getAttributes().get(RowStoreApplication.KEY);
 	}
 
 	public RowStore getRowStore() {
