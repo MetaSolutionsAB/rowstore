@@ -60,9 +60,16 @@ public class BaseResource extends ServerResource {
 			for (int i = 0; i < arguments.length; i++) {
 				if (arguments[i].contains("=")) {
 					String[] elements = arguments[i].split("=");
-					argsAndVal.put(elements[0], elements[1]);
+					String key = urlDecode(elements[0]).trim();
+					String value = urlDecode(elements[1]).trim();
+					if (key.length() > 0) {
+						argsAndVal.put(key, value);
+					}
 				} else {
-					argsAndVal.put(arguments[i], "");
+					String key = urlDecode(arguments[i]).trim();
+					if (key.length() > 0) {
+						argsAndVal.put(key, "");
+					}
 				}
 			}
 		} catch (IndexOutOfBoundsException e) {
@@ -72,7 +79,7 @@ public class BaseResource extends ServerResource {
 		return argsAndVal;
 	}
 
-	private String urlDecode(String input) {
+	private static String urlDecode(String input) {
 		if (input != null) {
 			try {
 				return URLDecoder.decode(input, "UTF-8");

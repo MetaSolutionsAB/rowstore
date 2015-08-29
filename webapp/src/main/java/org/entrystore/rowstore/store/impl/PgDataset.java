@@ -221,7 +221,7 @@ public class PgDataset implements Dataset {
 		List<JSONObject> result = new ArrayList<>();
 		try {
 			conn = rowstore.getConnection();
-			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM " + getDataTable());
+			StringBuilder queryTemplate = new StringBuilder("SELECT data FROM " + getDataTable());
 			if (tuples != null && tuples.size() > 0) {
 				for (int i = 0; i < tuples.size(); i++) {
 					if (i == 0) {
@@ -231,19 +231,18 @@ public class PgDataset implements Dataset {
 					}
 					if (regexp) {
 						// we match using ~ to enable regular expressions
-						queryTemplate.append(" data->>? ~ ?");
+						queryTemplate.append("data->>? ~ ?");
 					} else {
-						queryTemplate.append(" data->>? = ?");
+						queryTemplate.append("data->>? = ?");
 					}
 				}
 			}
 
 			stmt = conn.prepareStatement(queryTemplate.toString());
-			stmt.setString(1, getId());
 
 			if (tuples != null && tuples.size() > 0) {
 				Iterator<String> keys = tuples.keySet().iterator();
-				int paramPos = 2;
+				int paramPos = 1;
 				while (keys.hasNext()) {
 					String key = keys.next();
 					stmt.setString(paramPos, key);
@@ -255,18 +254,12 @@ public class PgDataset implements Dataset {
 			log.info("Executing: " + stmt);
 
 			rs = stmt.executeQuery();
-			int columnCount = rs.getMetaData().getColumnCount();
-			if (rs.next()) {
-				for (int i = 1; i <= columnCount; i++) {
-					String key = rs.getMetaData().getColumnName(i);
-					String value = rs.getString(i);
-					JSONObject row = new JSONObject();
-					try {
-						row.put(key, value);
-					} catch (JSONException e) {
-						log.error(e.getMessage());
-					}
-					result.add(row);
+			while (rs.next()) {
+				String value = rs.getString("data");
+				try {
+					result.add(new JSONObject(value));
+				} catch (JSONException e) {
+					log.error(e.getMessage());
 				}
 			}
 		} catch (SQLException e) {

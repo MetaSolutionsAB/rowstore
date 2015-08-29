@@ -71,6 +71,8 @@ public class DatasetResource extends BaseResource {
 
 	@Override
 	public Representation head() {
+		// TODO to be tested
+
 		JSONObject result = new JSONObject();
 		if (dataset != null) {
 			try {
@@ -89,6 +91,8 @@ public class DatasetResource extends BaseResource {
 
 	@Delete
 	public void purgeDataset() {
+		// TODO to be tested
+
 		JSONObject result = new JSONObject();
 		if (dataset != null) {
 			boolean successful = getRowStore().getDatasets().purgeDataset(dataset.getId());
