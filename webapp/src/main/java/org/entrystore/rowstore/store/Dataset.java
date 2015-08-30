@@ -16,7 +16,6 @@
 
 package org.entrystore.rowstore.store;
 
-import org.entrystore.rowstore.etl.EtlStatus;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -44,5 +43,7 @@ public interface Dataset {
 	List<JSONObject> query(Map<String, String> tuples);
 
 	Set<String> getColumnNames();
+
+	int getRowCount();
 
 }

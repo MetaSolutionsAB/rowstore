@@ -408,7 +408,51 @@ public class PgDataset implements Dataset {
 		}
 	}
 
-	public JSONObject csvLineToJsonObject(String[] line, String[] labels) throws JSONException {
+	@Override
+	public int getRowCount() {
+		int result = -1;
+		Connection conn = null;
+		PreparedStatement stmt = null;
+		ResultSet rs = null;
+		try {
+			conn = rowstore.getConnection();
+			stmt = conn.prepareStatement("SELECT COUNT(rownr) AS rowcount FROM " + getDataTable());
+			log.debug("Executing: " + stmt);
+			rs = stmt.executeQuery();
+			while (rs.next()) {
+				result = rs.getInt("rowcount");
+			}
+			rs.close();
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+
+		return result;
+	}
+
+	private JSONObject csvLineToJsonObject(String[] line, String[] labels) throws JSONException {
 		if (line.length != labels.length) {
 			throw new IllegalArgumentException("Arrays must not be of different length");
 		}

@@ -70,6 +70,12 @@ public class DatasetResource extends BaseResource {
 		Map<String, String> tuples = new HashMap<>(parameters);
 		tuples.keySet().retainAll(columns);
 
+		// TODO support _limit=xx
+
+		// TODO support _sort=First%20name,asc
+
+		// TODO support _offset=xx
+
 		List<JSONObject> qResult = dataset.query(tuples);
 
 		long elapsedTime = new Date().getTime() - before.getTime();
@@ -93,6 +99,7 @@ public class DatasetResource extends BaseResource {
 				result.put("status", dataset.getStatus());
 				result.put("created", dataset.getCreationDate());
 				result.put("columnnames", dataset.getColumnNames());
+				result.put("rowcount", dataset.getRowCount());
 			} catch (JSONException e) {
 				log.error(e.getMessage());
 			}
