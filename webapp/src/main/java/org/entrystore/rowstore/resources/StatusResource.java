@@ -33,10 +33,12 @@ public class StatusResource extends BaseResource {
 
 	@Get("json")
 	public Representation getJSON() throws JSONException {
+		// TODO test
 		JSONObject result = new JSONObject();
 		result.put("service", "RowStore");
 		result.put("version", getRowStoreApplication().getVersion());
 		result.put("datasets", getRowStore().getDatasets().amount());
+		result.put("activeEtlProcesses", getRowStore().getEtlProcessor().getActiveEtlProcesses());
 		return new JsonRepresentation(result);
 	}
 

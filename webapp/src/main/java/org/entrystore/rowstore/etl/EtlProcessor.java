@@ -100,4 +100,8 @@ public class EtlProcessor {
 		}
 	}
 
+	public int getActiveEtlProcesses() {
+		return runningConversions;
+	}
+
 }
