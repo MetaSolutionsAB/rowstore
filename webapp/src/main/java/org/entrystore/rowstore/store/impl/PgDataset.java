@@ -97,7 +97,7 @@ public class PgDataset implements Dataset {
 			uuid.setType("uuid");
 			uuid.setValue(id);
 			stmt.setObject(2, uuid);
-			log.info("Executing: " + stmt);
+			log.debug("Executing: " + stmt);
 			stmt.executeUpdate();
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
@@ -167,7 +167,7 @@ public class PgDataset implements Dataset {
 						jsonb.setType("jsonb");
 						jsonb.setValue(jsonLine.toString());
 						stmt.setObject(2, jsonb);
-						log.info("Adding to batch: " + stmt);
+						log.debug("Adding to batch: " + stmt);
 						stmt.addBatch();
 						// we execute the batch every 100th line
 						if ((lineCount % 100) == 0) {
@@ -187,7 +187,7 @@ public class PgDataset implements Dataset {
 			}
 			// in case there are some inserts left to be sent (i.e.
 			// batch size above was smaller than 100 when loop ended)
-			log.info("Executing: " + stmt);
+			log.debug("Executing: " + stmt);
 			stmt.executeBatch();
 
 			// we commit the transaction and free the resources of the statement
@@ -267,7 +267,7 @@ public class PgDataset implements Dataset {
 				}
 			}
 
-			log.info("Executing: " + stmt);
+			log.debug("Executing: " + stmt);
 
 			rs = stmt.executeQuery();
 			while (rs.next()) {
@@ -318,7 +318,7 @@ public class PgDataset implements Dataset {
 			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM " + getDataTable() + " LIMIT 1");
 			stmt = conn.prepareStatement(queryTemplate.toString());
 			stmt.setString(1, getId());
-			log.info("Executing: " + stmt);
+			log.debug("Executing: " + stmt);
 
 			rs = stmt.executeQuery();
 			if (rs.next()) {
@@ -373,7 +373,7 @@ public class PgDataset implements Dataset {
 			uuid.setType("uuid");
 			uuid.setValue(getId());
 			stmt.setObject(1, uuid);
-			log.info("Executing: " + stmt);
+			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
 			if (rs.next()) {
 				this.status = rs.getInt("status");

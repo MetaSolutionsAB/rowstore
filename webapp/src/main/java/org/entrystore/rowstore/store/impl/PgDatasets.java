@@ -57,7 +57,7 @@ public class PgDatasets implements Datasets {
 		try {
 			conn = getRowStore().getConnection();
 			stmt = conn.prepareStatement("SELECT * FROM " + TABLE_NAME);
-			log.info("Executing: " + stmt);
+			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
 			while (rs.next()) {
 				UUID id = (UUID) rs.getObject("id");
@@ -116,12 +116,12 @@ public class PgDatasets implements Datasets {
 			java.util.Date created = new java.util.Date();
 			ps.setTimestamp(3, new Timestamp(created.getTime()));
 			ps.setString(4, dataTable);
-			log.info("Executing: " + ps);
+			log.debug("Executing: " + ps);
 			ps.execute();
 			ps.close();
 
 			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + dataTable + " (rownr INTEGER PRIMARY KEY, data JSONB NOT NULL)");
-			log.info("Executing: " + ps);
+			log.debug("Executing: " + ps);
 			ps.execute();
 			ps.close();
 
@@ -159,13 +159,13 @@ public class PgDatasets implements Datasets {
 			conn.setAutoCommit(false);
 
 			PreparedStatement ps = conn.prepareStatement("DROP TABLE " + TABLE_NAME);
-			log.info("Executing: " + ps);
+			log.debug("Executing: " + ps);
 			ps.execute();
 			ps.close();
 
 			ps = conn.prepareStatement("DELETE FROM " + TABLE_NAME + " WHERE id = ?");
 			ps.setString(1, id);
-			log.info("Executing: " + ps);
+			log.debug("Executing: " + ps);
 			ps.execute();
 			ps.close();
 
@@ -203,7 +203,7 @@ public class PgDatasets implements Datasets {
 		try {
 			conn = getRowStore().getConnection();
 			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + TABLE_NAME + " (id UUID PRIMARY KEY, status INT NOT NULL, created TIMESTAMP NOT NULL, data_table CHAR(" + getDataTableNameLength() + "))");
-			log.info("Executing: " + ps);
+			log.debug("Executing: " + ps);
 			ps.execute();
 			ps.close();
 		} catch (SQLException e) {
@@ -232,7 +232,7 @@ public class PgDatasets implements Datasets {
 		try {
 			conn = getRowStore().getConnection();
 			stmt = conn.prepareStatement("SELECT COUNT(*) AS amount FROM " + TABLE_NAME);
-			log.info("Executing: " + stmt);
+			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
 			while (rs.next()) {
 				result = rs.getInt("amount");
