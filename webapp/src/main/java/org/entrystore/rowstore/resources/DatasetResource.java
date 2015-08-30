@@ -21,18 +21,17 @@ import org.entrystore.rowstore.store.Dataset;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
-import org.restlet.Context;
-import org.restlet.Request;
-import org.restlet.Response;
 import org.restlet.data.Status;
 import org.restlet.ext.json.JsonRepresentation;
-import org.restlet.ext.json.JsonpRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.resource.Delete;
 import org.restlet.resource.Get;
 
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * @author Hannes Ebner
@@ -58,12 +57,19 @@ public class DatasetResource extends BaseResource {
 			return null;
 		}
 
+		// TODO test
+
 		// query parameters: /dataset/{id}?[{column-name}={value},{column-name={value}]
 
 		JSONArray result = new JSONArray();
 		Date before = new Date();
 
-		List<JSONObject> qResult = dataset.query(parameters);
+		// we only pass on the parameters that match column names of the dataset's JSON
+		Set<String> columns = dataset.getColumnNames();
+		Map<String, String> tuples = new HashMap<>(parameters);
+		tuples.keySet().retainAll(columns);
+
+		List<JSONObject> qResult = dataset.query(tuples);
 
 		long elapsedTime = new Date().getTime() - before.getTime();
 		log.info("Query took " + elapsedTime + " ms");
