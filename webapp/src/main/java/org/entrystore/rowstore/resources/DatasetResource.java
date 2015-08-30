@@ -31,6 +31,7 @@ import org.restlet.representation.Representation;
 import org.restlet.resource.Delete;
 import org.restlet.resource.Get;
 
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -60,7 +61,13 @@ public class DatasetResource extends BaseResource {
 		// query parameters: /dataset/{id}?[{column-name}={value},{column-name={value}]
 
 		JSONArray result = new JSONArray();
+		Date before = new Date();
+
 		List<JSONObject> qResult = dataset.query(parameters);
+
+		long elapsedTime = new Date().getTime() - before.getTime();
+		log.info("Query took " + elapsedTime + " ms");
+
 		for (JSONObject row : qResult) {
 			result.put(row);
 		}
