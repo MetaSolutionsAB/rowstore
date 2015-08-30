@@ -17,6 +17,7 @@
 package org.entrystore.rowstore.resources;
 
 import org.apache.log4j.Logger;
+import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -106,16 +107,22 @@ public class DatasetResource extends BaseResource {
 	public void purgeDataset() {
 		// TODO to be tested
 
-		JSONObject result = new JSONObject();
-		if (dataset != null) {
-			boolean successful = getRowStore().getDatasets().purgeDataset(dataset.getId());
-			if (successful) {
-				setStatus(Status.SUCCESS_OK);
-			} else {
-				setStatus(Status.SERVER_ERROR_INTERNAL);
-			}
-		} else {
+		if (dataset == null) {
 			setStatus(Status.CLIENT_ERROR_NOT_FOUND);
+			return;
+		}
+
+		if (dataset.getStatus() != EtlStatus.AVAILABLE && dataset.getStatus() != EtlStatus.ERROR) {
+			// the dataset is either waiting or currently being processed
+			setStatus(Status.CLIENT_ERROR_LOCKED);
+			return;
+		}
+
+		boolean successful = getRowStore().getDatasets().purgeDataset(dataset.getId());
+		if (successful) {
+			setStatus(Status.SUCCESS_OK);
+		} else {
+			setStatus(Status.SERVER_ERROR_INTERNAL);
 		}
 	}
 
