@@ -2,7 +2,6 @@ package org.entrystore.rowstore.etl;
 
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
-import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,7 +16,7 @@ public class EtlProcessor {
 
 	private static Logger log = LoggerFactory.getLogger(EtlProcessor.class);
 
-	private static int CONCURRENT_CONVERSIONS = 5;
+	private int concurrentConversions = 5;
 
 	private int runningConversions = 0;
 
@@ -34,7 +33,7 @@ public class EtlProcessor {
 		@Override
 		public void run() {
 			while (!interrupted()) {
-				if (!postQueue.isEmpty() && runningConversions <= CONCURRENT_CONVERSIONS) {
+				if (!postQueue.isEmpty() && runningConversions <= concurrentConversions) {
 					EtlResource res = postQueue.poll();
 					if (res != null) {
 						new DatasetLoader(res).start();
@@ -79,9 +78,10 @@ public class EtlProcessor {
 	}
 
 	public EtlProcessor(RowStore rowstore) {
+		this.rowstore = rowstore;
+		this.concurrentConversions = rowstore.getConfig().getMaxEtlProcesses();
 		datasetSubmitter = new DatasetSubmitter();
 		datasetSubmitter.start();
-		this.rowstore = rowstore;
 	}
 
 	public void submit(EtlResource etlResource) {

@@ -28,6 +28,8 @@ public class RowStoreConfig {
 
 	private boolean regExpSupport;
 
+	private int maxEtlProcesses;
+
 	private static Logger log = LoggerFactory.getLogger(RowStoreConfig.class);
 
 	public RowStoreConfig(JSONObject config) {
@@ -38,17 +40,20 @@ public class RowStoreConfig {
 			// Support for RegExp pattern matching
 			regExpSupport = config.optBoolean("regexpqueries", false);
 
+			// ETL
+			maxEtlProcesses = config.optInt("maxetlprocesses", 5);
+
 			// Database
 			JSONObject dbConfig = config.getJSONObject("database");
-			dbType = dbConfig.getString("type");
+			dbType = dbConfig.optString("type", "postgresql");
 			dbHost = dbConfig.getString("host");
 			dbName = dbConfig.getString("database");
 			dbUser = dbConfig.getString("user");
 			dbPassword = dbConfig.getString("password");
-			dbMaxConnections = dbConfig.getInt("maxconnections");
+			dbMaxConnections = dbConfig.optInt("maxconnections", 30);
 
 			// Logging
-			logLevel = dbConfig.getString("loglevel");
+			logLevel = dbConfig.optString("loglevel", "info");
 		} catch (JSONException e) {
 			log.error(e.getMessage());
 		}
@@ -84,6 +89,10 @@ public class RowStoreConfig {
 
 	public String getBaseURL() {
 		return baseURL;
+	}
+
+	public int getMaxEtlProcesses() {
+		return maxEtlProcesses;
 	}
 
 	public boolean hasRegExpQuerySupport() {
