@@ -207,6 +207,50 @@ public class PgDatasets implements Datasets {
 		return this.rowstore;
 	}
 
+	@Override
+	public int amount() {
+		int result = -1;
+		Connection conn = null;
+		PreparedStatement stmt = null;
+		ResultSet rs = null;
+		try {
+			conn = getRowStore().getConnection();
+			stmt = conn.prepareStatement("SELECT COUNT(*) AS amount FROM " + TABLE_NAME);
+			log.info("Executing: " + stmt);
+			rs = stmt.executeQuery();
+			while (rs.next()) {
+				result = rs.getInt("amount");
+			}
+			rs.close();
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+
+		return result;
+	}
+
 	private String constructDataTableName(String id) {
 		return "data_" + id.replaceAll("-", "");
 	}

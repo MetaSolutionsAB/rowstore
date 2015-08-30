@@ -4,7 +4,7 @@ import org.entrystore.rowstore.etl.EtlProcessor;
 import org.entrystore.rowstore.store.Datasets;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStoreConfig;
-import org.postgresql.ds.PGPoolingDataSource;
+import org.postgresql.ds.PGSimpleDataSource;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -29,15 +29,21 @@ public class PgRowStore implements RowStore {
 		}
 		this.config = config;
 
-		datasource = new PGPoolingDataSource();
-		PGPoolingDataSource pgDs = (PGPoolingDataSource) datasource;
-		pgDs.setMaxConnections(config.getDbMaxConnections());
+		//datasource = new PGPoolingDataSource();
+		datasource = new PGSimpleDataSource();
+		PGSimpleDataSource pgDs = (PGSimpleDataSource) datasource;
+		//pgDs.setMaxConnections(config.getDbMaxConnections());
 		pgDs.setUser(config.getDbUser());
 		pgDs.setPassword(config.getDbPassword());
 		pgDs.setServerName(config.getDbHost());
 		pgDs.setDatabaseName(config.getDbName());
 
 		etlProcessor = new EtlProcessor(this);
+	}
+
+	@Override
+	public DataSource getDataSource() {
+		return datasource;
 	}
 
 	@Override

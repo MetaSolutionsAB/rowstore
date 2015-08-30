@@ -58,8 +58,6 @@ public class RowStoreApplication extends Application {
 
 	static Logger log = Logger.getLogger(RowStoreApplication.class);
 
-	private static boolean verbose = false;
-
 	public static String KEY = RowStoreApplication.class.getCanonicalName();
 
 	public static String NAME = "RowStore";

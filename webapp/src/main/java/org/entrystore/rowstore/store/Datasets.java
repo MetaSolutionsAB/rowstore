@@ -15,4 +15,6 @@ public interface Datasets {
 
 	Dataset getDataset(String id);
 
+	int amount();
+
 }
