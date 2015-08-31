@@ -5,13 +5,103 @@ RowStore is a minimum footprint storage and query engine for tabular data with t
 1. A pipeline to transform of tabular data (CSV) to JSON and to load the transformed data into a JSON-optimized store (PostgreSQL), and
 2. A query interface to fetch all rows that match certain column values.
 
+## CSV conventions
+
+In order for RowStore to be able to properly process CSV files, some conventions have to be followed:
+
+- String values within the tabular data model (such as column titles or cell string values) must contain only Unicode characters.
+- The first row should contain short names for each column; they are used as property names during the CSV2JSON conversion. They are also used as variable names by the query API.
+- Comma ("`,`") must be used as column delimiter.
+- Quotation marks ("`"`") must be used as quotation characters.
+- Double backslash ("`\\`) must be used as escape characters.
+- Line feed ("`\n`") or carriage return followed by line feed ("`\r\n`") must be used to indicate a new line (i.e., a new row).
+
+## REST API
+
+The API consists of three resources; one to request the service's status and two for handling datasets.
+
+With a few exceptions, all resources expect JSON payloads.
+
+### /datasets
+
+- `GET http://{base-url}/datasets` - Returns an array with all dataset ids. 
+- `POST http://{base-url}/datasets` - Starts the ETL process for a CSV file. Expects a CSV-file and returns HTTP 202 with location of created dataset.
+
+### /dataset/{id}
+
+- `HEAD http://{base-url}/dataset/{id}` - Returns the status of the dataset.
+- `GET http://{base-url}/dataset/{id}[?column1=value1&column2=value2]` - Queries the dataset with column/value-tuples. If no tuples are supplied the whole dataset is returned. Tuple values may be regular expressions if the RowStore instance is configured accordingly.  
+- `DELETE http://{base-url}/dataset/{id}` - Deletes the dataset.
+
+### /status
+
+- `GET http://{base-url}/status` - Returns some basic information about the RowStore instance. 
+
+## Configuration
+
+RowStore is configured through a simple JSON-file. The distribution contains an example file.
+
+### Properties
+
+- `baseurl` (String) - The base URL under which the root of RowStore can be reached. Used for generating correct URIs in API responses.
+- `regexpqueries` (Boolean) - Determines whether the query interface should allow regular expressions to match column values.
+- `maxetlprocesses` (Integer) - Maximum number of concurrently running ETL processes (each process takes up one thread).
+- `database` (parent object) - Configures the database connection.
+- `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
+
+### Example
+
+```
+{
+  "baseurl": "https://domain.com/rowstore/",
+  "regexpqueries": true,
+  "maxetlprocesses": 5,
+  "database": {
+    "type": "postgresql",
+    "host": "localhost",
+    "database": "rowstore",
+    "user": "rowstore",
+    "password": ""
+  },
+  "loglevel": "debug"
+}
+```
+
 ## Security
 
 RowStore provides a private REST API (for data management) and a well as a public REST API (for data retrieval). Currently RowStore does not provide any own security mechanism and it is recommended that the private API is protected by a web server/reverse proxy with authentication features such as Apache HTTPD.
 
 ## Issue tracking
 
-Please refer to [tbd](https://tbd) for issue tracking.
+Please refer to [RowStore on GitHub](https://github.com/MetaSolutionsAB/rowstore/issues) for issue tracking.
+
+## Database layout
+
+An administrative table keeps track of datasets and their current status:
+
+`CREATE TABLE IF NOT EXISTS datasets (id UUID PRIMARY KEY, status INT NOT NULL, created TIMESTAMP NOT NULL, data_table CHAR(37))`
+
+A table per dataset holds the actual data in JSON:
+
+`CREATE TABLE IF NOT EXISTS {data-table} (rownr INTEGER PRIMARY KEY, data JSONB NOT NULL)`
+
+## Roadmap
+
+### Version 1.0
+
+- Support for [_CSV2JSON minimal mode_](http://www.w3.org/TR/csv2json/#dfn-minimal-mode)
+
+### Version 1.1
+
+- Support for [_CSV2JSON standard mode_](http://www.w3.org/TR/csv2json/#dfn-standard-mode)
+
+### Version 1.2
+
+- Support for [_Tabular data model_](http://www.w3.org/TR/tabular-data-model/)
+
+### Version 2.0
+
+- Support for [_CSV2RDF_](http://www.w3.org/TR/csv2rdf/)
 
 ## License
 
