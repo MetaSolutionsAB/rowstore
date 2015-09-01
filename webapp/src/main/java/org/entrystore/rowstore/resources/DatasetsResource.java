@@ -26,23 +26,16 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.restlet.data.MediaType;
 import org.restlet.data.Status;
-import org.restlet.engine.io.IoUtils;
 import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.resource.Get;
 import org.restlet.resource.Post;
-import sun.misc.IOUtils;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.channels.ReadableByteChannel;
-import java.nio.channels.WritableByteChannel;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * @author Hannes Ebner
@@ -86,18 +79,16 @@ public class DatasetsResource extends BaseResource {
 				}
 			}
 
-			String uuid = UUID.randomUUID().toString();
-
-			Dataset newDataset = getRowStore().getDatasets().createDataset(uuid);
+			Dataset newDataset = getRowStore().getDatasets().createDataset();
 			newDataset.setStatus(EtlStatus.ACCEPTED);
 			EtlResource etlResource = new EtlResource(newDataset, tmpFile, MediaType.TEXT_CSV);
 			getRowStore().getEtlProcessor().submit(etlResource);
 
-			String datasetURL = buildDatasetURL(getRowStore().getConfig().getBaseURL(), uuid);
+			String datasetURL = buildDatasetURL(getRowStore().getConfig().getBaseURL(), newDataset.getId());
 
 			JSONObject result = new JSONObject();
 			try {
-				result.put("id", uuid);
+				result.put("id", newDataset.getId());
 				result.put("url", datasetURL);
 				result.put("status", EtlStatus.ACCEPTED);
 			} catch (JSONException e) {

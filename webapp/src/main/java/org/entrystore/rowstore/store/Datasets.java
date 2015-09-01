@@ -25,12 +25,16 @@ public interface Datasets {
 
 	Set<Dataset> getAll();
 
-	Dataset createDataset(String id);
+	Dataset createDataset();
 
 	boolean purgeDataset(String id);
 
 	Dataset getDataset(String id);
 
+	boolean hasDataset(String id);
+
 	int amount();
+
+	String createUniqueDatasetId();
 
 }

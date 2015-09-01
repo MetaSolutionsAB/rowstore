@@ -97,10 +97,8 @@ public class PgDatasets implements Datasets {
 	}
 
 	@Override
-	public Dataset createDataset(String id) {
-		if (id == null) {
-			throw new IllegalArgumentException("Dataset ID must not be null");
-		}
+	public Dataset createDataset() {
+		String id = createUniqueDatasetId();
 		Connection conn = null;
 		String dataTable = constructDataTableName(id);
 		try {
@@ -201,6 +199,15 @@ public class PgDatasets implements Datasets {
 		return new PgDataset(rowstore, id);
 	}
 
+	@Override
+	public boolean hasDataset(String id) {
+		try {
+			return getDataset(id) != null;
+		} catch (IllegalStateException ignored) {
+		}
+		return false;
+	}
+
 	private void createTableIfNotExists() {
 		Connection conn = null;
 		try {
@@ -268,6 +275,15 @@ public class PgDatasets implements Datasets {
 		}
 
 		return result;
+	}
+
+	@Override
+	public String createUniqueDatasetId() {
+		String uuid;
+		do {
+			uuid = UUID.randomUUID().toString();
+		} while (getRowStore().getDatasets().hasDataset(uuid));
+		return uuid;
 	}
 
 	private String constructDataTableName(String id) {
