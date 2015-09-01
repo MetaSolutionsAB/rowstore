@@ -25,6 +25,7 @@ import org.json.JSONObject;
 import org.restlet.data.Status;
 import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
+import org.restlet.representation.Variant;
 import org.restlet.resource.Delete;
 import org.restlet.resource.Get;
 
@@ -58,10 +59,7 @@ public class DatasetResource extends BaseResource {
 			return null;
 		}
 
-		// TODO test
-
 		// query parameters: /dataset/{id}?[{column-name}={value},{column-name={value}]
-
 		JSONArray result = new JSONArray();
 		Date before = new Date();
 
@@ -86,27 +84,6 @@ public class DatasetResource extends BaseResource {
 		}
 
 		getResponse().setStatus(Status.SUCCESS_OK);
-		return new JsonRepresentation(result);
-	}
-
-	@Override
-	public Representation head() {
-		// TODO to be tested
-
-		JSONObject result = new JSONObject();
-		if (dataset != null) {
-			try {
-				result.put("status", dataset.getStatus());
-				result.put("created", dataset.getCreationDate());
-				result.put("columnnames", dataset.getColumnNames());
-				result.put("rowcount", dataset.getRowCount());
-			} catch (JSONException e) {
-				log.error(e.getMessage());
-			}
-		} else {
-			setStatus(Status.CLIENT_ERROR_NOT_FOUND);
-		}
-
 		return new JsonRepresentation(result);
 	}
 

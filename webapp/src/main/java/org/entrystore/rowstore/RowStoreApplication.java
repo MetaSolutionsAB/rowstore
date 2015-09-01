@@ -20,6 +20,7 @@ import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.entrystore.rowstore.filters.JSCallbackFilter;
+import org.entrystore.rowstore.resources.DatasetInfoResource;
 import org.entrystore.rowstore.resources.DatasetResource;
 import org.entrystore.rowstore.resources.DatasetsResource;
 import org.entrystore.rowstore.resources.DefaultResource;
@@ -97,6 +98,7 @@ public class RowStoreApplication extends Application {
 		// global scope
 		router.attach("/status", StatusResource.class);
 		router.attach("/dataset/{id}", DatasetResource.class);
+		router.attach("/dataset/{id}/info", DatasetInfoResource.class);
 		router.attach("/datasets", DatasetsResource.class);
 		router.attach("/", DefaultResource.class);
 
