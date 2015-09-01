@@ -89,8 +89,6 @@ public class DatasetResource extends BaseResource {
 
 	@Delete
 	public void purgeDataset() {
-		// TODO to be tested
-
 		if (dataset == null) {
 			setStatus(Status.CLIENT_ERROR_NOT_FOUND);
 			return;

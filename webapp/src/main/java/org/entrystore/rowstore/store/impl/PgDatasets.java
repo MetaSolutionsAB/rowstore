@@ -158,13 +158,16 @@ public class PgDatasets implements Datasets {
 			conn = getRowStore().getConnection();
 			conn.setAutoCommit(false);
 
-			PreparedStatement ps = conn.prepareStatement("DROP TABLE " + TABLE_NAME);
+			PreparedStatement ps = conn.prepareStatement("DROP TABLE " + constructDataTableName(id));
 			log.debug("Executing: " + ps);
 			ps.execute();
 			ps.close();
 
 			ps = conn.prepareStatement("DELETE FROM " + TABLE_NAME + " WHERE id = ?");
-			ps.setString(1, id);
+			PGobject uuid = new PGobject();
+			uuid.setType("uuid");
+			uuid.setValue(id);
+			ps.setObject(1, uuid);
 			log.debug("Executing: " + ps);
 			ps.execute();
 			ps.close();
