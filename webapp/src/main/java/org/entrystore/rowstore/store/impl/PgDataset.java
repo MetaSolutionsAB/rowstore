@@ -59,12 +59,24 @@ public class PgDataset implements Dataset {
 	private RowStore rowstore;
 
 	protected PgDataset(RowStore rowstore, String id) {
+		if (rowstore == null) {
+			throw new IllegalArgumentException("RowStore must not be null");
+		}
+		if (id == null) {
+			throw new IllegalArgumentException("Dataset ID must not be null");
+		}
 		this.rowstore = rowstore;
 		this.id = id;
 		initFromDb();
 	}
 
 	protected PgDataset(RowStore rowstore, String id, int status, Date created, String dataTable) {
+		if (rowstore == null) {
+			throw new IllegalArgumentException("RowStore must not be null");
+		}
+		if (id == null) {
+			throw new IllegalArgumentException("Dataset ID must not be null");
+		}
 		this.rowstore = rowstore;
 		this.id = id;
 		this.status = status;
@@ -378,8 +390,9 @@ public class PgDataset implements Dataset {
 				this.status = rs.getInt("status");
 				this.created = rs.getTimestamp("created");
 				this.dataTable = rs.getString("data_table");
+			} else {
+				throw new IllegalStateException("Unable to initialize Database object from database");
 			}
-			rs.close();
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 		} finally {

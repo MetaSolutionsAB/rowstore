@@ -20,12 +20,10 @@ import org.apache.log4j.Logger;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 import org.restlet.data.Status;
 import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
-import org.restlet.representation.Variant;
 import org.restlet.resource.Delete;
 import org.restlet.resource.Get;
 
@@ -48,7 +46,12 @@ public class DatasetResource extends BaseResource {
 	public void doInit() {
 		String datasetId = (String) getRequest().getAttributes().get("id");
 		if (datasetId != null) {
-			dataset = getRowStore().getDatasets().getDataset(datasetId);
+			try {
+				dataset = getRowStore().getDatasets().getDataset(datasetId);
+			} catch (IllegalStateException e) {
+				log.error(e.getMessage());
+				dataset = null;
+			}
 		}
 	}
 
