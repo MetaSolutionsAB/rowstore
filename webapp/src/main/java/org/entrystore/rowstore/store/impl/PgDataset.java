@@ -317,7 +317,6 @@ public class PgDataset implements Dataset {
 			conn = rowstore.getConnection();
 			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM " + getDataTable() + " LIMIT 1");
 			stmt = conn.prepareStatement(queryTemplate.toString());
-			stmt.setString(1, getId());
 			log.debug("Executing: " + stmt);
 
 			rs = stmt.executeQuery();
