@@ -19,7 +19,6 @@ package org.entrystore.rowstore.resources;
 import org.apache.log4j.Logger;
 import org.json.JSONException;
 import org.json.JSONObject;
-import org.postgresql.ds.PGSimpleDataSource;
 import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.resource.Get;
@@ -33,7 +32,6 @@ public class StatusResource extends BaseResource {
 
 	@Get("json")
 	public Representation getJSON() throws JSONException {
-		// TODO test
 		JSONObject result = new JSONObject();
 		result.put("service", "RowStore");
 		result.put("version", getRowStoreApplication().getVersion());
