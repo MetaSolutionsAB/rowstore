@@ -62,6 +62,14 @@ public class DatasetResource extends BaseResource {
 			return null;
 		}
 
+		if (dataset.getStatus() == EtlStatus.ERROR) {
+			getResponse().setStatus(Status.CLIENT_ERROR_FAILED_DEPENDENCY);
+			return null;
+		} else if (dataset.getStatus() != EtlStatus.AVAILABLE) {
+			getResponse().setStatus(Status.CLIENT_ERROR_LOCKED);
+			return null;
+		}
+
 		// query parameters: /dataset/{id}?[{column-name}={value},{column-name={value}]
 		JSONArray result = new JSONArray();
 		Date before = new Date();

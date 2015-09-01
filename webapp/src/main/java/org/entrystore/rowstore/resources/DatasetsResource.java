@@ -80,7 +80,7 @@ public class DatasetsResource extends BaseResource {
 			}
 
 			Dataset newDataset = getRowStore().getDatasets().createDataset();
-			newDataset.setStatus(EtlStatus.ACCEPTED);
+			newDataset.setStatus(EtlStatus.ACCEPTED_DATA);
 			EtlResource etlResource = new EtlResource(newDataset, tmpFile, MediaType.TEXT_CSV);
 			getRowStore().getEtlProcessor().submit(etlResource);
 
@@ -90,7 +90,7 @@ public class DatasetsResource extends BaseResource {
 			try {
 				result.put("id", newDataset.getId());
 				result.put("url", datasetURL);
-				result.put("status", EtlStatus.ACCEPTED);
+				result.put("status", EtlStatus.ACCEPTED_DATA);
 			} catch (JSONException e) {
 				log.error(e.getMessage());
 			}

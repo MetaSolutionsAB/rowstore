@@ -21,9 +21,9 @@ package org.entrystore.rowstore.etl;
  */
 public class EtlStatus {
 
-	public static int UNKNOWN = 0;
+	public static int CREATED = 0;
 
-	public static int ACCEPTED = 1;
+	public static int ACCEPTED_DATA = 1;
 
 	public static int PROCESSING = 2;
 

@@ -110,7 +110,7 @@ public class PgDatasets implements Datasets {
 			uuid.setType("uuid");
 			uuid.setValue(id);
 			ps.setObject(1, uuid);
-			ps.setInt(2, EtlStatus.UNKNOWN);
+			ps.setInt(2, EtlStatus.CREATED);
 			java.util.Date created = new java.util.Date();
 			ps.setTimestamp(3, new Timestamp(created.getTime()));
 			ps.setString(4, dataTable);
@@ -125,7 +125,7 @@ public class PgDatasets implements Datasets {
 
 			conn.commit();
 
-			return new PgDataset(getRowStore(), id, EtlStatus.UNKNOWN, created, dataTable);
+			return new PgDataset(getRowStore(), id, EtlStatus.CREATED, created, dataTable);
 		} catch (SQLException e) {
 			try {
 				conn.rollback();
