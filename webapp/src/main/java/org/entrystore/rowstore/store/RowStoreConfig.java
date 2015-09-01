@@ -52,12 +52,12 @@ public class RowStoreConfig {
 		try {
 			// Base URL
 			baseURL = config.getString("baseurl");
-
 			// Support for RegExp pattern matching
 			regExpSupport = config.optBoolean("regexpqueries", false);
-
 			// ETL
 			maxEtlProcesses = config.optInt("maxetlprocesses", 5);
+			// Logging
+			logLevel = config.optString("loglevel", "info");
 
 			// Database
 			JSONObject dbConfig = config.getJSONObject("database");
@@ -67,9 +67,6 @@ public class RowStoreConfig {
 			dbUser = dbConfig.getString("user");
 			dbPassword = dbConfig.getString("password");
 			dbMaxConnections = dbConfig.optInt("maxconnections", 30);
-
-			// Logging
-			logLevel = dbConfig.optString("loglevel", "info");
 		} catch (JSONException e) {
 			log.error(e.getMessage());
 		}
