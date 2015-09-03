@@ -53,6 +53,8 @@ public class PgRowStore implements RowStore {
 		pgDs.setPassword(config.getDbPassword());
 		pgDs.setServerName(config.getDbHost());
 		pgDs.setDatabaseName(config.getDbName());
+		pgDs.setPortNumber(config.getDbPort());
+		pgDs.setSsl(config.getDbSsl());
 
 		etlProcessor = new EtlProcessor(this);
 	}

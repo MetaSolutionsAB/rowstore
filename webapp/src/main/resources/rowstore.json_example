@@ -5,9 +5,11 @@
   "database": {
     "type": "postgresql",
     "host": "localhost",
+    "port": 5432,
     "database": "rowstore",
     "user": "rowstore",
-    "password": ""
+    "password": "",
+    "ssl": false
   },
   "loglevel": "debug"
 }

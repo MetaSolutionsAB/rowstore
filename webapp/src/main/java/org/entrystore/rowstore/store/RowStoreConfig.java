@@ -32,9 +32,13 @@ public class RowStoreConfig {
 
 	private String dbHost;
 
+	private int dbPort;
+
 	private String dbType;
 
 	private String dbName;
+
+	private boolean dbSsl;
 
 	private int dbMaxConnections;
 
@@ -63,10 +67,12 @@ public class RowStoreConfig {
 			JSONObject dbConfig = config.getJSONObject("database");
 			dbType = dbConfig.optString("type", "postgresql");
 			dbHost = dbConfig.getString("host");
+			dbPort = dbConfig.optInt("port", 5432);
 			dbName = dbConfig.getString("database");
 			dbUser = dbConfig.getString("user");
 			dbPassword = dbConfig.getString("password");
 			dbMaxConnections = dbConfig.optInt("maxconnections", 30);
+			dbSsl = dbConfig.optBoolean("ssl", false);
 		} catch (JSONException e) {
 			log.error(e.getMessage());
 		}
@@ -84,6 +90,10 @@ public class RowStoreConfig {
 		return dbHost;
 	}
 
+	public int getDbPort() {
+		return dbPort;
+	}
+
 	public String getDbType() {
 		return dbType;
 	}
@@ -94,6 +104,10 @@ public class RowStoreConfig {
 
 	public int getDbMaxConnections() {
 		return dbMaxConnections;
+	}
+
+	public boolean getDbSsl() {
+		return dbSsl;
 	}
 
 	public String getLogLevel() {
