@@ -29,9 +29,31 @@ With a few exceptions, all resources expect JSON payloads.
 
 ### /dataset/{id}
 
-- `HEAD http://{base-url}/dataset/{id}` - Returns the status of the dataset.
 - `GET http://{base-url}/dataset/{id}[?column1=value1&column2=value2]` - Queries the dataset with column/value-tuples. If no tuples are supplied the whole dataset is returned. Tuple values may be regular expressions if the RowStore instance is configured accordingly.  
 - `DELETE http://{base-url}/dataset/{id}` - Deletes the dataset.
+
+### /dataset/{id}/info
+
+- `GET http://{base-url}/dataset/{id}/info` - Returns information (e.g. status) about a dataset.
+
+Example information object:
+
+```
+{
+  "status": 3,
+  "created": 2015-04-23T12:20:43.511Z,
+  "columnnames": ["Station", "Lat", "Long", "Air quality"],
+  "rowcount": 342
+}
+```
+
+Available status values:
+
+- 0: Created
+- 1: Accepted data
+- 2: Processing
+- 3: Available
+- 4: Error
 
 ### /status
 
