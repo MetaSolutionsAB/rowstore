@@ -141,7 +141,7 @@ public class RowStoreApplication extends Application {
 		if (VERSION == null) {
 			URI versionFile = getConfigurationURI("VERSION.txt");
 			try {
-				log.info("Reading version number from " + versionFile);
+				log.debug("Reading version number from " + versionFile);
 				VERSION = readFirstLine(versionFile.toURL());
 			} catch (IOException e) {
 				log.error(e.getMessage());
@@ -196,7 +196,8 @@ public class RowStoreApplication extends Application {
 	}
 
 	private void setLogLevel(String logLevel) {
-		BasicConfigurator.configure();
+		log.info("Setting log level to " + logLevel);
+		//BasicConfigurator.configure(); // we don't need this as long as we have a log4j.properties in the classpath
 		Level l = Level.INFO;
 		if (logLevel != null) {
 			l = Level.toLevel(logLevel, Level.INFO);
