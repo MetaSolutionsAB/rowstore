@@ -27,7 +27,10 @@ import java.sql.Connection;
 import java.sql.SQLException;
 
 /**
+ * A PostgreSQL-specific implementation of the RowStore interface.
+ *
  * @author Hannes Ebner
+ * @see RowStore
  */
 public class PgRowStore implements RowStore {
 
@@ -59,16 +62,17 @@ public class PgRowStore implements RowStore {
 		etlProcessor = new EtlProcessor(this);
 	}
 
-	@Override
-	public DataSource getDataSource() {
-		return datasource;
-	}
-
+	/**
+	 * @see RowStore#getConnection()
+	 */
 	@Override
 	public Connection getConnection() throws SQLException {
 		return datasource.getConnection();
 	}
 
+	/**
+	 * @see RowStore#getEtlProcessor()
+	 */
 	@Override
 	public EtlProcessor getEtlProcessor() {
 		return etlProcessor;
@@ -83,11 +87,17 @@ public class PgRowStore implements RowStore {
 		return this.datasets;
 	}
 
+	/**
+	 * @see RowStore#getConfig()
+	 */
 	@Override
 	public RowStoreConfig getConfig() {
 		return config;
 	}
 
+	/**
+	 * @see RowStore#shutdown()
+	 */
 	@Override
 	public void shutdown() {
 		etlProcessor.shutdown();

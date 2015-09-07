@@ -22,6 +22,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
+ * Loads the configuration from a JSON file and provides convenience methods to access configuration properties.
+ *
  * @author Hannes Ebner
  */
 public class RowStoreConfig {

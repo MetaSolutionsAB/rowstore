@@ -26,6 +26,10 @@ import java.io.IOException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
+ * Manages the ETL-queue. Accepts and submits ETL-requests to the processing pipeline.
+ *
+ * Uses one thread to manage the queue and one thread per running ETL-process.
+ *
  * @author Hannes Ebner
  */
 public class EtlProcessor {

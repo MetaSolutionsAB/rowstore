@@ -23,18 +23,50 @@ import java.util.Set;
  */
 public interface Datasets {
 
+	/**
+	 * @return Returns dataset instances of all available datasets. The datasets are lazy-loaded for performance reasons.
+	 */
 	Set<Dataset> getAll();
 
+	/**
+	 * Creates an empty dataset.
+	 *
+	 * @return Returns a dataset instance.
+	 */
 	Dataset createDataset();
 
+	/**
+	 * Deletes a dataset.
+	 *
+	 * @param id The ID of the dataset to be deleted.
+	 * @return Returns true of successful.
+	 */
 	boolean purgeDataset(String id);
 
+	/**
+	 * Loads a dataset.
+	 *
+	 * @param id The ID of the dataset to be returned.
+	 * @return Returns a dataset instance.
+	 */
 	Dataset getDataset(String id);
 
+	/**
+	 * Checks whether a dataset exists.
+	 *
+	 * @param id The ID of the dataset to be checked.
+	 * @return Returns true if dataset exists.
+	 */
 	boolean hasDataset(String id);
 
+	/**
+	 * @return Returns the total amount of datasets.
+	 */
 	int amount();
 
+	/**
+	 * @return Returns a unique (per RowStore instance) dataset ID.
+	 */
 	String createUniqueDatasetId();
 
 }

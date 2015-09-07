@@ -51,7 +51,8 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 
 /**
- * RowStore converts and pushes CSV to a JSON-aware backend. Provides a REST API for management and querying.
+ * RowStore converts and pushes CSV to a JSON-aware backend.
+ * Provides a REST API for management and querying.
  *
  * @author Hannes Ebner
  */

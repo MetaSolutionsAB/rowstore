@@ -42,7 +42,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
+ * A PostgreSQL-specific implementation of the Dataset interface.
+ *
  * @author Hannes Ebner
+ * @see Dataset
  */
 public class PgDataset implements Dataset {
 
@@ -84,11 +87,17 @@ public class PgDataset implements Dataset {
 		this.dataTable = dataTable;
 	}
 
+	/**
+	 * @see Dataset#getId()
+	 */
 	@Override
 	public String getId() {
 		return id;
 	}
 
+	/**
+	 * @see Dataset#getStatus()
+	 */
 	@Override
 	public int getStatus() {
 		// we reload the info from the DB because the status may have changed
@@ -96,6 +105,9 @@ public class PgDataset implements Dataset {
 		return status;
 	}
 
+	/**
+	 * @see Dataset#setStatus(int)
+	 */
 	@Override
 	public void setStatus(int status) {
 		Connection conn = null;
@@ -133,6 +145,9 @@ public class PgDataset implements Dataset {
 		this.status = status;
 	}
 
+	/**
+	 * @see Dataset#getCreationDate()
+	 */
 	@Override
 	public Date getCreationDate() {
 		return created;
@@ -142,6 +157,9 @@ public class PgDataset implements Dataset {
 		return dataTable;
 	}
 
+	/**
+	 * @see Dataset#populate(File)
+	 */
 	@Override
 	public boolean populate(File csvFile) throws IOException {
 		if (csvFile == null) {
@@ -240,6 +258,9 @@ public class PgDataset implements Dataset {
 		}
 	}
 
+	/**
+	 * @see Dataset#query(Map)
+	 */
 	@Override
 	public List<JSONObject> query(Map<String, String> tuples) {
 		Connection conn = null;
@@ -319,6 +340,9 @@ public class PgDataset implements Dataset {
 		return result;
 	}
 
+	/**
+	 * @see Dataset#getColumnNames()
+	 */
 	@Override
 	public Set<String> getColumnNames() {
 		Connection conn = null;
@@ -373,6 +397,9 @@ public class PgDataset implements Dataset {
 		return result;
 	}
 
+	/**
+	 * Initializes the object by loading all information from the database.
+	 */
 	private void initFromDb() {
 		Connection conn = null;
 		PreparedStatement stmt = null;
@@ -420,6 +447,9 @@ public class PgDataset implements Dataset {
 		}
 	}
 
+	/**
+	 * @see Dataset#getRowCount()
+	 */
 	@Override
 	public int getRowCount() {
 		int result = -1;
@@ -464,6 +494,14 @@ public class PgDataset implements Dataset {
 		return result;
 	}
 
+	/**
+	 * Converts a CSV row to a JSON object.
+	 *
+	 * @param line The row consisting of its cells' values.
+	 * @param labels The column labels.
+	 * @return Returns a JSON object consisting of key (labels) - value (line/cell values) pairs.
+	 * @throws JSONException
+	 */
 	private JSONObject csvLineToJsonObject(String[] line, String[] labels) throws JSONException {
 		if (line.length != labels.length) {
 			throw new IllegalArgumentException("Arrays must not be of different length");

@@ -30,20 +30,54 @@ import java.util.Set;
  */
 public interface Dataset {
 
+	/**
+	 * @return Returns the ID of the dataset.
+	 */
 	String getId();
 
+	/**
+	 * @return Returns the status of the dataset.
+	 * @see org.entrystore.rowstore.etl.EtlStatus
+	 */
 	int getStatus();
 
+	/**
+	 * Sets the status of the dataset.
+	 * @param status
+	 * @see org.entrystore.rowstore.etl.EtlStatus
+	 */
 	void setStatus(int status);
 
+	/**
+	 * @return Returns the Date and Time of when the dataset was created.
+	 */
 	Date getCreationDate();
 
+	/**
+	 * Populates the dataset with data from a CSV file, i.e., reads a CSV file, converts the rows into JSON and loads in the DB backend.
+	 *
+	 * @param csvFile CSV file that fulfills RowStore's requirements, see official documentation.
+	 * @return Returns true if successful.
+	 * @throws IOException
+	 */
 	boolean populate(File csvFile) throws IOException;
 
+	/**
+	 * Returns matching rows of the dataset.
+	 *
+	 * @param tuples Key/value pairs where the keys must match the row names. Returns all data if the map is emtpy.
+	 * @return Returns a list of matching JSON objects.
+	 */
 	List<JSONObject> query(Map<String, String> tuples);
 
+	/**
+	 * @return Returns the dataset's column names.
+	 */
 	Set<String> getColumnNames();
 
+	/**
+	 * @return Returns the size (amount of rows) of the dataset.
+	 */
 	int getRowCount();
 
 }

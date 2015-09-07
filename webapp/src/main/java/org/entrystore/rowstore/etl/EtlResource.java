@@ -22,6 +22,8 @@ import org.restlet.data.MediaType;
 import java.io.File;
 
 /**
+ * Information container for resources to be submitted to the ETL-pipeline.
+ *
  * @author Hannes Ebner
  */
 public class EtlResource {

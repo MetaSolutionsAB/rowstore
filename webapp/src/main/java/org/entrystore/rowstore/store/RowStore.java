@@ -27,16 +27,30 @@ import java.sql.SQLException;
  */
 public interface RowStore {
 
-	DataSource getDataSource();
-
+	/**
+	 * @return Returns a database connection.
+	 * @throws SQLException
+	 */
 	Connection getConnection() throws SQLException;
 
+	/**
+	 * @return Returns an instance of the dataset manager.
+	 */
 	Datasets getDatasets();
 
+	/**
+	 * @return Returns the global configuration.
+	 */
 	RowStoreConfig getConfig();
 
+	/**
+	 * @return Returns the ETL processor.
+	 */
 	EtlProcessor getEtlProcessor();
 
+	/**
+	 * Initiates a graceful shutdown.
+	 */
 	void shutdown();
 
 }

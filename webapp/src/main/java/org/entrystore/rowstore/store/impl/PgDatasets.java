@@ -33,7 +33,10 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
+ * A PostgreSQL-specific implementation of the Datasets interface.
+ *
  * @author Hannes Ebner
+ * @see Datasets
  */
 public class PgDatasets implements Datasets {
 
@@ -48,6 +51,9 @@ public class PgDatasets implements Datasets {
 		createTableIfNotExists();
 	}
 
+	/**
+	 * @see Datasets#getAll()
+	 */
 	@Override
 	public Set<Dataset> getAll() {
 		Set<Dataset> result = null;
@@ -97,6 +103,9 @@ public class PgDatasets implements Datasets {
 		return result;
 	}
 
+	/**
+	 * @see Datasets#createDataset()
+	 */
 	@Override
 	public Dataset createDataset() {
 		String id = createUniqueDatasetId();
@@ -147,6 +156,9 @@ public class PgDatasets implements Datasets {
 		return null;
 	}
 
+	/**
+	 * @see Datasets#purgeDataset(String)
+	 */
 	@Override
 	public boolean purgeDataset(String id) {
 		if (id == null) {
@@ -192,6 +204,9 @@ public class PgDatasets implements Datasets {
 		}
 	}
 
+	/**
+	 * @see Datasets#getDataset(String)
+	 */
 	@Override
 	public Dataset getDataset(String id) {
 		if (id == null) {
@@ -200,6 +215,9 @@ public class PgDatasets implements Datasets {
 		return new PgDataset(rowstore, id);
 	}
 
+	/**
+	 * @see Datasets#hasDataset(String)
+	 */
 	@Override
 	public boolean hasDataset(String id) {
 		try {
@@ -209,6 +227,9 @@ public class PgDatasets implements Datasets {
 		return false;
 	}
 
+	/**
+	 * Makes sure the table for keeping track of datasets exists.
+	 */
 	private void createTableIfNotExists() {
 		Connection conn = null;
 		try {
@@ -230,10 +251,16 @@ public class PgDatasets implements Datasets {
 		}
 	}
 
+	/**
+	 * @return Returns the RowStore instance.
+	 */
 	public PgRowStore getRowStore() {
 		return this.rowstore;
 	}
 
+	/**
+	 * @see Datasets#amount()
+	 */
 	@Override
 	public int amount() {
 		int result = -1;
@@ -278,6 +305,9 @@ public class PgDatasets implements Datasets {
 		return result;
 	}
 
+	/**
+	 * @see Datasets#createUniqueDatasetId()
+	 */
 	@Override
 	public String createUniqueDatasetId() {
 		String uuid;
@@ -287,10 +317,18 @@ public class PgDatasets implements Datasets {
 		return uuid;
 	}
 
+	/**
+	 * Constructs a name for a DB data table based on a supplied ID.
+	 * @param id The ID to be used for constructing the table name.
+	 * @return Returns a table name for storing a dataset's data.
+	 */
 	private String constructDataTableName(String id) {
 		return "data_" + id.replaceAll("-", "");
 	}
 
+	/**
+	 * @return Returns the length of the data table names.
+	 */
 	private int getDataTableNameLength() {
 		return constructDataTableName(UUID.randomUUID().toString()).length();
 	}

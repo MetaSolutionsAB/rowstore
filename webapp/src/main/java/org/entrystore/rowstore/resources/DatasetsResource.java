@@ -38,6 +38,8 @@ import java.io.InputStream;
 import java.util.Set;
 
 /**
+ * Supports listing of all existing datasets (GET) and the creation of new datasets (POST).
+ *
  * @author Hannes Ebner
  */
 public class DatasetsResource extends BaseResource {

@@ -17,6 +17,8 @@
 package org.entrystore.rowstore.etl;
 
 /**
+ * Status values for datasets to describe where in the ETL-pipeline they are.
+ *
  * @author Hannes Ebner
  */
 public class EtlStatus {

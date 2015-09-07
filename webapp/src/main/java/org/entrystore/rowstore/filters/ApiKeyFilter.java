@@ -41,7 +41,7 @@ public class ApiKeyFilter extends Filter {
 				return CONTINUE;
 			} else {
 				/*
-				TODO
+				TODO not implemented yet
 
 				check for API-key and its validity,
 				return CONTINUE if the key matches,

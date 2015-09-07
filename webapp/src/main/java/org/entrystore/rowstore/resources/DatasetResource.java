@@ -34,6 +34,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
+ * Supports to fetch, query and purge a dataset.
+ *
  * @author Hannes Ebner
  */
 public class DatasetResource extends BaseResource {

@@ -30,6 +30,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
+ * Base resource from which all other REST resources are subclassed.
+ *
+ * Handles basic functionality such as parsing of parameters.
+ *
  * @author Hannes Ebner
  */
 public class BaseResource extends ServerResource {

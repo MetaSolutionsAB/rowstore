@@ -26,6 +26,8 @@ import org.restlet.representation.Representation;
 import org.restlet.resource.Get;
 
 /**
+ * Returns information about a dataset.
+ *
  * @author Hannes Ebner
  */
 public class DatasetInfoResource extends BaseResource {

@@ -21,6 +21,8 @@ import org.slf4j.Logger;
 import java.sql.SQLException;
 
 /**
+ * Provides a utility method to log SQLExceptions, in particular the recursive getNextException().
+ *
  * @author Hannes Ebner
  */
 public class SqlExceptionLogUtil {
@@ -35,6 +37,12 @@ public class SqlExceptionLogUtil {
 		}
 	}
 
+	/**
+	 * Writes all error messages (including SQLException's getNextException(), recursively) to the logger's error-method.
+	 *
+	 * @param log The logger's instance
+	 * @param exception A SQLException
+	 */
 	public static void error(Logger log, SQLException exception) {
 		error(log, exception, 0);
 	}

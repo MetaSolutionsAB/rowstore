@@ -24,6 +24,8 @@ import org.restlet.representation.Representation;
 import org.restlet.resource.Get;
 
 /**
+ * Returns status about the RowStore instance.
+ *
  * @author Hannes Ebner
  */
 public class StatusResource extends BaseResource {
