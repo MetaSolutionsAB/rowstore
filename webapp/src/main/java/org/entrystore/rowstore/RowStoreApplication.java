@@ -156,6 +156,10 @@ public class RowStoreApplication extends Application {
 
 		if (args.length > 0) {
 			configURI = new File(args[0]).toURI();
+			if (!new File(configURI).exists()) {
+				System.out.println("Configuration file not found");
+				configURI = null;
+			}
 		}
 
 		if (args.length > 1) {
