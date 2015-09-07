@@ -50,7 +50,7 @@ public class PgDatasets implements Datasets {
 
 	@Override
 	public Set<Dataset> getAll() {
-		Set<Dataset> result = new HashSet<>();
+		Set<Dataset> result = null;
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
@@ -59,6 +59,7 @@ public class PgDatasets implements Datasets {
 			stmt = conn.prepareStatement("SELECT * FROM " + TABLE_NAME);
 			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
+			result = new HashSet<>();
 			while (rs.next()) {
 				UUID id = (UUID) rs.getObject("id");
 				int status = rs.getInt("status");

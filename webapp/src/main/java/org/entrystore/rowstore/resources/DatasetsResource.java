@@ -48,12 +48,16 @@ public class DatasetsResource extends BaseResource {
 	public Representation represent() {
 		JSONArray result = new JSONArray();
 		Set<Dataset> datasets = getRowStore().getDatasets().getAll();
-		for (Dataset ds : datasets) {
-			result.put(ds.getId());
+		if (datasets != null) {
+			for (Dataset ds : datasets) {
+				result.put(ds.getId());
+			}
+			setStatus(Status.SUCCESS_OK);
+			return new JsonRepresentation(result);
 		}
 
-		setStatus(Status.SUCCESS_OK);
-		return new JsonRepresentation(result);
+		setStatus(Status.SERVER_ERROR_INTERNAL);
+		return null;
 	}
 
 	@Post("csv")
