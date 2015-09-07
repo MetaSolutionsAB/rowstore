@@ -91,6 +91,7 @@ public class DatasetsResource extends BaseResource {
 				result.put("id", newDataset.getId());
 				result.put("url", datasetURL);
 				result.put("status", EtlStatus.ACCEPTED_DATA);
+				result.put("info", datasetURL + "/info");
 			} catch (JSONException e) {
 				log.error(e.getMessage());
 			}
