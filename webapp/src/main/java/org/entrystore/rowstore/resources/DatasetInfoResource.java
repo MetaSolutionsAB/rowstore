@@ -25,6 +25,8 @@ import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.resource.Get;
 
+import java.text.SimpleDateFormat;
+
 /**
  * Returns information about a dataset.
  *
@@ -50,7 +52,7 @@ public class DatasetInfoResource extends BaseResource {
 		if (dataset != null) {
 			try {
 				result.put("status", dataset.getStatus());
-				result.put("created", dataset.getCreationDate());
+				result.put("created", new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ").format(dataset.getCreationDate()));
 				result.put("columnnames", dataset.getColumnNames());
 				result.put("rowcount", dataset.getRowCount());
 			} catch (JSONException e) {
