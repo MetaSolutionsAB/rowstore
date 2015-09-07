@@ -25,14 +25,18 @@ import java.sql.SQLException;
  */
 public class SqlExceptionLogUtil {
 
-	public static void error(Logger log, SQLException exception) {
+	private static void error(Logger log, SQLException exception, int loopCount) {
 		if (log == null || exception == null) {
 			throw new IllegalArgumentException("Arguments must not be null");
 		}
 		log.error(exception.getMessage());
-		if (exception.getNextException() != null) {
-			error(log, exception.getNextException());
+		if (exception.getNextException() != null && ++loopCount < 10) {
+			error(log, exception.getNextException(), loopCount);
 		}
+	}
+
+	public static void error(Logger log, SQLException exception) {
+		error(log, exception, 0);
 	}
 
 }
