@@ -69,6 +69,7 @@ public class DatasetsResource extends BaseResource {
 			try {
 				tmpFile = File.createTempFile(RowStoreApplication.NAME, ".csv");
 				tmpFile.deleteOnExit();
+				log.info("Created temporary file " + tmpFile);
 			} catch (IOException e) {
 				log.error(e.getMessage());
 				getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
@@ -77,6 +78,7 @@ public class DatasetsResource extends BaseResource {
 
 			if (tmpFile != null) {
 				try {
+					log.info("Writing request body to " + tmpFile);
 					writeFile(entity.getStream(), tmpFile);
 				} catch (IOException ioe) {
 					log.error(ioe.getMessage());
@@ -109,6 +111,7 @@ public class DatasetsResource extends BaseResource {
 			// we delete the temporary file if something has gone wrong
 			// and the conversion process does not continue
 			if (tmpFile != null && !Status.SUCCESS_ACCEPTED.equals(getResponse().getStatus())) {
+				log.info("Deleting temporary file " + tmpFile);
 				tmpFile.delete();
 			}
 		}
@@ -127,6 +130,13 @@ public class DatasetsResource extends BaseResource {
 		return result.toString();
 	}
 
+	/**
+	 * Writes an InputStream to a File.
+	 *
+	 * @param src Data source.
+	 * @param dst Destination.
+	 * @throws IOException
+	 */
 	private void writeFile(InputStream src, File dst) throws IOException {
 		if (src == null || dst == null) {
 			throw new IllegalArgumentException("Parameters must not be null");

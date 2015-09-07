@@ -21,6 +21,8 @@ import org.entrystore.rowstore.store.Datasets;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStoreConfig;
 import org.postgresql.ds.PGSimpleDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -33,6 +35,8 @@ import java.sql.SQLException;
  * @see RowStore
  */
 public class PgRowStore implements RowStore {
+
+	private static Logger log = LoggerFactory.getLogger(PgRowStore.class);
 
 	DataSource datasource;
 
@@ -100,6 +104,7 @@ public class PgRowStore implements RowStore {
 	 */
 	@Override
 	public void shutdown() {
+		log.info("Shutting down RowStore");
 		etlProcessor.shutdown();
 	}
 

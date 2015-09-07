@@ -121,6 +121,7 @@ public class PgDataset implements Dataset {
 			uuid.setType("uuid");
 			uuid.setValue(id);
 			stmt.setObject(2, uuid);
+			log.info("Setting status of " + getId() + " to " + EtlStatus.toString(status) + "(" + status + ")");
 			log.debug("Executing: " + stmt);
 			stmt.executeUpdate();
 		} catch (SQLException e) {
@@ -411,6 +412,7 @@ public class PgDataset implements Dataset {
 			uuid.setType("uuid");
 			uuid.setValue(getId());
 			stmt.setObject(1, uuid);
+			log.info("Loading dataset " + getId() + " from database");
 			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
 			if (rs.next()) {

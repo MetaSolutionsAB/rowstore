@@ -56,6 +56,7 @@ public class EtlProcessor {
 				if (!postQueue.isEmpty() && runningConversions <= concurrentConversions) {
 					EtlResource res = postQueue.poll();
 					if (res != null) {
+						log.info("Starting dataset loader for " + res.getDataset().getId());
 						new DatasetLoader(res).start();
 						synchronized (mutex) {
 							runningConversions++;
@@ -87,7 +88,12 @@ public class EtlProcessor {
 			try {
 				File fileToLoad = etlResource.getDataSource();
 				Dataset dataset = etlResource.getDataset();
-				dataset.populate(fileToLoad);
+				log.info("Populating dataset " + dataset.getId() + " with data from file " + fileToLoad);
+				if (dataset.populate(fileToLoad)) {
+					log.info("Dataset " + dataset.getId() + " successfully populated");
+				} else {
+					log.info("An error occured while populating dataset " + dataset.getId());
+				}
 			} catch (IOException e) {
 				log.error(e.getMessage());
 			} finally {
@@ -101,10 +107,12 @@ public class EtlProcessor {
 		this.rowstore = rowstore;
 		this.concurrentConversions = rowstore.getConfig().getMaxEtlProcesses();
 		datasetSubmitter = new DatasetSubmitter();
+		log.info("Starting dataset submitter");
 		datasetSubmitter.start();
 	}
 
 	public void submit(EtlResource etlResource) {
+		log.info("Adding dataset " + etlResource.getDataset().getId() + " to ETL processing queue");
 		postQueue.add(etlResource);
 	}
 
@@ -115,6 +123,7 @@ public class EtlProcessor {
 	}
 
 	public void shutdown() {
+		log.info("Shutting down ETL processor");
 		if (datasetSubmitter != null) {
 			datasetSubmitter.interrupt();
 		}

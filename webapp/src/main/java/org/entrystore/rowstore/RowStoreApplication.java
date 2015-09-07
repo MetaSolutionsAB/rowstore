@@ -82,9 +82,11 @@ public class RowStoreApplication extends Application {
 		}
 
 		if (configURI != null && "file".equals(configURI.getScheme())) {
+			log.info("Loading configuration from " + configURI);
 			config = new RowStoreConfig(new JSONObject(new String(Files.readAllBytes(Paths.get(configURI)))));
 			setLogLevel(config.getLogLevel());
 			rowstore = new PgRowStore(config);
+			log.info("Started RowStore " + getVersion());
 		} else {
 			log.error("No configuration found");
 			System.exit(1);
@@ -139,7 +141,7 @@ public class RowStoreApplication extends Application {
 		if (VERSION == null) {
 			URI versionFile = getConfigurationURI("VERSION.txt");
 			try {
-				log.debug("Reading version number from " + versionFile);
+				log.info("Reading version number from " + versionFile);
 				VERSION = readFirstLine(versionFile.toURL());
 			} catch (IOException e) {
 				log.error(e.getMessage());

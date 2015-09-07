@@ -24,7 +24,7 @@ import org.restlet.resource.ResourceException;
 
 
 /**
- * Fallback if no other REST resource matches.
+ * Fallback if no other REST resource matches. Returns 404.
  * 
  * @author Hannes Ebner
  */

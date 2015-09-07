@@ -134,7 +134,7 @@ public class PgDatasets implements Datasets {
 			ps.close();
 
 			conn.commit();
-
+			log.info("Created dataset " + id);
 			return new PgDataset(getRowStore(), id, EtlStatus.CREATED, created, dataTable);
 		} catch (SQLException e) {
 			try {
@@ -184,6 +184,7 @@ public class PgDatasets implements Datasets {
 			ps.close();
 
 			conn.commit();
+			log.info("Purged dataset " + id);
 			return true;
 		} catch (SQLException e) {
 			try {

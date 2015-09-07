@@ -113,10 +113,13 @@ public class DatasetResource extends BaseResource {
 			return;
 		}
 
+		log.info("Purging dataset " + dataset.getId());
 		boolean successful = getRowStore().getDatasets().purgeDataset(dataset.getId());
 		if (successful) {
+			log.info("Dataset " + dataset.getId() + " successfully purged");
 			setStatus(Status.SUCCESS_OK);
 		} else {
+			log.error("An error occurred while purging dataset " + dataset.getId());
 			setStatus(Status.SERVER_ERROR_INTERNAL);
 		}
 	}

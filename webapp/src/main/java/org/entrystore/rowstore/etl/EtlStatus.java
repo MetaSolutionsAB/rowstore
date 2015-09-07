@@ -23,14 +23,25 @@ package org.entrystore.rowstore.etl;
  */
 public class EtlStatus {
 
-	public static int CREATED = 0;
+	public static final int CREATED = 0;
 
-	public static int ACCEPTED_DATA = 1;
+	public static final int ACCEPTED_DATA = 1;
 
-	public static int PROCESSING = 2;
+	public static final int PROCESSING = 2;
 
-	public static int AVAILABLE = 3;
+	public static final int AVAILABLE = 3;
 
-	public static int ERROR = 4;
+	public static final int ERROR = 4;
+
+	public static String toString(int status) {
+		switch (status) {
+			case CREATED: return "Created";
+			case ACCEPTED_DATA: return "Accepted data";
+			case PROCESSING: return "Processing";
+			case AVAILABLE: return "Available";
+			case ERROR: return "Error";
+			default: return "Unknown";
+		}
+	}
 
 }
