@@ -89,6 +89,23 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 }
 ```
 
+## Installation
+
+RowStore is built using Maven:
+
+```
+mvn -Dmaven.test.skip=true install
+```
+
+Successfully built, the WAR-file can be deployed as webapp in e.g. Tomcat, or run standalone:
+
+```
+chmod +x standalone/target/dist/bin/ldc
+standalone/target/dist/bin/ldc <path-to-configuration.json> [port-number]
+```
+
+The port number is optional, by default port 8282 is used.
+
 ## Security
 
 RowStore provides a private REST API (for data management) and a well as a public REST API (for data retrieval). Currently RowStore does not provide any own security mechanism and it is recommended that the private API is protected by a web server/reverse proxy with authentication features such as Apache HTTPD.
