@@ -223,7 +223,11 @@ public class PgDataset implements Dataset {
 
 			// we commit the transaction and free the resources of the statement
 			conn.commit();
-			this.setStatus(EtlStatus.AVAILABLE);
+
+			// we create an index over the data
+			createIndex(conn, dataTable, labels);
+
+			setStatus(EtlStatus.AVAILABLE);
 			return true;
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
@@ -232,7 +236,7 @@ public class PgDataset implements Dataset {
 			} catch (SQLException e1) {
 				SqlExceptionLogUtil.error(log, e1);
 			}
-			this.setStatus(EtlStatus.ERROR);
+			setStatus(EtlStatus.ERROR);
 			return false;
 		} finally {
 			if (cr != null) {
@@ -257,6 +261,25 @@ public class PgDataset implements Dataset {
 				}
 			}
 		}
+	}
+
+	private void createIndex(Connection conn, String table, String[] fields) throws SQLException {
+		/*
+		The following works, but is prone to SQL-injection
+		Sadly, prepared statements cannot be used for "CREATE INDEX"
+
+		for (int i = 0; i < fields.length; i++) {
+			String sql = new StringBuilder("CREATE INDEX ON ").append(table).
+					append(" (").append("(data->>'").append(fields[i]).append("')").append(")").toString();
+			log.debug("Executing: " + sql);
+			Statement stmnt = conn.createStatement();
+			stmnt.execute(sql);
+		}
+		*/
+		String sql = new StringBuilder("CREATE INDEX ON ").append(table).append(" USING GIN(data jsonb_path_ops)").toString();
+		log.debug("Executing: " + sql);
+		conn.createStatement().execute(sql);
+		conn.commit();
 	}
 
 	/**
