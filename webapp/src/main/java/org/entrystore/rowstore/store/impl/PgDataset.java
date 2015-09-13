@@ -22,6 +22,7 @@ import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.postgresql.core.BaseConnection;
 import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -221,11 +222,11 @@ public class PgDataset implements Dataset {
 			log.debug("Executing: " + stmt);
 			stmt.executeBatch();
 
-			// we commit the transaction and free the resources of the statement
-			conn.commit();
-
 			// we create an index over the data
 			createIndex(conn, dataTable, labels);
+
+			// we commit the transaction and free the resources of the statement
+			conn.commit();
 
 			setStatus(EtlStatus.AVAILABLE);
 			return true;
@@ -264,22 +265,28 @@ public class PgDataset implements Dataset {
 	}
 
 	private void createIndex(Connection conn, String table, String[] fields) throws SQLException {
-		/*
-		The following works, but is prone to SQL-injection
-		Sadly, prepared statements cannot be used for "CREATE INDEX"
-
 		for (int i = 0; i < fields.length; i++) {
-			String sql = new StringBuilder("CREATE INDEX ON ").append(table).
-					append(" (").append("(data->>'").append(fields[i]).append("')").append(")").toString();
+			// We cannot use prepared statements for CREATE INDEX with parametrized fields:
+			// the type to be used with setObject() is not known and setString() does not work.
+			// It should be safe to run BaseConnection.escapeString() to avoid SQL-injection
+			String sql = new StringBuilder("CREATE INDEX ON ").
+					append(table).
+					append(" (").
+					append("(data->>'").
+					append(((BaseConnection) conn).escapeString(fields[i])).
+					append("'))").
+					toString();
 			log.debug("Executing: " + sql);
-			Statement stmnt = conn.createStatement();
-			stmnt.execute(sql);
+			conn.createStatement().execute(sql);
 		}
-		*/
+		/*
+		The index below may be used for more advanced JSON-specific indexing
+		and querying, but currently we don't need this functionality
+
 		String sql = new StringBuilder("CREATE INDEX ON ").append(table).append(" USING GIN(data jsonb_path_ops)").toString();
 		log.debug("Executing: " + sql);
 		conn.createStatement().execute(sql);
-		conn.commit();
+		*/
 	}
 
 	/**
