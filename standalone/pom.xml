@@ -25,11 +25,11 @@
                     <programs>
                         <program>
                             <mainClass>org.entrystore.rowstore.RowStoreApplication</mainClass>
-                            <id>ldc</id>
+                            <id>rowstore</id>
                         </program>
                     </programs>
                     <assembleDirectory>${project.build.directory}/dist</assembleDirectory>
-                    <extraJvmArguments>-Xms256m</extraJvmArguments>
+                    <extraJvmArguments>-Xms512m</extraJvmArguments>
                 </configuration>
                 <executions>
                     <execution>
