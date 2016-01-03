@@ -535,8 +535,8 @@ public class PgDataset implements Dataset {
 	 * @throws JSONException
 	 */
 	private JSONObject csvLineToJsonObject(String[] line, String[] labels) throws JSONException {
-		if (line.length != labels.length) {
-			throw new IllegalArgumentException("Arrays must not be of different length");
+		if (line.length > labels.length) {
+			throw new IllegalArgumentException("Amount of values per row must not be higher than amount of labels in first row of CSV file");
 		}
 
 		JSONObject result = new JSONObject();
