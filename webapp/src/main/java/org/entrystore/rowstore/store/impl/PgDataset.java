@@ -203,6 +203,7 @@ public class PgDataset implements Dataset {
 						stmt.addBatch();
 						// we execute the batch every 100th line
 						if ((lineCount % 100) == 0) {
+							log.debug("Executing: " + stmt);
 							stmt.executeBatch();
 						}
 					} catch (SQLException e) {
