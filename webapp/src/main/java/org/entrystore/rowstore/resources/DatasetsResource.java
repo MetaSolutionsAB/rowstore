@@ -64,6 +64,11 @@ public class DatasetsResource extends BaseResource {
 
 	@Post("csv")
 	public void acceptCSV(Representation entity) {
+		if (entity == null) {
+			getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
+			return;
+		}
+
 		File tmpFile = null;
 		try {
 			try {

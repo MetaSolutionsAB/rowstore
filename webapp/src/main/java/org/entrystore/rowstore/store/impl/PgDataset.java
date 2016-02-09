@@ -174,7 +174,7 @@ public class PgDataset implements Dataset {
 			return false;
 		}
 
-		this.setStatus(EtlStatus.PROCESSING);
+		setStatus(EtlStatus.PROCESSING);
 
 		Connection conn = null;
 		PreparedStatement stmt = null;
@@ -192,28 +192,27 @@ public class PgDataset implements Dataset {
 				if (lineCount == 0) {
 					labels = line;
 				} else {
+					JSONObject jsonLine = null;
 					try {
-						JSONObject jsonLine = csvLineToJsonObject(line, labels);
-						stmt.setInt(1, lineCount);
-						PGobject jsonb = new PGobject();
-						jsonb.setType("jsonb");
-						jsonb.setValue(jsonLine.toString());
-						stmt.setObject(2, jsonb);
-						log.debug("Adding to batch: " + stmt);
-						stmt.addBatch();
-						// we execute the batch every 100th line
-						if ((lineCount % 100) == 0) {
-							log.debug("Executing: " + stmt);
-							stmt.executeBatch();
-						}
-					} catch (SQLException e) {
-						SqlExceptionLogUtil.error(log, e);
-						conn.rollback();
-						return false;
-					} catch (JSONException e) {
+						jsonLine = csvLineToJsonObject(line, labels);
+					} catch (Exception e) {
 						log.error(e.getMessage());
+						log.info("Rolling back transaction");
 						conn.rollback();
+						setStatus(EtlStatus.ERROR);
 						return false;
+					}
+					stmt.setInt(1, lineCount);
+					PGobject jsonb = new PGobject();
+					jsonb.setType("jsonb");
+					jsonb.setValue(jsonLine.toString());
+					stmt.setObject(2, jsonb);
+					log.debug("Adding to batch: " + stmt);
+					stmt.addBatch();
+					// we execute the batch every 100th line
+					if ((lineCount % 100) == 0) {
+						log.debug("Executing: " + stmt);
+						stmt.executeBatch();
 					}
 				}
 				lineCount++;
@@ -234,6 +233,7 @@ public class PgDataset implements Dataset {
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 			try {
+				log.info("Rolling back transaction");
 				conn.rollback();
 			} catch (SQLException e1) {
 				SqlExceptionLogUtil.error(log, e1);
