@@ -36,6 +36,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -61,6 +62,10 @@ public class PgDataset implements Dataset {
 	private String dataTable;
 
 	private RowStore rowstore;
+
+	private Map<String, Integer> columnSize = new HashMap<>();
+
+	int maxSizeForIndex = 256;
 
 	protected PgDataset(RowStore rowstore, String id) {
 		if (rowstore == null) {
@@ -267,6 +272,13 @@ public class PgDataset implements Dataset {
 
 	private void createIndex(Connection conn, String table, String[] fields) throws SQLException {
 		for (int i = 0; i < fields.length; i++) {
+			// We do not try to index fields that are too large as we would get an error from PostgreSQL
+			// TODO instead of just skipping the index we could run a fulltext-index on such fields
+			Integer fieldSize = columnSize.get(fields[i]);
+			if (fieldSize != null && fieldSize > maxSizeForIndex) {
+				log.debug("Skipping index creation for field \"" + fields[i] + "\"; the configured max field size is " + maxSizeForIndex + ", but the actual size is " + fieldSize);
+				continue;
+			}
 			// We cannot use prepared statements for CREATE INDEX with parametrized fields:
 			// the type to be used with setObject() is not known and setString() does not work.
 			// It should be safe to run BaseConnection.escapeString() to avoid SQL-injection
@@ -543,9 +555,17 @@ public class PgDataset implements Dataset {
 		JSONObject result = new JSONObject();
 		for (int i = 0; i < line.length; i++) {
 			result.put(labels[i], line[i]);
+			putAndRetainLargestValue(labels[i], line[i].length());
 		}
 
 		return result;
+	}
+
+	private void putAndRetainLargestValue(String key, int length) {
+		Integer existing = columnSize.get(key);
+		if (existing == null || (existing < length)) {
+			columnSize.put(key, length);
+		}
 	}
 
 }
