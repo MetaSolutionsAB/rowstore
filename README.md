@@ -97,7 +97,7 @@ RowStore is built using Maven:
 mvn -Dmaven.test.skip=true install
 ```
 
-Successfully built, the WAR-file can be deployed as webapp in e.g. Tomcat, or run standalone:
+Successfully built, the WAR-file can be deployed as webapp in e.g. Tomcat, or be run standalone:
 
 ```
 chmod +x standalone/target/dist/bin/ldc
@@ -108,7 +108,7 @@ The port number is optional, by default port 8282 is used.
 
 ## Security
 
-RowStore provides a private REST API (for data management) and a well as a public REST API (for data retrieval). Currently RowStore does not provide any own security mechanism and it is recommended that the private API is protected by a web server/reverse proxy with authentication features such as Apache HTTPD.
+RowStore provides a private REST API (for data management) as well as a public REST API (for data retrieval). Currently RowStore does not provide any own security mechanism and it is recommended that the private API is protected by a web server/reverse proxy with authentication features such as Apache HTTPD.
 
 ## Issue tracking
 
@@ -129,10 +129,12 @@ A table per dataset holds the actual data in JSON:
 ### Version 1.0
 
 - Support for [_CSV2JSON minimal mode_](http://www.w3.org/TR/csv2json/#dfn-minimal-mode)
+- Support for PostgreSQL as backend
 
 ### Version 1.1
 
 - Support for [_CSV2JSON standard mode_](http://www.w3.org/TR/csv2json/#dfn-standard-mode)
+- Support for MySQL as backend
 
 ### Version 1.2
 
@@ -144,4 +146,4 @@ A table per dataset holds the actual data in JSON:
 
 ## License
 
-[MetaSolutions AB](http://www.metasolutions.se) licenses this work under the terms of the Apache License 2.0 (the "License"); you may not use this file except in compliance with the License. See the `LICENSE.txt` file distributed with this work for the full License.
+[MetaSolutions AB](http://www.metasolutions.se) licenses this work under the terms of the Apache License 2.0 (the "License"); you may not use this work except in compliance with the License. See the `LICENSE.txt` file distributed with this work for the full License.
