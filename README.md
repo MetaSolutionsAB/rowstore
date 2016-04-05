@@ -100,8 +100,8 @@ mvn -Dmaven.test.skip=true install
 Successfully built, the WAR-file can be deployed as webapp in e.g. Tomcat, or be run standalone:
 
 ```
-chmod +x standalone/target/dist/bin/ldc
-standalone/target/dist/bin/ldc <path-to-configuration.json> [port-number]
+chmod +x standalone/target/dist/bin/rowstore
+standalone/target/dist/bin/rowstore <path-to-configuration.json> [port-number]
 ```
 
 The port number is optional, by default port 8282 is used.
