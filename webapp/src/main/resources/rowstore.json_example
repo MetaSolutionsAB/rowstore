@@ -1,0 +1,15 @@
+{
+  "baseurl": "https://domain.com/rowstore/",
+  "regexpqueries": true,
+  "maxetlprocesses": 5,
+  "database": {
+    "type": "postgresql",
+    "host": "localhost",
+    "port": 5432,
+    "database": "rowstore",
+    "user": "rowstore",
+    "password": "",
+    "ssl": false
+  },
+  "loglevel": "debug"
+}

@@ -2,3 +2,5 @@
 pom.xml.versionsBackup
 *.iml
 target
+rowstore.json
+test.csv
