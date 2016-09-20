@@ -30,6 +30,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -395,22 +396,13 @@ public class PgDataset implements Dataset {
 		Set<String> result = new HashSet<>();
 		try {
 			conn = rowstore.getConnection();
-			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM " + getDataTable() + " LIMIT 1");
+			StringBuilder queryTemplate = new StringBuilder("SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable());
 			stmt = conn.prepareStatement(queryTemplate.toString());
 			log.debug("Executing: " + stmt);
 
 			rs = stmt.executeQuery();
-			if (rs.next()) {
-				String strRow = rs.getString("data");
-				try {
-					JSONObject jsonRow = new JSONObject(strRow);
-					Iterator<String> keys = jsonRow.keys();
-					while (keys.hasNext()) {
-						result.add(keys.next());
-					}
-				} catch (JSONException e) {
-					log.error(e.getMessage());
-				}
+			while (rs.next()) {
+				result.add(rs.getString("column_names"));
 			}
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
