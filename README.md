@@ -11,7 +11,7 @@ In order for RowStore to be able to properly process CSV files, some conventions
 
 - String values within the tabular data model (such as column titles or cell string values) must contain only Unicode characters.
 - The first row should contain short names for each column; they are used as property names during the CSV2JSON conversion. They are also used as variable names by the query API.
-- Comma ("`,`") must be used as column delimiter.
+- Comma ("`,`") must be used as column delimiter. There is some basic detection for CSV-files that are using semi-colon ("`;`") as separator, but it is recommended to use comma.
 - Quotation marks ("`"`") must be used as quotation characters.
 - Double backslash ("`\\`) must be used as escape characters.
 - Line feed ("`\n`") or carriage return followed by line feed ("`\r\n`") must be used to indicate a new line (i.e., a new row).
