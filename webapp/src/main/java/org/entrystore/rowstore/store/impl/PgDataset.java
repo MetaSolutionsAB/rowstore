@@ -17,6 +17,9 @@
 package org.entrystore.rowstore.store.impl;
 
 import com.opencsv.CSVReader;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.tika.detect.AutoDetectReader;
+import org.apache.tika.exception.TikaException;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
@@ -27,10 +30,10 @@ import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -187,7 +190,8 @@ public class PgDataset implements Dataset {
 		CSVReader cr = null;
 		try {
 			conn = rowstore.getConnection();
-			cr = new CSVReader(new FileReader(csvFile), ',' , '"');
+			char separator = detectSeparator(csvFile);
+			cr = new CSVReader(new AutoDetectReader(new FileInputStream(csvFile)), separator, '"');
 			int lineCount = 0;
 			String[] labels = null;
 			String[] line;
@@ -236,6 +240,10 @@ public class PgDataset implements Dataset {
 
 			setStatus(EtlStatus.AVAILABLE);
 			return true;
+		} catch (TikaException te) {
+			log.error(te.getMessage());
+			setStatus(EtlStatus.ERROR);
+			return false;
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 			try {
@@ -558,6 +566,36 @@ public class PgDataset implements Dataset {
 		if (existing == null || (existing < length)) {
 			columnSize.put(key, length);
 		}
+	}
+
+	private char detectSeparator(File csvFile) {
+		char result = ',';
+		BufferedReader br = null;
+		try {
+			br = new BufferedReader(new AutoDetectReader(new FileInputStream(csvFile)));
+			String line1 = br.readLine();
+			String line2 = br.readLine();
+			int semiCount1 = StringUtils.countMatches(line1, ";");
+			if ((semiCount1 > 0) && (semiCount1 == StringUtils.countMatches(line2, ";"))) {
+				result = ';';
+				log.debug("Detected use of semicolon as CSV separator");
+			} else {
+				log.debug("No semicolon detected, defaulting to comma as CSV separator");
+			}
+		} catch (IOException e) {
+			log.info(e.getMessage());
+		} catch (TikaException te) {
+			log.info(te.getMessage());
+		} finally {
+			if (br != null) {
+				try {
+					br.close();
+				} catch (IOException e) {
+					log.error(e.getMessage());
+				}
+			}
+		}
+		return result;
 	}
 
 }
