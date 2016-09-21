@@ -17,10 +17,10 @@
 package org.entrystore.rowstore.resources;
 
 import org.apache.log4j.Logger;
-import org.entrystore.rowstore.RowStoreApplication;
 import org.entrystore.rowstore.etl.EtlResource;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
+import org.entrystore.rowstore.util.DatasetUtil;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -32,9 +32,7 @@ import org.restlet.resource.Get;
 import org.restlet.resource.Post;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.Set;
 
 /**
@@ -72,32 +70,19 @@ public class DatasetsResource extends BaseResource {
 		File tmpFile = null;
 		try {
 			try {
-				tmpFile = File.createTempFile(RowStoreApplication.NAME, ".csv");
-				tmpFile.deleteOnExit();
-				log.info("Created temporary file " + tmpFile);
-			} catch (IOException e) {
-				log.error(e.getMessage());
+				tmpFile = DatasetUtil.writeTempFile(entity);
+			} catch (IOException ioe) {
+				log.error(ioe.getMessage());
 				getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
 				return;
 			}
 
-			if (tmpFile != null) {
-				try {
-					log.info("Writing request body to " + tmpFile);
-					writeFile(entity.getStream(), tmpFile);
-				} catch (IOException ioe) {
-					log.error(ioe.getMessage());
-					getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
-					return;
-				}
-			}
-
 			Dataset newDataset = getRowStore().getDatasets().createDataset();
 			newDataset.setStatus(EtlStatus.ACCEPTED_DATA);
-			EtlResource etlResource = new EtlResource(newDataset, tmpFile, MediaType.TEXT_CSV);
+			EtlResource etlResource = new EtlResource(newDataset, tmpFile, MediaType.TEXT_CSV, true);
 			getRowStore().getEtlProcessor().submit(etlResource);
 
-			String datasetURL = buildDatasetURL(getRowStore().getConfig().getBaseURL(), newDataset.getId());
+			String datasetURL = DatasetUtil.buildDatasetURL(getRowStore().getConfig().getBaseURL(), newDataset.getId());
 
 			JSONObject result = new JSONObject();
 			try {
@@ -113,61 +98,11 @@ public class DatasetsResource extends BaseResource {
 			getResponse().setEntity(new JsonRepresentation(result));
 			getResponse().setStatus(Status.SUCCESS_ACCEPTED);
 		} finally {
-			// we delete the temporary file if something has gone wrong
+			// Delete the temporary file if something has gone wrong
 			// and the conversion process does not continue
 			if (tmpFile != null && !Status.SUCCESS_ACCEPTED.equals(getResponse().getStatus())) {
 				log.info("Deleting temporary file " + tmpFile);
 				tmpFile.delete();
-			}
-		}
-	}
-
-	private String buildDatasetURL(String baseURL, String datasetId) {
-		if (baseURL == null || datasetId == null) {
-			throw new IllegalArgumentException("Arguments must not be null");
-		}
-		StringBuilder result = new StringBuilder(baseURL);
-		if (!baseURL.endsWith("/")) {
-			result.append("/");
-		}
-		result.append("dataset/");
-		result.append(datasetId);
-		return result.toString();
-	}
-
-	/**
-	 * Writes an InputStream to a File.
-	 *
-	 * @param src Data source.
-	 * @param dst Destination.
-	 * @throws IOException
-	 */
-	private void writeFile(InputStream src, File dst) throws IOException {
-		if (src == null || dst == null) {
-			throw new IllegalArgumentException("Parameters must not be null");
-		}
-
-		byte[] buffer = new byte[4096];
-		FileOutputStream fos = null;
-		try {
-			fos = new FileOutputStream(dst);
-			for (int length = 0; (length = src.read(buffer)) > 0; ) {
-				fos.write(buffer, 0, length);
-			}
-		} finally {
-			if (src != null) {
-				try {
-					src.close();
-				} catch (IOException e) {
-					log.error(e.getMessage());
-				}
-			}
-			if (fos != null) {
-				try {
-					fos.close();
-				} catch (IOException e) {
-					log.error(e.getMessage());
-				}
 			}
 		}
 	}

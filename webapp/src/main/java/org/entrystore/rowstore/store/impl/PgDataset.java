@@ -169,10 +169,10 @@ public class PgDataset implements Dataset {
 	}
 
 	/**
-	 * @see Dataset#populate(File)
+	 * @see Dataset#populate(File, boolean)
 	 */
 	@Override
-	public boolean populate(File csvFile) throws IOException {
+	public boolean populate(File csvFile, boolean append) throws IOException {
 		if (csvFile == null) {
 			throw new IllegalArgumentException("Argument must not be null");
 		}
@@ -197,6 +197,14 @@ public class PgDataset implements Dataset {
 			String[] line;
 
 			conn.setAutoCommit(false);
+
+			if (!append) {
+				// TODO test
+				String truncTable = "TRUNCATE " + dataTable;
+				conn.createStatement().executeUpdate(truncTable);
+				log.debug("Executing: " + truncTable);
+			}
+
 			stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (rownr, data) VALUES (?, ?)");
 			while ((line = cr.readNext()) != null) {
 				if (lineCount == 0) {
