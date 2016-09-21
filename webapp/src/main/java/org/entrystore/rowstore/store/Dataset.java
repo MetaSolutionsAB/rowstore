@@ -57,10 +57,11 @@ public interface Dataset {
 	 * Populates the dataset with data from a CSV file, i.e., reads a CSV file, converts the rows into JSON and loads in the DB backend.
 	 *
 	 * @param csvFile CSV file that fulfills RowStore's requirements, see official documentation.
+	 * @param append If true, appends data to already existing dataset. If false, the data of an eventually existing dataset is replaced.
 	 * @return Returns true if successful.
 	 * @throws IOException
 	 */
-	boolean populate(File csvFile) throws IOException;
+	boolean populate(File csvFile, boolean append) throws IOException;
 
 	/**
 	 * Returns matching rows of the dataset.
