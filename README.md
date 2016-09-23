@@ -124,7 +124,7 @@ An administrative table keeps track of datasets and their current status:
 
 A table per dataset holds the actual data in JSON:
 
-`CREATE TABLE IF NOT EXISTS {data-table} (rownr INTEGER PRIMARY KEY, data JSONB NOT NULL)`
+`CREATE TABLE IF NOT EXISTS {data-table} (rownr SERIAL, data JSONB NOT NULL)`
 
 ## Roadmap
 
