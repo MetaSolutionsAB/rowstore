@@ -29,7 +29,9 @@ With a few exceptions, all resources expect JSON payloads.
 
 ### /dataset/{id}
 
-- `GET http://{base-url}/dataset/{id}[?column1=value1&column2=value2]` - Queries the dataset with column/value-tuples. If no tuples are supplied the whole dataset is returned. Tuple values may be regular expressions if the RowStore instance is configured accordingly.  
+- `GET http://{base-url}/dataset/{id}[?column1=value1&column2=value2]` - Queries the dataset with column/value-tuples. If no tuples are supplied the whole dataset is returned. Tuple values may be regular expressions if the RowStore instance is configured accordingly.
+- `PUT http://{base-url}/dataset/{id}` - Replaces existing data, same contraints and parameters apply as for `POST http://{base-url}/datasets`.
+- `POST http://{base-url}/dataset/{id}` - Adds data to existing dataset. No structural integrity check is carried out, so it is possible to add data with a different field structure (i.e. column names). It is up to the client to enforce a consistent structure, if needed.
 - `DELETE http://{base-url}/dataset/{id}` - Deletes the dataset.
 
 ### /dataset/{id}/info
