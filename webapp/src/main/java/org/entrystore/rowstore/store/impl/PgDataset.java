@@ -23,6 +23,7 @@ import org.apache.tika.exception.TikaException;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
+import org.entrystore.rowstore.util.Hashing;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.postgresql.core.BaseConnection;
@@ -38,7 +39,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -185,6 +188,13 @@ public class PgDataset implements Dataset {
 
 		setStatus(EtlStatus.PROCESSING);
 
+		if (!append) {
+			if (!truncateTable()) {
+				setStatus(EtlStatus.ERROR);
+				return false;
+			}
+		}
+
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		CSVReader cr = null;
@@ -198,14 +208,7 @@ public class PgDataset implements Dataset {
 
 			conn.setAutoCommit(false);
 
-			if (!append) {
-				// TODO test
-				String truncTable = "TRUNCATE " + dataTable;
-				conn.createStatement().executeUpdate(truncTable);
-				log.debug("Executing: " + truncTable);
-			}
-
-			stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (rownr, data) VALUES (?, ?)");
+			stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (data) VALUES (?)");
 			while ((line = cr.readNext()) != null) {
 				if (lineCount == 0) {
 					labels = line;
@@ -220,11 +223,10 @@ public class PgDataset implements Dataset {
 						setStatus(EtlStatus.ERROR);
 						return false;
 					}
-					stmt.setInt(1, lineCount);
 					PGobject jsonb = new PGobject();
 					jsonb.setType("jsonb");
 					jsonb.setValue(jsonLine.toString());
-					stmt.setObject(2, jsonb);
+					stmt.setObject(1, jsonb);
 					log.debug("Adding to batch: " + stmt);
 					stmt.addBatch();
 					// we execute the batch every 100th line
@@ -240,8 +242,7 @@ public class PgDataset implements Dataset {
 			log.debug("Executing: " + stmt);
 			stmt.executeBatch();
 
-			// we create an index over the data
-			createIndex(conn, dataTable, labels);
+			createIndexes(conn, new HashSet<String>(Arrays.asList(labels)));
 
 			// we commit the transaction and free the resources of the statement
 			conn.commit();
@@ -287,23 +288,31 @@ public class PgDataset implements Dataset {
 		}
 	}
 
-	private void createIndex(Connection conn, String table, String[] fields) throws SQLException {
-		for (int i = 0; i < fields.length; i++) {
+	private void createIndexes(Connection conn, Set<String> fields) throws SQLException {
+		Set<String> existingIndices = getIndexNames();
+		for (String field : fields) {
 			// We do not try to index fields that are too large as we would get an error from PostgreSQL
 			// TODO instead of just skipping the index we could run a fulltext-index on such fields
-			Integer fieldSize = columnSize.get(fields[i]);
+			Integer fieldSize = columnSize.get(field);
 			if (fieldSize != null && fieldSize > maxSizeForIndex) {
-				log.debug("Skipping index creation for field \"" + fields[i] + "\"; the configured max field size is " + maxSizeForIndex + ", but the actual size is " + fieldSize);
+				log.debug("Skipping index creation for field \"" + field + "\"; the configured max field size is " + maxSizeForIndex + ", but the actual size is " + fieldSize);
+				continue;
+			}
+			String indexName = dataTable + "_jsonidx_" + Hashing.md5(field).substring(0, 8);
+			if (existingIndices.contains(indexName)) {
+				log.debug("Index with name " + indexName + " already exists, skipping creation");
 				continue;
 			}
 			// We cannot use prepared statements for CREATE INDEX with parametrized fields:
 			// the type to be used with setObject() is not known and setString() does not work.
 			// It should be safe to run BaseConnection.escapeString() to avoid SQL-injection
-			String sql = new StringBuilder("CREATE INDEX ON ").
-					append(table).
+			String sql = new StringBuilder("CREATE INDEX ").
+					append(indexName).
+					append(" ON ").
+					append(dataTable).
 					append(" (").
 					append("(data->>'").
-					append(((BaseConnection) conn).escapeString(fields[i])).
+					append(((BaseConnection) conn).escapeString(field)).
 					append("'))").
 					toString();
 			log.debug("Executing: " + sql);
@@ -317,6 +326,107 @@ public class PgDataset implements Dataset {
 		log.debug("Executing: " + sql);
 		conn.createStatement().execute(sql);
 		*/
+	}
+
+	private boolean truncateTable() {
+		Connection conn = null;
+		Statement stmt = null;
+		try {
+			conn = rowstore.getConnection();
+			conn.setAutoCommit(false);
+			stmt = conn.createStatement();
+
+			log.debug("Truncating contents of table " + dataTable);
+			String truncTable = "TRUNCATE " + dataTable;
+			stmt.executeUpdate(truncTable);
+			log.debug("Executing: " + truncTable);
+
+			log.debug("Removing all indexes from table " + dataTable);
+			Set<String> existingIndices = getIndexNames();
+			for (String index : existingIndices) {
+				// We cannot use prepared statements for CREATE INDEX with parametrized fields:
+				// the type to be used with setObject() is not known and setString() does not work.
+				// It should be safe to run BaseConnection.escapeString() to avoid SQL-injection
+				String sql = new StringBuilder("DROP INDEX IF EXISTS ").append(index).toString();
+				log.debug("Executing: " + sql);
+				stmt.executeUpdate(sql);
+			}
+
+			conn.commit();
+			return true;
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+			try {
+				log.info("Rolling back transaction");
+				conn.rollback();
+			} catch (SQLException e1) {
+				SqlExceptionLogUtil.error(log, e1);
+			}
+			return false;
+		} finally {
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+	}
+
+	private Set<String> getIndexNames() {
+		Set<String> result = new HashSet<>();
+		Connection conn = null;
+		ResultSet rs = null;
+		Statement stmnt = null;
+		try {
+			conn = rowstore.getConnection();
+			StringBuffer sql = new StringBuffer("SELECT ci.relname AS indexname ").
+					append("FROM pg_index i,pg_class ci,pg_class ct ").
+					append("WHERE i.indexrelid=ci.oid AND ").
+					append("i.indrelid=ct.oid AND ").
+					append("ct.relname='").append(dataTable).append("' AND ").
+					append("ci.relname LIKE '%_jsonidx_%';"); // we only want our own indexes (no primary keys etc), so we filter for _jsonidx_ in the index name
+			String sqlStr = sql.toString();
+			stmnt = conn.createStatement();
+			log.debug("Executing: " + sqlStr);
+			rs = stmnt.executeQuery(sqlStr);
+			while (rs.next()) {
+				result.add(rs.getString("indexname"));
+			}
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (stmnt != null) {
+				try {
+					stmnt.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+		return result;
 	}
 
 	/**
