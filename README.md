@@ -72,6 +72,11 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 - `maxetlprocesses` (Integer) - Maximum number of concurrently running ETL processes (each process takes up one thread).
 - `database` (parent object) - Configures the database connection.
 - `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
+- `ratelimit` - Configures rate limitation.
+  - `type` - `average` or `slidingwindow` (default).
+  - `timerange` - The size (in seconds) of the time slot or window to be used for calculating the limitation.
+  - `dataset` - Amount of permitted requests per dataset.
+  - `global` - Amount of permitted requests globally for a RowStore instance.
 
 ### Example
 
@@ -86,6 +91,12 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
     "database": "rowstore",
     "user": "rowstore",
     "password": ""
+  },
+  "ratelimit": {
+    "type": "slidingwindow",
+    "timerange": 60,
+    "dataset": 30,
+    "global": 300
   },
   "loglevel": "debug"
 }
