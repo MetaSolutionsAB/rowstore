@@ -20,6 +20,7 @@ import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.entrystore.rowstore.filters.JSCallbackFilter;
+import org.entrystore.rowstore.filters.RateLimitFilter;
 import org.entrystore.rowstore.resources.DatasetInfoResource;
 import org.entrystore.rowstore.resources.DatasetResource;
 import org.entrystore.rowstore.resources.DatasetsResource;
@@ -107,6 +108,13 @@ public class RowStoreApplication extends Application {
 
 		JSCallbackFilter jsCallback = new JSCallbackFilter();
 		jsCallback.setNext(router);
+
+		if (config.isRateLimitEnabled()) {
+			log.info("Request limit enabled. Time range: " + config.getRateLimitTimeRange() + " seconds, limit globally: " + config.getRateLimitRequestsGlobal() + ", limit per dataset: " + config.getRateLimitRequestsDataset());
+			RateLimitFilter rateLimitFilter = new RateLimitFilter(config);
+			rateLimitFilter.setNext(jsCallback);
+			return rateLimitFilter;
+		}
 
 		return jsCallback;
 	}
