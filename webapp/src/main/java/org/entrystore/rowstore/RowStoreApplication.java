@@ -16,7 +16,6 @@
 
 package org.entrystore.rowstore;
 
-import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.entrystore.rowstore.filters.JSCallbackFilter;
@@ -26,6 +25,7 @@ import org.entrystore.rowstore.resources.DatasetResource;
 import org.entrystore.rowstore.resources.DatasetsResource;
 import org.entrystore.rowstore.resources.DefaultResource;
 import org.entrystore.rowstore.resources.StatusResource;
+import org.entrystore.rowstore.resources.SwaggerResource;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStoreConfig;
 import org.entrystore.rowstore.store.impl.PgRowStore;
@@ -103,6 +103,7 @@ public class RowStoreApplication extends Application {
 		router.attach("/status", StatusResource.class);
 		router.attach("/dataset/{id}", DatasetResource.class);
 		router.attach("/dataset/{id}/info", DatasetInfoResource.class);
+		router.attach("/dataset/{id}/swagger", SwaggerResource.class);
 		router.attach("/datasets", DatasetsResource.class);
 		router.attach("/", DefaultResource.class);
 

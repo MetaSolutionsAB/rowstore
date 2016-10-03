@@ -1,0 +1,44 @@
+{
+  "swagger": "2.0",
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "info": {
+    "version": "__ROWSTORE_VERSION__",
+    "title": "Auto-generated API by RowStore",
+    "description": "This API has been automatically generated from tabular data."
+  },
+  "externalDocs": {
+    "description": "RowStore official code and documentation repository",
+    "url": "https://bitbucket.org/metasolutions/rowstore/"
+  },
+  "paths": {
+    "/dataset/__DATASET_ID__": {
+      "get": {
+        "summary": "Returns the full dataset or, if query parameters are provided, a filtered view of the dataset",
+        "operationId": "datasetQuery",
+        "produces": [
+          "application/json"
+        ],
+        "parameters":
+          __DATASET_PARAMETERS__
+        ,
+        "responses": {
+          "200": {
+            "description": "Successful operation"
+          },
+          "400": {
+            "description": "Invalid parameters"
+          },
+          "404": {
+            "description": "Dataset not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    }
+  }
+}
