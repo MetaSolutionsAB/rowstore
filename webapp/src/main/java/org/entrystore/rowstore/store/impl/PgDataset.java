@@ -40,6 +40,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -49,6 +50,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * A PostgreSQL-specific implementation of the Dataset interface.
@@ -81,8 +83,16 @@ public class PgDataset implements Dataset {
 		if (id == null) {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
+
 		this.rowstore = rowstore;
 		this.id = id;
+
+		// we check whether id is an alias and we try to resolve
+		String resolvedAlias = resolveAlias(id);
+		if (resolvedAlias != null) {
+			this.id = resolvedAlias;
+		}
+
 		initFromDb();
 	}
 
@@ -128,7 +138,7 @@ public class PgDataset implements Dataset {
 		try {
 			conn = rowstore.getConnection();
 			conn.setAutoCommit(true);
-			stmt = conn.prepareStatement("UPDATE " + PgDatasets.TABLE_NAME + " SET status = ? WHERE id = ?");
+			stmt = conn.prepareStatement("UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?");
 			stmt.setInt(1, status);
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
@@ -568,7 +578,7 @@ public class PgDataset implements Dataset {
 		ResultSet rs = null;
 		try {
 			conn = rowstore.getConnection();
-			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.TABLE_NAME + " WHERE id = ?");
+			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?");
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
 			uuid.setValue(getId());
@@ -581,10 +591,11 @@ public class PgDataset implements Dataset {
 				this.created = rs.getTimestamp("created");
 				this.dataTable = rs.getString("data_table");
 			} else {
-				throw new IllegalStateException("Unable to initialize Database object from database");
+				throw new IllegalStateException("Unable to initialize Dataset object from database");
 			}
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
+			throw new IllegalArgumentException(e);
 		} finally {
 			if (rs != null) {
 				try {
@@ -655,6 +666,180 @@ public class PgDataset implements Dataset {
 		}
 
 		return result;
+	}
+
+	/**
+	 * @see Dataset#getAliases()
+	 */
+	@Override
+	public Set<String> getAliases() {
+		Set<String> result = new HashSet<>();;
+		Connection conn = null;
+		PreparedStatement stmt = null;
+		ResultSet rs = null;
+		try {
+			conn = rowstore.getConnection();
+			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?");
+			PGobject uuid = new PGobject();
+			uuid.setType("uuid");
+			uuid.setValue(getId());
+			stmt.setObject(1, uuid);
+			log.info("Loading aliases for dataset " + getId());
+			log.debug("Executing: " + stmt);
+			rs = stmt.executeQuery();
+			while (rs.next()) {
+				String alias = rs.getString("alias");
+				result.add(alias);
+			}
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+
+		return result;
+	}
+
+	/**
+	 * @see Dataset#setAliases(Set)
+	 */
+	@Override
+	public boolean setAliases(Set<String> aliases) {
+		if (id == null) {
+			throw new IllegalArgumentException("Dataset ID must not be null");
+		}
+		Set<String> existingAliases = getAliases();
+		Connection conn = null;
+		PreparedStatement ps = null;
+		try {
+			conn = rowstore.getConnection();
+			conn.setAutoCommit(false);
+
+			ps = conn.prepareStatement("DELETE FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?");
+			PGobject uuid = new PGobject();
+			uuid.setType("uuid");
+			uuid.setValue(id);
+			ps.setObject(1, uuid);
+			log.debug("Executing: " + ps);
+			ps.execute();
+			ps.close();
+
+			ps = conn.prepareStatement("INSERT INTO " + PgDatasets.ALIAS_TABLE_NAME + " (dataset_id, alias) VALUES (?, ?)");
+			for (String alias : aliases) {
+				if (existingAliases.contains(alias) || (isAliasValid(alias) && isAliasAvailable(alias))) {
+					ps.setObject(1, uuid);
+					ps.setString(2, alias);
+					log.debug("Adding to batch: " + ps);
+					ps.addBatch();
+				} else {
+					log.debug("Received invalid or unavailable alias, rolling back");
+					conn.rollback();
+					return false;
+				}
+			}
+			log.debug("Executing and committing batch");
+			ps.executeBatch();
+			ps.close();
+			conn.commit();
+
+			return true;
+		} catch (SQLException e) {
+			try {
+				conn.rollback();
+			} catch (SQLException e1) {
+				SqlExceptionLogUtil.error(log, e1);
+			}
+			log.error(e.getMessage());
+			return false;
+		} finally {
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+	}
+
+	public String resolveAlias(String alias) {
+		String result = null;
+		Connection conn = null;
+		PreparedStatement stmt = null;
+		ResultSet rs = null;
+		try {
+			conn = rowstore.getConnection();
+			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?");
+			stmt.setString(1, alias);
+			log.debug("Executing: " + stmt);
+			rs = stmt.executeQuery();
+			if (rs.next()) {
+				UUID uuid = (UUID) rs.getObject("dataset_id");
+				return uuid.toString();
+			}
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+
+		return result;
+	}
+
+	private boolean isAliasValid(String alias) {
+		if (alias == null) {
+			return false;
+		}
+
+		if (!StringUtils.isAlphanumeric(alias)) {
+			return false;
+		}
+
+		return true;
+	}
+
+	private boolean isAliasAvailable(String alias) {
+		return (!rowstore.getDatasets().hasDataset(alias) && (resolveAlias(alias) == null));
 	}
 
 	/**

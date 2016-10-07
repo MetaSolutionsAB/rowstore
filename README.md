@@ -34,6 +34,8 @@ With a few exceptions, all resources expect JSON payloads.
 - `POST http://{base-url}/dataset/{id}` - Adds data to existing dataset. No structural integrity check is carried out, so it is possible to add data with a different field structure (i.e. column names). It is up to the client to enforce a consistent structure, if needed.
 - `DELETE http://{base-url}/dataset/{id}` - Deletes the dataset.
 
+An alias may be used in the URL instead of the ID above, see below for handling of aliases.
+
 ### /dataset/{id}/info
 
 - `GET http://{base-url}/dataset/{id}/info` - Returns information (e.g. status) about a dataset.
@@ -56,6 +58,15 @@ Available status values:
 - 2: Processing
 - 3: Available
 - 4: Error
+
+### /dataset/{id}/aliases
+
+- `GET http://{base-url}/dataset/{id}/aliases` - Returns a JSON array with all aliases of a dataset.
+- `PUT http://{base-url}/dataset/{id}/aliases` - Sets (and replaces if applicable) aliases of the dataset, expects a JSON array.
+- `POST http://{base-url}/dataset/{id}/aliases` - Adds an alias, does not replace existing datasets.
+- `DELETE http://{base-url}/dataset/{id}/aliases` - Removes all aliases of a dataset.
+
+Aliases may only contain alpha-numeric characters (including Unicode) and may be used as a replacement for the dataset's ID when requesting data. Aliases are basically "nice names" for a dataset.
 
 ### /status
 

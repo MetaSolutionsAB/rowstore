@@ -42,13 +42,16 @@ public class PgDatasets implements Datasets {
 
 	private static Logger log = LoggerFactory.getLogger(PgDatasets.class);
 
-	public static String TABLE_NAME = "datasets";
+	protected static String DATASETS_TABLE_NAME = "datasets";
+
+	protected static String ALIAS_TABLE_NAME = "aliases";
 
 	PgRowStore rowstore;
 
 	protected PgDatasets(PgRowStore rowstore) {
 		this.rowstore = rowstore;
-		createTableIfNotExists();
+		createDatasetTableIfNotExists();
+		createAliasTableIfNotExists();
 	}
 
 	/**
@@ -62,7 +65,7 @@ public class PgDatasets implements Datasets {
 		ResultSet rs = null;
 		try {
 			conn = getRowStore().getConnection();
-			stmt = conn.prepareStatement("SELECT * FROM " + TABLE_NAME);
+			stmt = conn.prepareStatement("SELECT * FROM " + DATASETS_TABLE_NAME);
 			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
 			result = new HashSet<>();
@@ -115,7 +118,7 @@ public class PgDatasets implements Datasets {
 			conn = getRowStore().getConnection();
 			conn.setAutoCommit(false);
 
-			PreparedStatement ps = conn.prepareStatement("INSERT INTO " + TABLE_NAME + " (id, status, created, data_table) VALUES (?, ?, ?, ?)");
+			PreparedStatement ps = conn.prepareStatement("INSERT INTO " + DATASETS_TABLE_NAME + " (id, status, created, data_table) VALUES (?, ?, ?, ?)");
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
 			uuid.setValue(id);
@@ -174,7 +177,7 @@ public class PgDatasets implements Datasets {
 			ps.execute();
 			ps.close();
 
-			ps = conn.prepareStatement("DELETE FROM " + TABLE_NAME + " WHERE id = ?");
+			ps = conn.prepareStatement("DELETE FROM " + DATASETS_TABLE_NAME + " WHERE id = ?");
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
 			uuid.setValue(id);
@@ -213,7 +216,11 @@ public class PgDatasets implements Datasets {
 		if (id == null) {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
-		return new PgDataset(rowstore, id);
+		try {
+			return new PgDataset(rowstore, id);
+		} catch (IllegalArgumentException iae) {
+			return null;
+		}
 	}
 
 	/**
@@ -221,21 +228,82 @@ public class PgDatasets implements Datasets {
 	 */
 	@Override
 	public boolean hasDataset(String id) {
+		Connection conn = null;
+		PreparedStatement stmt = null;
+		ResultSet rs = null;
 		try {
-			return getDataset(id) != null;
-		} catch (IllegalStateException ignored) {
+			conn = rowstore.getConnection();
+			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?");
+			PGobject uuid = new PGobject();
+			uuid.setType("uuid");
+			uuid.setValue(id);
+			stmt.setObject(1, uuid);
+			log.debug("Executing: " + stmt);
+			rs = stmt.executeQuery();
+			if (rs.next()) {
+				return true;
+			}
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
 		}
+
 		return false;
 	}
 
 	/**
 	 * Makes sure the table for keeping track of datasets exists.
 	 */
-	private void createTableIfNotExists() {
+	private void createDatasetTableIfNotExists() {
 		Connection conn = null;
 		try {
 			conn = getRowStore().getConnection();
-			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + TABLE_NAME + " (id UUID PRIMARY KEY, status INT NOT NULL, created TIMESTAMP NOT NULL, data_table CHAR(" + getDataTableNameLength() + "))");
+			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + DATASETS_TABLE_NAME + " (id UUID PRIMARY KEY, status INT NOT NULL, created TIMESTAMP NOT NULL, data_table CHAR(" + getDataTableNameLength() + "))");
+			log.debug("Executing: " + ps);
+			ps.execute();
+			ps.close();
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+		} finally {
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+	}
+
+	/**
+	 * Makes sure the table for keeping track of datasets exists.
+	 */
+	private void createAliasTableIfNotExists() {
+		Connection conn = null;
+		try {
+			conn = getRowStore().getConnection();
+			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + ALIAS_TABLE_NAME + " (id SERIAL, dataset_id UUID NOT NULL, alias TEXT NOT NULL)");
 			log.debug("Executing: " + ps);
 			ps.execute();
 			ps.close();
@@ -270,7 +338,7 @@ public class PgDatasets implements Datasets {
 		ResultSet rs = null;
 		try {
 			conn = getRowStore().getConnection();
-			stmt = conn.prepareStatement("SELECT COUNT(*) AS amount FROM " + TABLE_NAME);
+			stmt = conn.prepareStatement("SELECT COUNT(*) AS amount FROM " + DATASETS_TABLE_NAME);
 			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
 			while (rs.next()) {

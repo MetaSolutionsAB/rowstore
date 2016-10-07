@@ -81,4 +81,18 @@ public interface Dataset {
 	 */
 	int getRowCount();
 
+	/**
+	 * Returns all aliases of the dataset.
+	 *
+	 * @return A set of strings corresponding an alias.
+	 */
+	Set<String> getAliases();
+
+	/**
+	 * Sets the aliases under which a dataset should be reachable.
+	 *
+	 * @param aliases A set of strings with aliases.
+	 */
+	boolean setAliases(Set<String> aliases);
+
 }

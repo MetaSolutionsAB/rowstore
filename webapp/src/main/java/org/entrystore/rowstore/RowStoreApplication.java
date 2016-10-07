@@ -20,6 +20,7 @@ import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.entrystore.rowstore.filters.JSCallbackFilter;
 import org.entrystore.rowstore.filters.RateLimitFilter;
+import org.entrystore.rowstore.resources.AliasResource;
 import org.entrystore.rowstore.resources.DatasetInfoResource;
 import org.entrystore.rowstore.resources.DatasetResource;
 import org.entrystore.rowstore.resources.DatasetsResource;
@@ -104,6 +105,7 @@ public class RowStoreApplication extends Application {
 		router.attach("/dataset/{id}", DatasetResource.class);
 		router.attach("/dataset/{id}/info", DatasetInfoResource.class);
 		router.attach("/dataset/{id}/swagger", SwaggerResource.class);
+		router.attach("/dataset/{id}/aliases", AliasResource.class);
 		router.attach("/datasets", DatasetsResource.class);
 		router.attach("/", DefaultResource.class);
 
