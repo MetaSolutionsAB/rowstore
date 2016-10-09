@@ -81,7 +81,7 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
                             .expectJSONLength(1)
                             .after(function() {
                                 frisby.create('POST dataset1 aliases')
-                                    .post(json.url + '/aliases', ['dataset1b'], { json: true })
+                                    .post(json.url + '/aliases', ['dataset1b', 'dataset1b'], { json: true }) // intentionally providing the same alias twice as we want to test the behavior
                                     .expectStatus(204)
                                     .after(function() {
                                         frisby.create('GET dataset1 aliases and check for correct number 2')
@@ -99,6 +99,32 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
                                                             .expectStatus(200)
                                                             .expectJSON([])
                                                             .expectJSONLength(0)
+                                                            .after(function() {
+                                                                frisby.create('PUT dataset1 aliases, to be used for duplicate avoidance check later')
+                                                                    .put(json.url + '/aliases', ['theone'], { json: true })
+                                                                    .expectStatus(204)
+                                                                    .after(function() {
+                                                                        frisby.create('POST CSV file and create dataset1-b')
+                                                                            .post(URL + 'datasets',
+                                                                                csv1Content,
+                                                                                {
+                                                                                    json: false,
+                                                                                    headers: {
+                                                                                        'Content-Type': 'text/csv'
+                                                                                    }
+                                                                                })
+                                                                            .expectStatus(202)
+                                                                            .expectHeaderContains('Content-Type', 'application/json')
+                                                                            .afterJSON(function(json2) {
+                                                                                frisby.create('PUT dataset1-b aliases with already existing alias')
+                                                                                    .put(json2.url + '/aliases', ['theone'], { json: true })
+                                                                                    .expectStatus(400)
+                                                                                    .toss();
+                                                                            })
+                                                                            .toss();
+                                                                    })
+                                                                    .toss();
+                                                            })
                                                             .toss();
                                                     })
                                                     .toss();
@@ -135,7 +161,7 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
                 Name: 'Åkesson',
                 Comment: 'Another comment with äöå'
             }])
-            .waits(5000)
+            .waits(2500)
             .retry(2, 5000)
             .toss();
         frisby.create('GET dataset1 query2 with exact match')
@@ -154,19 +180,27 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
                 "Some other column": 'x',
                 Comment: 'A comment with five words, and a comma'
             }])
-            .waits(5000)
+            .waits(2500)
+            .retry(2, 5000)
+            .toss();
+        frisby.create('GET dataset1 query3 with regexp')
+            .get(json.url + "?Name=(%C3%85%7C%C3%A9)") // decoded: Name=(Å|é)
+            .expectStatus(200)
+            .expectHeaderContains('Content-Type', 'application/json')
+            .expectJSONTypes([{
+                Name: String,
+                Telephone: String,
+                "Some other column": String,
+                Comment: String
+            }])
+            .expectJSONLength(2)
+            .waits(2500)
             .retry(2, 5000)
             .toss();
     })
     .toss();
 
-// TODO GET dataset1-query, regexp Name = é | Å, 200, json, check result
-
 // TODO POST datasets, semi-colon (mixed with colon in values), location header
-
-// TODO PUT dataset1-alias, recreate alias, 204
-
-// TODO PUT dataset2-alias with same alias as dataset1, 400, json
 
 // TODO GET dataset2, 200, json, check correct amount of rows
 
@@ -180,12 +214,24 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
 
 // TODO PUT dataset3, replace data, check correct amount of rows
 
-// TODO POST datasets, faulty csv (row 2 has more columns than row 1), 400
+var csv4Path = path.resolve(__dirname, 'data/dataset4_corrupt.csv');
+var csv4Content = fs.readFileSync(csv4Path);
 
-// TODO DELETE dataset1, 200
+frisby.create('POST corrupt CSV file (less columns in first row that in following rows)')
+    .post(URL + 'datasets',
+        csv4Content,
+        {
+            json: false,
+            headers: {
+                'Content-Type': 'text/csv'
+            }
+        })
+    .expectStatus(202)
+    .afterJSON(function(json) {
+        // TODO wait and load info, check status
+    })
+    .toss();
 
-// TODO DELETE dataset2, 200
-
-// TODO DELETE dataset3, 200
+// TODO DELETE datasetX (the one that is not needed by the tests above), 200
 
 // TODO rate limitation test
