@@ -10,3 +10,9 @@ pipelines:
         script: # Modify the commands below to build your repository.
           - mvn --version
           - mvn clean install
+    - step:
+        image: node:4.2.6
+        script:
+          - cd tests
+          - npm install -g frisby jasmine-node
+          - jasmine-node .
