@@ -1,6 +1,6 @@
 Name;Telephone;"Some other column";"Comment"
 Béringer;01234567890;;No, no comment
 McLoud;0987654321;x;A comment with five words, and a comma
-Åkesson;;;Another comment
-Martinsson;0;;;
+Åkesson;;;Another comment with äöå
+Martinsson;0;;
 Überhuber;555555555;1;2
