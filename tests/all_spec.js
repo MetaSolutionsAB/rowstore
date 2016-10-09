@@ -2,7 +2,14 @@ var frisby = require('frisby');
 var fs = require('fs');
 var path = require('path');
 
+// The base URL of the (empty or uninitialized) RowStore instance to be tested
 var URL = 'http://localhost:8282/';
+
+// Retrying tests is important since dataset population
+// may be delayed due to its asynchronous character
+var retryCount = 2;         // How often failed tests are retried
+var retryDelay = 2500;      // Waiting time after a test has failed until next attempt
+var initialDelay = 5000;    // Time to wait after a CSV has been submitted
 
 // Config for all tests
 frisby.globalSetup({
@@ -61,6 +68,12 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
                 columnnames: Array,
                 status: Number
             })
+            .expectJSON({
+                rowcount: 5,
+                status: 3
+            })
+            .waits(initialDelay)
+            .retry(retryCount, retryDelay)
             .toss();
         frisby.create('GET dataset1 aliases')
             .get(json.url + '/aliases')
@@ -119,6 +132,14 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
                                                                                 frisby.create('PUT dataset1-b aliases with already existing alias')
                                                                                     .put(json2.url + '/aliases', ['theone'], { json: true })
                                                                                     .expectStatus(400)
+                                                                                    .after(function() {
+                                                                                        frisby.create('DELETE dataset')
+                                                                                            .delete(json2.url)
+                                                                                            .expectStatus(204)
+                                                                                            .waits(initialDelay)
+                                                                                            .retry(retryCount, retryDelay)
+                                                                                            .toss();
+                                                                                    })
                                                                                     .toss();
                                                                             })
                                                                             .toss();
@@ -161,8 +182,8 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
                 Name: 'Åkesson',
                 Comment: 'Another comment with äöå'
             }])
-            .waits(2500)
-            .retry(2, 5000)
+            .waits(initialDelay)
+            .retry(retryCount, retryDelay)
             .toss();
         frisby.create('GET dataset1 query2 with exact match')
             .get(json.url + "?Some+other+column=x")
@@ -180,8 +201,8 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
                 "Some other column": 'x',
                 Comment: 'A comment with five words, and a comma'
             }])
-            .waits(2500)
-            .retry(2, 5000)
+            .waits(initialDelay)
+            .retry(retryCount, retryDelay)
             .toss();
         frisby.create('GET dataset1 query3 with regexp')
             .get(json.url + "?Name=(%C3%85%7C%C3%A9)") // decoded: Name=(Å|é)
@@ -194,25 +215,189 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
                 Comment: String
             }])
             .expectJSONLength(2)
-            .waits(2500)
-            .retry(2, 5000)
+            .waits(initialDelay)
+            .retry(retryCount, retryDelay)
             .toss();
     })
     .toss();
 
-// TODO POST datasets, semi-colon (mixed with colon in values), location header
+var csv2Path = path.resolve(__dirname, 'data/dataset2_utf8_semicolon.csv');
+var csv2Content = fs.readFileSync(csv2Path);
 
-// TODO GET dataset2, 200, json, check correct amount of rows
+frisby.create('POST CSV file (UTF-8, semicolon-separated) to create new dataset2')
+    .post(URL + 'datasets',
+        csv2Content,
+        {
+            json: false,
+            headers: {
+                'Content-Type': 'text/csv'
+            }
+        })
+    .expectStatus(202)
+    .expectHeaderContains('Content-Type', 'application/json')
+    .expectJSONTypes({
+        id: String,
+        url: String,
+        info: String,
+        status: Number
+    })
+    .afterJSON(function(json) {
+        frisby.create('GET dataset2 info')
+            .get(json.info)
+            .expectStatus(200)
+            .expectHeaderContains('Content-Type', 'application/json')
+            .expectJSONTypes({
+                rowcount: Number,
+                created: String,
+                columnnames: Array,
+                status: Number
+            })
+            .expectJSON({
+                rowcount: 5,
+                status: 3
+            })
+            .after(function() {
+                frisby.create('GET dataset2 query1 with exact match')
+                    .get(json.url + "?Name=B%C3%A9ringer")
+                    .expectStatus(200)
+                    .expectHeaderContains('Content-Type', 'application/json')
+                    .expectJSONTypes([{
+                        Name: String,
+                        Comment: String
+                    }])
+                    .expectJSON([{
+                        Name: 'Béringer',
+                        Comment: 'No, no comment'
+                    }])
+                    .toss();
+            })
+            .waits(initialDelay)
+            .retry(retryCount, retryDelay)
+            .toss();
+    })
+    .toss();
 
-// TODO GET dataset2-query, exact match (include åüé), 200, json, check result
+var csv3Path = path.resolve(__dirname, 'data/dataset3_windows1252.csv');
+var csv3Content = fs.readFileSync(csv3Path);
 
-// TODO POST datasets, western encoding with åüé, location header
-
-// TODO GET dataset3-query, exact match (include åüé), 200, json, check result
-
-// TODO POST dataset3, append data, check correct amount of rows
-
-// TODO PUT dataset3, replace data, check correct amount of rows
+frisby.create('POST CSV file (Windows-1252, comma-separated) to create new dataset3')
+    .post(URL + 'datasets',
+        csv3Content,
+        {
+            json: false,
+            headers: {
+                'Content-Type': 'text/csv'
+            }
+        })
+    .expectStatus(202)
+    .expectHeaderContains('Content-Type', 'application/json')
+    .expectJSONTypes({
+        id: String,
+        url: String,
+        info: String,
+        status: Number
+    })
+    .afterJSON(function(json) {
+        frisby.create('GET dataset3 info')
+            .get(json.info)
+            .expectStatus(200)
+            .expectHeaderContains('Content-Type', 'application/json')
+            .expectJSONTypes({
+                rowcount: Number,
+                created: String,
+                columnnames: Array,
+                status: Number
+            })
+            .expectJSON({
+                rowcount: 5,
+                status: 3
+            })
+            .after(function() {
+                frisby.create('GET dataset3 query1 with exact match')
+                    .get(json.url + "?Name=%C3%85kesson")
+                    .expectStatus(200)
+                    .expectHeaderContains('Content-Type', 'application/json')
+                    .expectJSONTypes([{
+                        Name: String,
+                        Comment: String
+                    }])
+                    .expectJSON([{
+                        Name: 'Åkesson',
+                        Comment: 'Another comment with äöå'
+                    }])
+                    .after(function() {
+                        frisby.create('POST CSV file (UTF-8, semicolon-separated) to append to dataset3')
+                            .post(json.url,
+                                csv2Content, // CSV2 is UTF-8 with semicolons
+                                {
+                                    json: false,
+                                    headers: {
+                                        'Content-Type': 'text/csv'
+                                    }
+                                })
+                            .expectStatus(202)
+                            .expectHeaderContains('Content-Type', 'application/json')
+                            .after(function() {
+                                frisby.create('GET dataset3 info to check amount of rows post-append')
+                                    .get(json.info)
+                                    .expectStatus(200)
+                                    .expectHeaderContains('Content-Type', 'application/json')
+                                    .expectJSONTypes({
+                                        rowcount: Number,
+                                        created: String,
+                                        columnnames: Array,
+                                        status: Number
+                                    })
+                                    .expectJSON({
+                                        rowcount: 10,
+                                        status: 3
+                                    })
+                                    .after(function() {
+                                        frisby.create('PUT CSV file (Windows-1252, comma-separated) to replace dataset3 post-append')
+                                            .put(json.url,
+                                                csv3Content,
+                                                {
+                                                    json: false,
+                                                    headers: {
+                                                        'Content-Type': 'text/csv'
+                                                    }
+                                                })
+                                            .expectStatus(202)
+                                            .expectHeaderContains('Content-Type', 'application/json')
+                                            .after(function() {
+                                                frisby.create('GET dataset3 info to check amount of rows post-append replacement')
+                                                    .get(json.info)
+                                                    .expectStatus(200)
+                                                    .expectHeaderContains('Content-Type', 'application/json')
+                                                    .expectJSONTypes({
+                                                        rowcount: Number,
+                                                        created: String,
+                                                        columnnames: Array,
+                                                        status: Number
+                                                    })
+                                                    .expectJSON({
+                                                        rowcount: 5,
+                                                        status: 3
+                                                    })
+                                                    .waits(initialDelay)
+                                                    .retry(retryCount, retryDelay)
+                                                    .toss();
+                                            })
+                                            .toss();
+                                    })
+                                    .waits(initialDelay)
+                                    .retry(retryCount, retryDelay)
+                                    .toss();
+                            })
+                            .toss();
+                    })
+                    .toss();
+            })
+            .waits(initialDelay)
+            .retry(retryCount, retryDelay)
+            .toss();
+    })
+    .toss();
 
 var csv4Path = path.resolve(__dirname, 'data/dataset4_corrupt.csv');
 var csv4Content = fs.readFileSync(csv4Path);
@@ -228,10 +413,17 @@ frisby.create('POST corrupt CSV file (less columns in first row that in followin
         })
     .expectStatus(202)
     .afterJSON(function(json) {
-        // TODO wait and load info, check status
+        frisby.create('GET corrupt dataset status')
+            .get(json.info)
+            .expectStatus(200)
+            .expectHeaderContains('Content-Type', 'application/json')
+            .expectJSON({
+                status: 4
+            })
+            .waits(initialDelay)
+            .retry(retryCount, retryDelay)
+            .toss();
     })
     .toss();
 
-// TODO DELETE datasetX (the one that is not needed by the tests above), 200
-
-// TODO rate limitation test
+// TODO test rate limitation
