@@ -148,6 +148,10 @@ A table per dataset holds the actual data in JSON:
 
 `CREATE TABLE IF NOT EXISTS {data-table} (rownr SERIAL, data JSONB NOT NULL)`
 
+A table to manage aliases:
+
+`CREATE TABLE IF NOT EXISTS aliases (id SERIAL, dataset_id UUID NOT NULL, alias TEXT NOT NULL)`
+
 ## Roadmap
 
 ### Version 1.0
