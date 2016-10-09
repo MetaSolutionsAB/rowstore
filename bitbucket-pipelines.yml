@@ -2,7 +2,7 @@
 # Only use spaces to indent your .yml configuration.
 # -----
 # You can specify a custom docker image from Dockerhub as your build environment.
-image: maven:3.3.3
+image: jimador/docker-jdk-8-maven-node
 
 pipelines:
   default:
@@ -10,9 +10,6 @@ pipelines:
         script: # Modify the commands below to build your repository.
           - mvn --version
           - mvn clean install
-    - step:
-        image: node:4.2.6
-        script:
           - cd tests
           - npm install -g frisby jasmine-node
           - jasmine-node .
