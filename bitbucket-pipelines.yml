@@ -11,5 +11,6 @@ pipelines:
           - mvn --version
           - mvn clean install
           - cd tests
-          - npm install -g frisby jasmine-node
+          - npm install -g jasmine-node
+          - npm install --save-dev frisby
           - jasmine-node .
