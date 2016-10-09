@@ -33,9 +33,7 @@ frisby.create('GET datasets array')
 var csv1Path = path.resolve(__dirname, 'data/dataset1_utf8.csv');
 var csv1Content = fs.readFileSync(csv1Path);
 
-// TODO add åüé to file
-
-frisby.create('POST CSV file to create new dataset')
+frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
     .post(URL + 'datasets',
         csv1Content,
         {
@@ -53,7 +51,7 @@ frisby.create('POST CSV file to create new dataset')
         status: Number
     })
     .afterJSON(function(json) {
-        frisby.create('GET dataset info')
+        frisby.create('GET dataset1 info')
             .get(json.info)
             .expectStatus(200)
             .expectHeaderContains('Content-Type', 'application/json')
@@ -64,39 +62,39 @@ frisby.create('POST CSV file to create new dataset')
                 status: Number
             })
             .toss();
-        frisby.create('GET dataset aliases')
+        frisby.create('GET dataset1 aliases')
             .get(json.url + '/aliases')
             .expectStatus(200)
             .expectHeaderContains('Content-Type', 'application/json')
             .expectJSON([])
             .expectJSONLength(0)
             .after(function() {
-                frisby.create('PUT dataset aliases')
+                frisby.create('PUT dataset1 aliases')
                     .put(json.url + '/aliases', ['dataset1'], { json: true })
                     .expectStatus(204)
                     .after(function() {
-                        frisby.create('GET dataset aliases and check for correct number 1')
+                        frisby.create('GET dataset1 aliases and check for correct number 1')
                             .get(json.url + '/aliases')
                             .expectStatus(200)
                             .expectHeaderContains('Content-Type', 'application/json')
                             .expectJSON([])
                             .expectJSONLength(1)
                             .after(function() {
-                                frisby.create('POST dataset aliases')
+                                frisby.create('POST dataset1 aliases')
                                     .post(json.url + '/aliases', ['dataset1b'], { json: true })
                                     .expectStatus(204)
                                     .after(function() {
-                                        frisby.create('GET dataset aliases and check for correct number 2')
+                                        frisby.create('GET dataset1 aliases and check for correct number 2')
                                             .get(json.url + '/aliases')
                                             .expectStatus(200)
                                             .expectJSON([])
                                             .expectJSONLength(2)
                                             .after(function() {
-                                                frisby.create('DELETE all aliases and check for correct number')
+                                                frisby.create('DELETE all aliases of dataset1 and check for correct number')
                                                     .delete(json.url + '/aliases')
                                                     .expectStatus(204)
                                                     .after(function() {
-                                                        frisby.create('GET dataset aliases and check for correct number after removal of aliases')
+                                                        frisby.create('GET dataset1 aliases and check for correct number after removal of aliases')
                                                             .get(json.url + '/aliases')
                                                             .expectStatus(200)
                                                             .expectJSON([])
@@ -110,7 +108,7 @@ frisby.create('POST CSV file to create new dataset')
                                     .toss();
                             })
                             .toss();
-                        frisby.create('GET dataset info via alias')
+                        frisby.create('GET dataset1 info via alias')
                             .get(URL + 'dataset/dataset1/info')
                             .expectStatus(200)
                             .expectHeaderContains('Content-Type', 'application/json')
@@ -125,12 +123,44 @@ frisby.create('POST CSV file to create new dataset')
                     .toss();
             })
             .toss();
+        frisby.create('GET dataset1 query1 with exact match')
+            .get(json.url + "?Name=%C3%85kesson")
+            .expectStatus(200)
+            .expectHeaderContains('Content-Type', 'application/json')
+            .expectJSONTypes([{
+                Name: String,
+                Comment: String
+            }])
+            .expectJSON([{
+                Name: 'Åkesson',
+                Comment: 'Another comment with äöå'
+            }])
+            .waits(5000)
+            .retry(2, 5000)
+            .toss();
+        frisby.create('GET dataset1 query2 with exact match')
+            .get(json.url + "?Some+other+column=x")
+            .expectStatus(200)
+            .expectHeaderContains('Content-Type', 'application/json')
+            .expectJSONTypes([{
+                Name: String,
+                Telephone: String,
+                "Some other column": String,
+                Comment: String
+            }])
+            .expectJSON([{
+                Name: 'McLoud',
+                Telephone: '0987654321',
+                "Some other column": 'x',
+                Comment: 'A comment with five words, and a comma'
+            }])
+            .waits(5000)
+            .retry(2, 5000)
+            .toss();
     })
     .toss();
 
-// TODO GET dataset1-query, exact match (include åüé), 200, json, check result
-
-// TODO GET dataset1-query, regexp, 200, json, check result
+// TODO GET dataset1-query, regexp Name = é | Å, 200, json, check result
 
 // TODO POST datasets, semi-colon (mixed with colon in values), location header
 
