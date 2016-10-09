@@ -1,3 +1,11 @@
+/*
+  RowStore REST API tests
+
+  Requires a configured and running RowStore instance.
+
+  Author: hannes@metasolutions.se
+*/
+
 var frisby = require('frisby');
 var fs = require('fs');
 var path = require('path');
