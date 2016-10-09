@@ -87,8 +87,8 @@ public class RowStoreConfig {
 			dbSsl = dbConfig.optBoolean("ssl", false);
 
 			// Rate limitation
-			JSONObject rateLimitConfig = config.getJSONObject("ratelimit");
-			if (rateLimitConfig != null) {
+			if (config.has("ratelimit")) {
+				JSONObject rateLimitConfig = config.getJSONObject("ratelimit");
 				rateLimitType = rateLimitConfig.optString("type", "slidingwindow");
 				rateLimitTimeRange = rateLimitConfig.optInt("timerange", -1);
 				rateLimitRequestsGlobal = rateLimitConfig.optInt("global", -1);
