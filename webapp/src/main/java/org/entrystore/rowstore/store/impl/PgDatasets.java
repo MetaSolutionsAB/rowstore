@@ -220,6 +220,8 @@ public class PgDatasets implements Datasets {
 			return new PgDataset(rowstore, id);
 		} catch (IllegalArgumentException iae) {
 			return null;
+		} catch (IllegalStateException ise) {
+			return null;
 		}
 	}
 
