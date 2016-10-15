@@ -1,6 +1,4 @@
 image: ebner/openjdk-node-postgresql
-#image: maven:3.3.9
-#image: jimador/docker-jdk-8-maven-node
 
 pipelines:
   default:
