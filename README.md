@@ -1,4 +1,4 @@
-# RowStore [![Build Status](https://drone.io/bitbucket.org/metasolutions/rowstore/status.png)](https://drone.io/bitbucket.org/metasolutions/rowstore/latest)
+# RowStore
 
 RowStore is a minimum footprint storage and query engine for tabular data with two main purposes:
 
