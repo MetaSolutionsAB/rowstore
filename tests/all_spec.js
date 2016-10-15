@@ -141,11 +141,11 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
                                                                                     .put(json2.url + '/aliases', ['theone'], { json: true })
                                                                                     .expectStatus(400)
                                                                                     .after(function() {
-                                                                                        frisby.create('DELETE dataset')
+                                                                                        frisby.create('DELETE dataset1-b')
                                                                                             .delete(json2.url)
                                                                                             .expectStatus(204)
-                                                                                            .waits(initialDelay)
-                                                                                            .retry(retryCount, retryDelay)
+                                                                                            .waits(initialDelay * 2) // we give it a bit more time as it fails with Bitbucket Pipelines
+                                                                                            .retry(retryCount, retryDelay * 2)
                                                                                             .toss();
                                                                                     })
                                                                                     .toss();
