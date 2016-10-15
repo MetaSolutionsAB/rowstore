@@ -5,9 +5,9 @@
   "database": {
     "type": "postgresql",
     "host": "localhost",
-    "database": "",
-    "user": "",
-    "password": ""
+    "database": "rowstoretest",
+    "user": "rowstoretest",
+    "password": "rowstoretestpw"
   },
   "loglevel": "debug"
 }
