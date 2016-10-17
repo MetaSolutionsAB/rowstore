@@ -81,14 +81,23 @@ public class DatasetResource extends BaseResource {
 			return null;
 		}
 
-		// query parameters: /dataset/{id}?[{column-name}={value},{column-name={value}]
+		// We only pass on the parameters that match column names of the dataset's JSON
+		Set<String> columns = dataset.getColumnNames();
+		Map<String, String> tuples = new HashMap<>();
+		for (String k : parameters.keySet()) {
+			tuples.put(k.toLowerCase(), parameters.get(k));
+		}
+		tuples.keySet().retainAll(columns);
+
+		if (parameters.size() > 0 && parameters.size() != tuples.size()) {
+			// One or more query parameters did not match
+			// the column names, so we return an error
+			getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
+			return null;
+		}
+
 		JSONArray result = new JSONArray();
 		Date before = new Date();
-
-		// we only pass on the parameters that match column names of the dataset's JSON
-		Set<String> columns = dataset.getColumnNames();
-		Map<String, String> tuples = new HashMap<>(parameters);
-		tuples.keySet().retainAll(columns);
 
 		// TODO support _limit=xx
 

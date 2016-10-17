@@ -40,7 +40,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -221,7 +220,12 @@ public class PgDataset implements Dataset {
 			stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (data) VALUES (?)");
 			while ((line = cr.readNext()) != null) {
 				if (lineCount == 0) {
-					labels = line;
+					labels = new String[line.length];
+					// We convert all column names to lower case,
+					// otherwise all queries must be case sensitive later
+					for (int i = 0; i < line.length; i++) {
+						labels[i] = line[i].toLowerCase();
+					}
 				} else {
 					JSONObject jsonLine = null;
 					try {
@@ -475,7 +479,7 @@ public class PgDataset implements Dataset {
 				int paramPos = 1;
 				while (keys.hasNext()) {
 					String key = keys.next();
-					stmt.setString(paramPos, key);
+					stmt.setString(paramPos, key.toLowerCase());
 					stmt.setString(paramPos + 1, tuples.get(key));
 					paramPos += 2;
 				}
