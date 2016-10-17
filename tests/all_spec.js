@@ -183,13 +183,27 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
             .expectStatus(200)
             .expectHeaderContains('Content-Type', 'application/json')
             .expectJSONTypes([{
-                Name: String,
-                Comment: String
+                name: String,
+                comment: String
             }])
             .expectJSON([{
-                Name: 'Åkesson',
-                Comment: 'Another comment with äöå'
+                name: 'Åkesson',
+                comment: 'Another comment with äöå'
             }])
+            .waits(initialDelay)
+            .retry(retryCount, retryDelay)
+            .toss();
+        frisby.create('GET dataset1 query1-b (lower case key) with exact match')
+            .get(json.url + "?name=%C3%85kesson")
+            .expectStatus(200)
+            .expectHeaderContains('Content-Type', 'application/json')
+            .expectJSONTypes([{
+                name: String,
+                comment: String,
+                "some other column": String,
+                comment: String
+            }])
+            .expectJSONLength(1)
             .waits(initialDelay)
             .retry(retryCount, retryDelay)
             .toss();
@@ -198,16 +212,16 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
             .expectStatus(200)
             .expectHeaderContains('Content-Type', 'application/json')
             .expectJSONTypes([{
-                Name: String,
-                Telephone: String,
-                "Some other column": String,
-                Comment: String
+                name: String,
+                telephone: String,
+                "some other column": String,
+                comment: String
             }])
             .expectJSON([{
-                Name: 'McLoud',
-                Telephone: '0987654321',
-                "Some other column": 'x',
-                Comment: 'A comment with five words, and a comma'
+                name: 'McLoud',
+                telephone: '0987654321',
+                "some other column": 'x',
+                comment: 'A comment with five words, and a comma'
             }])
             .waits(initialDelay)
             .retry(retryCount, retryDelay)
@@ -217,12 +231,18 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
             .expectStatus(200)
             .expectHeaderContains('Content-Type', 'application/json')
             .expectJSONTypes([{
-                Name: String,
-                Telephone: String,
-                "Some other column": String,
-                Comment: String
+                name: String,
+                telephone: String,
+                "some other column": String,
+                comment: String
             }])
             .expectJSONLength(2)
+            .waits(initialDelay)
+            .retry(retryCount, retryDelay)
+            .toss();
+        frisby.create('GET dataset1 query4 (key does not match anything)')
+            .get(json.url + "?nonexistingkey=test")
+            .expectStatus(400)
             .waits(initialDelay)
             .retry(retryCount, retryDelay)
             .toss();
@@ -270,12 +290,12 @@ frisby.create('POST CSV file (UTF-8, semicolon-separated) to create new dataset2
                     .expectStatus(200)
                     .expectHeaderContains('Content-Type', 'application/json')
                     .expectJSONTypes([{
-                        Name: String,
-                        Comment: String
+                        name: String,
+                        comment: String
                     }])
                     .expectJSON([{
-                        Name: 'Béringer',
-                        Comment: 'No, no comment'
+                        name: 'Béringer',
+                        comment: 'No, no comment'
                     }])
                     .toss();
             })
@@ -326,12 +346,12 @@ frisby.create('POST CSV file (Windows-1252, comma-separated) to create new datas
                     .expectStatus(200)
                     .expectHeaderContains('Content-Type', 'application/json')
                     .expectJSONTypes([{
-                        Name: String,
-                        Comment: String
+                        name: String,
+                        comment: String
                     }])
                     .expectJSON([{
-                        Name: 'Åkesson',
-                        Comment: 'Another comment with äöå'
+                        name: 'Åkesson',
+                        comment: 'Another comment with äöå'
                     }])
                     .after(function() {
                         frisby.create('POST CSV file (UTF-8, semicolon-separated) to append to dataset3')
