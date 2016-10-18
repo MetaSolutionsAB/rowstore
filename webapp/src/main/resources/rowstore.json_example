@@ -11,5 +11,11 @@
     "password": "",
     "ssl": false
   },
+  "ratelimit": {
+    "type": "slidingwindow",
+    "timerange": 60,
+    "dataset": 30,
+    "global": 300
+  },
   "loglevel": "debug"
 }

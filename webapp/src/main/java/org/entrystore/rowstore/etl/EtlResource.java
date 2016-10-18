@@ -34,10 +34,23 @@ public class EtlResource {
 
 	private MediaType format;
 
-	public EtlResource(Dataset dataset, File dataSource, MediaType format) {
+	private boolean append;
+
+	/**
+	 * Creates a new EtlResource object.
+	 *
+	 * @param dataset The dataset to load data into.
+	 * @param dataSource Where to load data from.
+	 * @param format The format of the data at the dataSource.
+	 * @param append If true, append to already existing data.
+	 *                  If false, purge already existing data before
+	 *                  loading new data into the dataset.
+	 */
+	public EtlResource(Dataset dataset, File dataSource, MediaType format, boolean append) {
 		this.dataset = dataset;
 		this.dataSource = dataSource;
 		this.format = format;
+		this.append = append;
 	}
 
 	Dataset getDataset() {
@@ -50,6 +63,10 @@ public class EtlResource {
 
 	MediaType getFormat() {
 		return format;
+	}
+
+	boolean isAppending() {
+		return append;
 	}
 
 }

@@ -17,9 +17,13 @@
 package org.entrystore.rowstore.store.impl;
 
 import com.opencsv.CSVReader;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.tika.detect.AutoDetectReader;
+import org.apache.tika.exception.TikaException;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
+import org.entrystore.rowstore.util.Hashing;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.postgresql.core.BaseConnection;
@@ -27,14 +31,17 @@ import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -42,6 +49,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * A PostgreSQL-specific implementation of the Dataset interface.
@@ -74,8 +82,16 @@ public class PgDataset implements Dataset {
 		if (id == null) {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
+
 		this.rowstore = rowstore;
 		this.id = id;
+
+		// we check whether id is an alias and we try to resolve
+		String resolvedAlias = resolveAlias(id);
+		if (resolvedAlias != null) {
+			this.id = resolvedAlias;
+		}
+
 		initFromDb();
 	}
 
@@ -121,7 +137,7 @@ public class PgDataset implements Dataset {
 		try {
 			conn = rowstore.getConnection();
 			conn.setAutoCommit(true);
-			stmt = conn.prepareStatement("UPDATE " + PgDatasets.TABLE_NAME + " SET status = ? WHERE id = ?");
+			stmt = conn.prepareStatement("UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?");
 			stmt.setInt(1, status);
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
@@ -165,10 +181,10 @@ public class PgDataset implements Dataset {
 	}
 
 	/**
-	 * @see Dataset#populate(File)
+	 * @see Dataset#populate(File, boolean)
 	 */
 	@Override
-	public boolean populate(File csvFile) throws IOException {
+	public boolean populate(File csvFile, boolean append) throws IOException {
 		if (csvFile == null) {
 			throw new IllegalArgumentException("Argument must not be null");
 		}
@@ -181,21 +197,35 @@ public class PgDataset implements Dataset {
 
 		setStatus(EtlStatus.PROCESSING);
 
+		if (!append) {
+			if (!truncateTable()) {
+				setStatus(EtlStatus.ERROR);
+				return false;
+			}
+		}
+
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		CSVReader cr = null;
 		try {
 			conn = rowstore.getConnection();
-			cr = new CSVReader(new FileReader(csvFile), ',' , '"');
+			char separator = detectSeparator(csvFile);
+			cr = new CSVReader(new AutoDetectReader(new FileInputStream(csvFile)), separator, '"');
 			int lineCount = 0;
 			String[] labels = null;
 			String[] line;
 
 			conn.setAutoCommit(false);
-			stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (rownr, data) VALUES (?, ?)");
+
+			stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (data) VALUES (?)");
 			while ((line = cr.readNext()) != null) {
 				if (lineCount == 0) {
-					labels = line;
+					labels = new String[line.length];
+					// We convert all column names to lower case,
+					// otherwise all queries must be case sensitive later
+					for (int i = 0; i < line.length; i++) {
+						labels[i] = line[i].toLowerCase();
+					}
 				} else {
 					JSONObject jsonLine = null;
 					try {
@@ -207,11 +237,10 @@ public class PgDataset implements Dataset {
 						setStatus(EtlStatus.ERROR);
 						return false;
 					}
-					stmt.setInt(1, lineCount);
 					PGobject jsonb = new PGobject();
 					jsonb.setType("jsonb");
 					jsonb.setValue(jsonLine.toString());
-					stmt.setObject(2, jsonb);
+					stmt.setObject(1, jsonb);
 					log.debug("Adding to batch: " + stmt);
 					stmt.addBatch();
 					// we execute the batch every 100th line
@@ -227,14 +256,17 @@ public class PgDataset implements Dataset {
 			log.debug("Executing: " + stmt);
 			stmt.executeBatch();
 
-			// we create an index over the data
-			createIndex(conn, dataTable, labels);
+			createIndexes(conn, new HashSet<String>(Arrays.asList(labels)));
 
 			// we commit the transaction and free the resources of the statement
 			conn.commit();
 
 			setStatus(EtlStatus.AVAILABLE);
 			return true;
+		} catch (TikaException te) {
+			log.error(te.getMessage());
+			setStatus(EtlStatus.ERROR);
+			return false;
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 			try {
@@ -270,23 +302,31 @@ public class PgDataset implements Dataset {
 		}
 	}
 
-	private void createIndex(Connection conn, String table, String[] fields) throws SQLException {
-		for (int i = 0; i < fields.length; i++) {
+	private void createIndexes(Connection conn, Set<String> fields) throws SQLException {
+		Set<String> existingIndices = getIndexNames();
+		for (String field : fields) {
 			// We do not try to index fields that are too large as we would get an error from PostgreSQL
 			// TODO instead of just skipping the index we could run a fulltext-index on such fields
-			Integer fieldSize = columnSize.get(fields[i]);
+			Integer fieldSize = columnSize.get(field);
 			if (fieldSize != null && fieldSize > maxSizeForIndex) {
-				log.debug("Skipping index creation for field \"" + fields[i] + "\"; the configured max field size is " + maxSizeForIndex + ", but the actual size is " + fieldSize);
+				log.debug("Skipping index creation for field \"" + field + "\"; the configured max field size is " + maxSizeForIndex + ", but the actual size is " + fieldSize);
+				continue;
+			}
+			String indexName = dataTable + "_jsonidx_" + Hashing.md5(field).substring(0, 8);
+			if (existingIndices.contains(indexName)) {
+				log.debug("Index with name " + indexName + " already exists, skipping creation");
 				continue;
 			}
 			// We cannot use prepared statements for CREATE INDEX with parametrized fields:
 			// the type to be used with setObject() is not known and setString() does not work.
 			// It should be safe to run BaseConnection.escapeString() to avoid SQL-injection
-			String sql = new StringBuilder("CREATE INDEX ON ").
-					append(table).
+			String sql = new StringBuilder("CREATE INDEX ").
+					append(indexName).
+					append(" ON ").
+					append(dataTable).
 					append(" (").
 					append("(data->>'").
-					append(((BaseConnection) conn).escapeString(fields[i])).
+					append(((BaseConnection) conn).escapeString(field)).
 					append("'))").
 					toString();
 			log.debug("Executing: " + sql);
@@ -300,6 +340,107 @@ public class PgDataset implements Dataset {
 		log.debug("Executing: " + sql);
 		conn.createStatement().execute(sql);
 		*/
+	}
+
+	private boolean truncateTable() {
+		Connection conn = null;
+		Statement stmt = null;
+		try {
+			conn = rowstore.getConnection();
+			conn.setAutoCommit(false);
+			stmt = conn.createStatement();
+
+			log.debug("Truncating contents of table " + dataTable);
+			String truncTable = "TRUNCATE " + dataTable;
+			stmt.executeUpdate(truncTable);
+			log.debug("Executing: " + truncTable);
+
+			log.debug("Removing all indexes from table " + dataTable);
+			Set<String> existingIndices = getIndexNames();
+			for (String index : existingIndices) {
+				// We cannot use prepared statements for CREATE INDEX with parametrized fields:
+				// the type to be used with setObject() is not known and setString() does not work.
+				// It should be safe to run BaseConnection.escapeString() to avoid SQL-injection
+				String sql = new StringBuilder("DROP INDEX IF EXISTS ").append(index).toString();
+				log.debug("Executing: " + sql);
+				stmt.executeUpdate(sql);
+			}
+
+			conn.commit();
+			return true;
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+			try {
+				log.info("Rolling back transaction");
+				conn.rollback();
+			} catch (SQLException e1) {
+				SqlExceptionLogUtil.error(log, e1);
+			}
+			return false;
+		} finally {
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+	}
+
+	private Set<String> getIndexNames() {
+		Set<String> result = new HashSet<>();
+		Connection conn = null;
+		ResultSet rs = null;
+		Statement stmnt = null;
+		try {
+			conn = rowstore.getConnection();
+			StringBuffer sql = new StringBuffer("SELECT ci.relname AS indexname ").
+					append("FROM pg_index i,pg_class ci,pg_class ct ").
+					append("WHERE i.indexrelid=ci.oid AND ").
+					append("i.indrelid=ct.oid AND ").
+					append("ct.relname='").append(dataTable).append("' AND ").
+					append("ci.relname LIKE '%_jsonidx_%';"); // we only want our own indexes (no primary keys etc), so we filter for _jsonidx_ in the index name
+			String sqlStr = sql.toString();
+			stmnt = conn.createStatement();
+			log.debug("Executing: " + sqlStr);
+			rs = stmnt.executeQuery(sqlStr);
+			while (rs.next()) {
+				result.add(rs.getString("indexname"));
+			}
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (stmnt != null) {
+				try {
+					stmnt.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+		return result;
 	}
 
 	/**
@@ -338,7 +479,7 @@ public class PgDataset implements Dataset {
 				int paramPos = 1;
 				while (keys.hasNext()) {
 					String key = keys.next();
-					stmt.setString(paramPos, key);
+					stmt.setString(paramPos, key.toLowerCase());
 					stmt.setString(paramPos + 1, tuples.get(key));
 					paramPos += 2;
 				}
@@ -395,22 +536,13 @@ public class PgDataset implements Dataset {
 		Set<String> result = new HashSet<>();
 		try {
 			conn = rowstore.getConnection();
-			StringBuilder queryTemplate = new StringBuilder("SELECT * FROM " + getDataTable() + " LIMIT 1");
+			StringBuilder queryTemplate = new StringBuilder("SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable());
 			stmt = conn.prepareStatement(queryTemplate.toString());
 			log.debug("Executing: " + stmt);
 
 			rs = stmt.executeQuery();
-			if (rs.next()) {
-				String strRow = rs.getString("data");
-				try {
-					JSONObject jsonRow = new JSONObject(strRow);
-					Iterator<String> keys = jsonRow.keys();
-					while (keys.hasNext()) {
-						result.add(keys.next());
-					}
-				} catch (JSONException e) {
-					log.error(e.getMessage());
-				}
+			while (rs.next()) {
+				result.add(rs.getString("column_names"));
 			}
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
@@ -450,7 +582,7 @@ public class PgDataset implements Dataset {
 		ResultSet rs = null;
 		try {
 			conn = rowstore.getConnection();
-			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.TABLE_NAME + " WHERE id = ?");
+			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?");
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
 			uuid.setValue(getId());
@@ -463,10 +595,11 @@ public class PgDataset implements Dataset {
 				this.created = rs.getTimestamp("created");
 				this.dataTable = rs.getString("data_table");
 			} else {
-				throw new IllegalStateException("Unable to initialize Database object from database");
+				throw new IllegalStateException("Unable to initialize Dataset object from database");
 			}
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
+			throw new IllegalArgumentException(e);
 		} finally {
 			if (rs != null) {
 				try {
@@ -540,6 +673,180 @@ public class PgDataset implements Dataset {
 	}
 
 	/**
+	 * @see Dataset#getAliases()
+	 */
+	@Override
+	public Set<String> getAliases() {
+		Set<String> result = new HashSet<>();;
+		Connection conn = null;
+		PreparedStatement stmt = null;
+		ResultSet rs = null;
+		try {
+			conn = rowstore.getConnection();
+			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?");
+			PGobject uuid = new PGobject();
+			uuid.setType("uuid");
+			uuid.setValue(getId());
+			stmt.setObject(1, uuid);
+			log.info("Loading aliases for dataset " + getId());
+			log.debug("Executing: " + stmt);
+			rs = stmt.executeQuery();
+			while (rs.next()) {
+				String alias = rs.getString("alias");
+				result.add(alias);
+			}
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+
+		return result;
+	}
+
+	/**
+	 * @see Dataset#setAliases(Set)
+	 */
+	@Override
+	public boolean setAliases(Set<String> aliases) {
+		if (id == null) {
+			throw new IllegalArgumentException("Dataset ID must not be null");
+		}
+		Set<String> existingAliases = getAliases();
+		Connection conn = null;
+		PreparedStatement ps = null;
+		try {
+			conn = rowstore.getConnection();
+			conn.setAutoCommit(false);
+
+			ps = conn.prepareStatement("DELETE FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?");
+			PGobject uuid = new PGobject();
+			uuid.setType("uuid");
+			uuid.setValue(id);
+			ps.setObject(1, uuid);
+			log.debug("Executing: " + ps);
+			ps.execute();
+			ps.close();
+
+			ps = conn.prepareStatement("INSERT INTO " + PgDatasets.ALIAS_TABLE_NAME + " (dataset_id, alias) VALUES (?, ?)");
+			for (String alias : aliases) {
+				if (existingAliases.contains(alias) || (isAliasValid(alias) && isAliasAvailable(alias))) {
+					ps.setObject(1, uuid);
+					ps.setString(2, alias);
+					log.debug("Adding to batch: " + ps);
+					ps.addBatch();
+				} else {
+					log.debug("Received invalid or unavailable alias, rolling back");
+					conn.rollback();
+					return false;
+				}
+			}
+			log.debug("Executing and committing batch");
+			ps.executeBatch();
+			ps.close();
+			conn.commit();
+
+			return true;
+		} catch (SQLException e) {
+			try {
+				conn.rollback();
+			} catch (SQLException e1) {
+				SqlExceptionLogUtil.error(log, e1);
+			}
+			log.error(e.getMessage());
+			return false;
+		} finally {
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+	}
+
+	public String resolveAlias(String alias) {
+		String result = null;
+		Connection conn = null;
+		PreparedStatement stmt = null;
+		ResultSet rs = null;
+		try {
+			conn = rowstore.getConnection();
+			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?");
+			stmt.setString(1, alias);
+			log.debug("Executing: " + stmt);
+			rs = stmt.executeQuery();
+			if (rs.next()) {
+				UUID uuid = (UUID) rs.getObject("dataset_id");
+				return uuid.toString();
+			}
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+		} finally {
+			if (rs != null) {
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (stmt != null) {
+				try {
+					stmt.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e) {
+					SqlExceptionLogUtil.error(log, e);
+				}
+			}
+		}
+
+		return result;
+	}
+
+	private boolean isAliasValid(String alias) {
+		if (alias == null) {
+			return false;
+		}
+
+		if (!StringUtils.isAlphanumeric(alias)) {
+			return false;
+		}
+
+		return true;
+	}
+
+	private boolean isAliasAvailable(String alias) {
+		return (!rowstore.getDatasets().hasDataset(alias) && (resolveAlias(alias) == null));
+	}
+
+	/**
 	 * Converts a CSV row to a JSON object.
 	 *
 	 * @param line The row consisting of its cells' values.
@@ -566,6 +873,36 @@ public class PgDataset implements Dataset {
 		if (existing == null || (existing < length)) {
 			columnSize.put(key, length);
 		}
+	}
+
+	private char detectSeparator(File csvFile) {
+		char result = ',';
+		BufferedReader br = null;
+		try {
+			br = new BufferedReader(new AutoDetectReader(new FileInputStream(csvFile)));
+			String line1 = br.readLine();
+			String line2 = br.readLine();
+			int semiCount1 = StringUtils.countMatches(line1, ";");
+			if ((semiCount1 > 0) && (semiCount1 == StringUtils.countMatches(line2, ";"))) {
+				result = ';';
+				log.debug("Detected use of semicolon as CSV separator");
+			} else {
+				log.debug("No semicolon detected, defaulting to comma as CSV separator");
+			}
+		} catch (IOException e) {
+			log.info(e.getMessage());
+		} catch (TikaException te) {
+			log.info(te.getMessage());
+		} finally {
+			if (br != null) {
+				try {
+					br.close();
+				} catch (IOException e) {
+					log.error(e.getMessage());
+				}
+			}
+		}
+		return result;
 	}
 
 }

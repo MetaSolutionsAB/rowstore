@@ -17,16 +17,25 @@
 package org.entrystore.rowstore.resources;
 
 import org.apache.log4j.Logger;
+import org.entrystore.rowstore.etl.EtlResource;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
+import org.entrystore.rowstore.util.DatasetUtil;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
+import org.restlet.data.MediaType;
+import org.restlet.data.Method;
 import org.restlet.data.Status;
 import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.resource.Delete;
 import org.restlet.resource.Get;
+import org.restlet.resource.Post;
+import org.restlet.resource.Put;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -72,14 +81,23 @@ public class DatasetResource extends BaseResource {
 			return null;
 		}
 
-		// query parameters: /dataset/{id}?[{column-name}={value},{column-name={value}]
+		// We only pass on the parameters that match column names of the dataset's JSON
+		Set<String> columns = dataset.getColumnNames();
+		Map<String, String> tuples = new HashMap<>();
+		for (String k : parameters.keySet()) {
+			tuples.put(k.toLowerCase(), parameters.get(k));
+		}
+		tuples.keySet().retainAll(columns);
+
+		if (parameters.size() > 0 && parameters.size() != tuples.size()) {
+			// One or more query parameters did not match
+			// the column names, so we return an error
+			getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
+			return null;
+		}
+
 		JSONArray result = new JSONArray();
 		Date before = new Date();
-
-		// we only pass on the parameters that match column names of the dataset's JSON
-		Set<String> columns = dataset.getColumnNames();
-		Map<String, String> tuples = new HashMap<>(parameters);
-		tuples.keySet().retainAll(columns);
 
 		// TODO support _limit=xx
 
@@ -98,6 +116,60 @@ public class DatasetResource extends BaseResource {
 
 		getResponse().setStatus(Status.SUCCESS_OK);
 		return new JsonRepresentation(result);
+	}
+
+	@Post("csv")
+	@Put("csv")
+	public void acceptCSV(Representation entity) {
+		if (dataset == null) {
+			getResponse().setStatus(Status.CLIENT_ERROR_NOT_FOUND);
+			return;
+		}
+
+		if (entity == null) {
+			getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
+			return;
+		}
+
+		File tmpFile = null;
+		try {
+			try {
+				tmpFile = DatasetUtil.writeTempFile(entity);
+			} catch (IOException ioe) {
+				log.error(ioe.getMessage());
+				getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
+				return;
+			}
+
+			boolean appendData = Method.POST.equals(getRequest().getMethod());
+
+			dataset.setStatus(EtlStatus.ACCEPTED_DATA);
+			EtlResource etlResource = new EtlResource(dataset, tmpFile, MediaType.TEXT_CSV, appendData);
+			getRowStore().getEtlProcessor().submit(etlResource);
+
+			String datasetURL = DatasetUtil.buildDatasetURL(getRowStore().getConfig().getBaseURL(), dataset.getId());
+
+			JSONObject result = new JSONObject();
+			try {
+				result.put("id", dataset.getId());
+				result.put("url", datasetURL);
+				result.put("status", EtlStatus.ACCEPTED_DATA);
+				result.put("info", datasetURL + "/info");
+			} catch (JSONException e) {
+				log.error(e.getMessage());
+			}
+
+			getResponse().setLocationRef(datasetURL);
+			getResponse().setEntity(new JsonRepresentation(result));
+			getResponse().setStatus(Status.SUCCESS_ACCEPTED);
+		} finally {
+			// we delete the temporary file if something has gone wrong
+			// and the conversion process does not continue
+			if (tmpFile != null && !Status.SUCCESS_ACCEPTED.equals(getResponse().getStatus())) {
+				log.info("Deleting temporary file " + tmpFile);
+				tmpFile.delete();
+			}
+		}
 	}
 
 	@Delete

@@ -1,0 +1,18 @@
+image: ebner/openjdk-node-postgresql
+
+pipelines:
+  default:
+    - step:
+        script:
+          - mvn --version
+          - mvn clean install
+          - /etc/init.d/postgresql start
+          - sudo -u postgres sh -c 'createuser rowstoretest & createdb rowstoretest'
+          - sudo -u postgres psql -c "ALTER USER rowstoretest PASSWORD 'rowstoretestpw';"
+          - chmod +x standalone/target/dist/bin/rowstore
+          - standalone/target/dist/bin/rowstore tests/rowstore_tests.json 8282 &
+          - sleep 5
+          - cd tests
+          - npm install -g jasmine-node
+          - npm install --save-dev frisby
+          - jasmine-node .

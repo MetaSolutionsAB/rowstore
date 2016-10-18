@@ -1,4 +1,4 @@
-# RowStore [![Build Status](https://drone.io/bitbucket.org/metasolutions/rowstore/status.png)](https://drone.io/bitbucket.org/metasolutions/rowstore/latest)
+# RowStore
 
 RowStore is a minimum footprint storage and query engine for tabular data with two main purposes:
 
@@ -10,8 +10,8 @@ RowStore is a minimum footprint storage and query engine for tabular data with t
 In order for RowStore to be able to properly process CSV files, some conventions have to be followed:
 
 - String values within the tabular data model (such as column titles or cell string values) must contain only Unicode characters.
-- The first row should contain short names for each column; they are used as property names during the CSV2JSON conversion. They are also used as variable names by the query API.
-- Comma ("`,`") must be used as column delimiter.
+- The first row should contain short names for each column; they are used as property names during the CSV2JSON conversion. They are also used as variable names by the query API. The column titles are converted to lower case upon import.
+- Comma ("`,`") must be used as column delimiter. There is some basic detection for CSV-files that are using semi-colon ("`;`") as separator, but it is recommended to use comma.
 - Quotation marks ("`"`") must be used as quotation characters.
 - Double backslash ("`\\`) must be used as escape characters.
 - Line feed ("`\n`") or carriage return followed by line feed ("`\r\n`") must be used to indicate a new line (i.e., a new row).
@@ -29,8 +29,12 @@ With a few exceptions, all resources expect JSON payloads.
 
 ### /dataset/{id}
 
-- `GET http://{base-url}/dataset/{id}[?column1=value1&column2=value2]` - Queries the dataset with column/value-tuples. If no tuples are supplied the whole dataset is returned. Tuple values may be regular expressions if the RowStore instance is configured accordingly.  
+- `GET http://{base-url}/dataset/{id}[?column1=value1&column2=value2]` - Queries the dataset with column/value-tuples. If no tuples are supplied the whole dataset is returned. Tuple values may be regular expressions if the RowStore instance is configured accordingly.
+- `PUT http://{base-url}/dataset/{id}` - Replaces existing data, same contraints and parameters apply as for `POST http://{base-url}/datasets`.
+- `POST http://{base-url}/dataset/{id}` - Adds data to existing dataset. No structural integrity check is carried out, so it is possible to add data with a different field structure (i.e. column names). It is up to the client to enforce a consistent structure, if needed.
 - `DELETE http://{base-url}/dataset/{id}` - Deletes the dataset.
+
+An alias may be used in the URL instead of the ID above, see below for handling of aliases.
 
 ### /dataset/{id}/info
 
@@ -55,6 +59,15 @@ Available status values:
 - 3: Available
 - 4: Error
 
+### /dataset/{id}/aliases
+
+- `GET http://{base-url}/dataset/{id}/aliases` - Returns a JSON array with all aliases of a dataset.
+- `PUT http://{base-url}/dataset/{id}/aliases` - Sets (and replaces if applicable) aliases of the dataset, expects a JSON array.
+- `POST http://{base-url}/dataset/{id}/aliases` - Adds an alias, does not replace existing datasets.
+- `DELETE http://{base-url}/dataset/{id}/aliases` - Removes all aliases of a dataset.
+
+Aliases may only contain alpha-numeric characters (including Unicode) and may be used as a replacement for the dataset's ID when requesting data. Aliases are basically "nice names" for a dataset.
+
 ### /status
 
 - `GET http://{base-url}/status` - Returns some basic information about the RowStore instance. 
@@ -70,6 +83,11 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 - `maxetlprocesses` (Integer) - Maximum number of concurrently running ETL processes (each process takes up one thread).
 - `database` (parent object) - Configures the database connection.
 - `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
+- `ratelimit` - Configures rate limitation.
+    - `type` - `average` or `slidingwindow` (default).
+    - `timerange` - The size (in seconds) of the time slot or window to be used for calculating the limitation.
+    - `dataset` - Amount of permitted requests per dataset.
+    - `global` - Amount of permitted requests globally for a RowStore instance.
 
 ### Example
 
@@ -84,6 +102,12 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
     "database": "rowstore",
     "user": "rowstore",
     "password": ""
+  },
+  "ratelimit": {
+    "type": "slidingwindow",
+    "timerange": 60,
+    "dataset": 30,
+    "global": 300
   },
   "loglevel": "debug"
 }
@@ -122,7 +146,11 @@ An administrative table keeps track of datasets and their current status:
 
 A table per dataset holds the actual data in JSON:
 
-`CREATE TABLE IF NOT EXISTS {data-table} (rownr INTEGER PRIMARY KEY, data JSONB NOT NULL)`
+`CREATE TABLE IF NOT EXISTS {data-table} (rownr SERIAL, data JSONB NOT NULL)`
+
+A table to manage aliases:
+
+`CREATE TABLE IF NOT EXISTS aliases (id SERIAL, dataset_id UUID NOT NULL, alias TEXT NOT NULL)`
 
 ## Roadmap
 

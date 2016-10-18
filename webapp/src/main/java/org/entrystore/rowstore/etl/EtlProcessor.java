@@ -89,7 +89,7 @@ public class EtlProcessor {
 				File fileToLoad = etlResource.getDataSource();
 				Dataset dataset = etlResource.getDataset();
 				log.info("Populating dataset " + dataset.getId() + " with data from file " + fileToLoad);
-				if (dataset.populate(fileToLoad)) {
+				if (dataset.populate(fileToLoad, etlResource.isAppending())) {
 					log.info("Dataset " + dataset.getId() + " successfully populated");
 				} else {
 					log.info("An error occured while populating dataset " + dataset.getId());

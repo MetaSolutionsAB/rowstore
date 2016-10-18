@@ -28,6 +28,8 @@ import org.slf4j.LoggerFactory;
  */
 public class RowStoreConfig {
 
+	private static Logger log = LoggerFactory.getLogger(RowStoreConfig.class);
+
 	private String dbUser;
 
 	private String dbPassword;
@@ -52,7 +54,15 @@ public class RowStoreConfig {
 
 	private int maxEtlProcesses;
 
-	private static Logger log = LoggerFactory.getLogger(RowStoreConfig.class);
+	private String rateLimitType;
+
+	private int rateLimitTimeRange = -1;
+
+	private int rateLimitRequestsGlobal = -1;
+
+	private int rateLimitRequestsDataset = -1;
+
+	private boolean rateLimitEnabled = false;
 
 	public RowStoreConfig(JSONObject config) {
 		try {
@@ -75,6 +85,18 @@ public class RowStoreConfig {
 			dbPassword = dbConfig.getString("password");
 			dbMaxConnections = dbConfig.optInt("maxconnections", 30);
 			dbSsl = dbConfig.optBoolean("ssl", false);
+
+			// Rate limitation
+			if (config.has("ratelimit")) {
+				JSONObject rateLimitConfig = config.getJSONObject("ratelimit");
+				rateLimitType = rateLimitConfig.optString("type", "slidingwindow");
+				rateLimitTimeRange = rateLimitConfig.optInt("timerange", -1);
+				rateLimitRequestsGlobal = rateLimitConfig.optInt("global", -1);
+				rateLimitRequestsDataset = rateLimitConfig.optInt("dataset", -1);
+				if (rateLimitTimeRange > 0 && (rateLimitRequestsGlobal > 0 || rateLimitRequestsDataset > 0)) {
+					rateLimitEnabled = true;
+				}
+			}
 		} catch (JSONException e) {
 			log.error(e.getMessage());
 		}
@@ -126,6 +148,26 @@ public class RowStoreConfig {
 
 	public boolean hasRegExpQuerySupport() {
 		return regExpSupport;
+	}
+
+	public boolean isRateLimitEnabled() {
+		return rateLimitEnabled;
+	}
+
+	public int getRateLimitTimeRange() {
+		return rateLimitTimeRange;
+	}
+
+	public int getRateLimitRequestsGlobal() {
+		return rateLimitRequestsGlobal;
+	}
+
+	public int getRateLimitRequestsDataset() {
+		return rateLimitRequestsDataset;
+	}
+
+	public String getRateLimitType() {
+		return rateLimitType;
 	}
 
 }
