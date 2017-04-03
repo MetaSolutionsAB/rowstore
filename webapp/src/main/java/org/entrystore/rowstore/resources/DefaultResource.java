@@ -33,7 +33,7 @@ public class DefaultResource extends BaseResource {
 	@Get
 	public Representation represent() throws ResourceException {
 		getResponse().setStatus(Status.CLIENT_ERROR_NOT_FOUND);
-		String msg = "You made a request against the EntryStore REST API. There is no resource at this URI.";
+		String msg = "You made a request against the RowStore REST API. There is no resource at this URI.";
 		return new StringRepresentation(msg);
 	}
 
