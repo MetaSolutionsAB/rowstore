@@ -7,13 +7,13 @@
     <groupId>org.entrystore.rowstore</groupId>
     <artifactId>rowstore-webapp</artifactId>
     <packaging>war</packaging>
-    <version>1.0</version>
+    <version>1.0.1</version>
     <name>RowStore WebApp</name>
 
     <parent>
         <groupId>org.entrystore.rowstore</groupId>
         <artifactId>rowstore-parent</artifactId>
-        <version>1.0</version>
+        <version>1.0.1</version>
     </parent>
 
     <build>
@@ -74,11 +74,6 @@
     </build>
 
     <dependencies>
-	<dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-            <version>18.0</version>
-	</dependency>
         <dependency>
             <groupId>org.restlet.jse</groupId>
             <artifactId>org.restlet</artifactId>
@@ -123,7 +118,7 @@
         <dependency>
             <groupId>com.opencsv</groupId>
             <artifactId>opencsv</artifactId>
-            <version>3.4</version>
+            <version>3.9</version>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
