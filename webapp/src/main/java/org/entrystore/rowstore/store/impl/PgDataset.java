@@ -211,7 +211,7 @@ public class PgDataset implements Dataset {
 			conn = rowstore.getConnection();
 			char separator = detectSeparator(csvFile);
 			cr = new CSVReader(new AutoDetectReader(new FileInputStream(csvFile)), separator, '"');
-			int lineCount = 0;
+			long lineCount = 0;
 			String[] labels = null;
 			String[] line;
 
