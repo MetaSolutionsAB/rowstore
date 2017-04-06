@@ -182,14 +182,14 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
             .get(json.url + "?Name=%C3%85kesson")
             .expectStatus(200)
             .expectHeaderContains('Content-Type', 'application/json')
-            .expectJSONTypes([{
-                name: String,
-                comment: String
+            .expectJSONTypes("results", [{
+              name: String,
+              comment: String,
+              "some other column": String,
+              comment: String
             }])
-            .expectJSON([{
-                name: 'Åkesson',
-                comment: 'Another comment with äöå'
-            }])
+            .expectJSON("results", [{name: 'Åkesson', comment: 'Another comment with äöå'}])
+            .expectJSONLength("results", 1)
             .waits(initialDelay)
             .retry(retryCount, retryDelay)
             .toss();
@@ -197,13 +197,13 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
             .get(json.url + "?name=%C3%85kesson")
             .expectStatus(200)
             .expectHeaderContains('Content-Type', 'application/json')
-            .expectJSONTypes([{
+            .expectJSONTypes("results", [{
                 name: String,
                 comment: String,
                 "some other column": String,
                 comment: String
             }])
-            .expectJSONLength(1)
+            .expectJSONLength("results", 1)
             .waits(initialDelay)
             .retry(retryCount, retryDelay)
             .toss();
@@ -211,13 +211,13 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
             .get(json.url + "?Some+other+column=x")
             .expectStatus(200)
             .expectHeaderContains('Content-Type', 'application/json')
-            .expectJSONTypes([{
+            .expectJSONTypes("results", [{
                 name: String,
                 telephone: String,
                 "some other column": String,
                 comment: String
             }])
-            .expectJSON([{
+            .expectJSON("results", [{
                 name: 'McLoud',
                 telephone: '0987654321',
                 "some other column": 'x',
@@ -230,13 +230,13 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
             .get(json.url + "?Name=(%C3%85%7C%C3%A9)") // decoded: Name=(Å|é)
             .expectStatus(200)
             .expectHeaderContains('Content-Type', 'application/json')
-            .expectJSONTypes([{
+            .expectJSONTypes("results", [{
                 name: String,
                 telephone: String,
                 "some other column": String,
                 comment: String
             }])
-            .expectJSONLength(2)
+            .expectJSONLength("results", 2)
             .waits(initialDelay)
             .retry(retryCount, retryDelay)
             .toss();
@@ -246,6 +246,50 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
             .waits(initialDelay)
             .retry(retryCount, retryDelay)
             .toss();
+        frisby.create('GET dataset1 pagination test 1')
+            .get(json.url + "?Name=(%C3%85%7C%C3%A9)&_limit=1") // decoded: Name=(Å|é)
+            .expectStatus(200)
+            .expectHeaderContains('Content-Type', 'application/json')
+            .expectJSONTypes({
+                results: Array,
+                offset: Number,
+                limit: Number,
+                resultCount: Number
+            })
+            .expectJSON({
+              offset: 0,
+              resultCount: 2,
+              limit: 1,
+              results: [{
+                name: 'Béringer'
+              }]
+            })
+            .expectJSONLength("results", 1)
+            .waits(initialDelay)
+            .retry(retryCount, retryDelay)
+            .toss();
+        frisby.create('GET dataset1 pagination test 2')
+          .get(json.url + "?Name=(%C3%85%7C%C3%A9)&_limit=1&_offset=1") // decoded: Name=(Å|é)
+          .expectStatus(200)
+          .expectHeaderContains('Content-Type', 'application/json')
+          .expectJSONTypes({
+            results: Array,
+            offset: Number,
+            limit: Number,
+            resultCount: Number
+          })
+          .expectJSON({
+            offset: 1,
+            resultCount: 2,
+            limit: 1,
+            results: [{
+              name: 'Åkesson'
+            }]
+          })
+          .expectJSONLength("results", 1)
+          .waits(initialDelay)
+          .retry(retryCount, retryDelay)
+          .toss();
     })
     .toss();
 
@@ -289,11 +333,11 @@ frisby.create('POST CSV file (UTF-8, semicolon-separated) to create new dataset2
                     .get(json.url + "?Name=B%C3%A9ringer")
                     .expectStatus(200)
                     .expectHeaderContains('Content-Type', 'application/json')
-                    .expectJSONTypes([{
+                    .expectJSONTypes("results", [{
                         name: String,
                         comment: String
                     }])
-                    .expectJSON([{
+                    .expectJSON("results", [{
                         name: 'Béringer',
                         comment: 'No, no comment'
                     }])
@@ -345,11 +389,11 @@ frisby.create('POST CSV file (Windows-1252, comma-separated) to create new datas
                     .get(json.url + "?Name=%C3%85kesson")
                     .expectStatus(200)
                     .expectHeaderContains('Content-Type', 'application/json')
-                    .expectJSONTypes([{
+                    .expectJSONTypes("results", [{
                         name: String,
                         comment: String
                     }])
-                    .expectJSON([{
+                    .expectJSON("results", [{
                         name: 'Åkesson',
                         comment: 'Another comment with äöå'
                     }])

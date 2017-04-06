@@ -69,7 +69,7 @@ public interface Dataset {
 	 * @param tuples Key/value pairs where the keys must match the row names. Returns all data if the map is emtpy. Keys are treated case-insensitively.
 	 * @return Returns a list of matching JSON objects.
 	 */
-	List<JSONObject> query(Map<String, String> tuples);
+	QueryResult query(Map<String, String> tuples, int limit, int offset);
 
 	/**
 	 * @return Returns the dataset's column names.

@@ -22,6 +22,7 @@ import org.apache.tika.detect.AutoDetectReader;
 import org.apache.tika.exception.TikaException;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
+import org.entrystore.rowstore.store.QueryResult;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.util.Hashing;
 import org.json.JSONException;
@@ -244,7 +245,7 @@ public class PgDataset implements Dataset {
 					log.debug("Adding to batch: " + stmt);
 					stmt.addBatch();
 					// we execute the batch every 100th line
-					if ((lineCount % 100) == 0) {
+					if ((lineCount % 200) == 0) {
 						log.debug("Executing: " + stmt);
 						stmt.executeBatch();
 					}
@@ -444,18 +445,19 @@ public class PgDataset implements Dataset {
 	}
 
 	/**
-	 * @see Dataset#query(Map)
+	 * @see Dataset#query(Map, int, int)
 	 */
 	@Override
-	public List<JSONObject> query(Map<String, String> tuples) {
+	public QueryResult query(Map<String, String> tuples, int limit, int offset) {
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
 		boolean regexp = rowstore.getConfig().hasRegExpQuerySupport();
 		List<JSONObject> result = new ArrayList<>();
+		int resultCount = 0;
 		try {
 			conn = rowstore.getConnection();
-			StringBuilder queryTemplate = new StringBuilder("SELECT data FROM " + getDataTable());
+			StringBuilder queryTemplate = new StringBuilder("SELECT data, count(*) OVER() AS result_count FROM " + getDataTable());
 			if (tuples != null && tuples.size() > 0) {
 				for (int i = 0; i < tuples.size(); i++) {
 					if (i == 0) {
@@ -472,11 +474,13 @@ public class PgDataset implements Dataset {
 				}
 			}
 
+			queryTemplate.append(" ORDER BY rownr LIMIT ? OFFSET ? ");
+
 			stmt = conn.prepareStatement(queryTemplate.toString());
 
+			int paramPos = 1;
 			if (tuples != null && tuples.size() > 0) {
 				Iterator<String> keys = tuples.keySet().iterator();
-				int paramPos = 1;
 				while (keys.hasNext()) {
 					String key = keys.next();
 					stmt.setString(paramPos, key.toLowerCase());
@@ -485,11 +489,17 @@ public class PgDataset implements Dataset {
 				}
 			}
 
+			stmt.setInt(paramPos++, limit);
+			stmt.setInt(paramPos, offset);
+
 			log.debug("Executing: " + stmt);
 
 			rs = stmt.executeQuery();
 			while (rs.next()) {
 				String value = rs.getString("data");
+				if (resultCount == 0) {
+					resultCount = rs.getInt("result_count");
+				}
 				try {
 					result.add(new JSONObject(value));
 				} catch (JSONException e) {
@@ -522,7 +532,7 @@ public class PgDataset implements Dataset {
 			}
 		}
 
-		return result;
+		return new QueryResult(result, limit, offset, resultCount);
 	}
 
 	/**
