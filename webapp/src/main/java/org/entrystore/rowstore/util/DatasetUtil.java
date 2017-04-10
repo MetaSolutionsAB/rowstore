@@ -104,7 +104,7 @@ public class DatasetUtil {
 	 * @return True if there is a chance that this string contains a regular expression.
 	 */
 	public static boolean isRegExpString(String s) {
-		char[] indicators = {'^', '$', '[', '*', '+', '{', '?', '/'};
+		char[] indicators = {'^', '$', '(', '|', '[', '*', '+', '{', '?', '/'};
 		return StringUtils.indexOfAny(s, indicators) > -1;
 	}
 
