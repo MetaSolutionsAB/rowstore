@@ -30,6 +30,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.util.PGobject;
+import org.restlet.data.Status;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -466,7 +467,7 @@ public class PgDataset implements Dataset {
 					// We check whether there is a value
 					if (values[i].equals("~")) {
 						log.debug("No value provided after ~");
-						return null;
+						return new QueryResult.Error(Status.CLIENT_ERROR_BAD_REQUEST.getUri());
 					}
 
 					if (i == 0) {
@@ -514,6 +515,10 @@ public class PgDataset implements Dataset {
 
 			log.debug("Executing: " + stmt);
 
+			int queryTO = rowstore.getConfig().getQueryTimeout();
+			if (queryTO > -1) {
+				stmt.setQueryTimeout(queryTO);
+			}
 			rs = stmt.executeQuery();
 			while (rs.next()) {
 				String value = rs.getString("data");
@@ -527,8 +532,9 @@ public class PgDataset implements Dataset {
 				}
 			}
 		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
-			return null;
+			//SqlExceptionLogUtil.error(log, e);
+			log.debug(e.getMessage());
+			return new QueryResult.Error(e.getSQLState());
 		} finally {
 			if (rs != null) {
 				try {

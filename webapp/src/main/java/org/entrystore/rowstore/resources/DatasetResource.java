@@ -30,6 +30,7 @@ import org.restlet.data.Method;
 import org.restlet.data.Status;
 import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
+import org.restlet.representation.StringRepresentation;
 import org.restlet.resource.Delete;
 import org.restlet.resource.Get;
 import org.restlet.resource.Post;
@@ -39,7 +40,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -139,7 +139,13 @@ public class DatasetResource extends BaseResource {
 		long elapsedTime = new Date().getTime() - before.getTime();
 		log.info("Query took " + elapsedTime + " ms");
 
-		if (qResult == null) {
+		if (qResult.getStatus() != null) {
+			if ("57014".equals(qResult.getStatus())) {
+				log.debug("Query timed out");
+				getResponse().setStatus(Status.SERVER_ERROR_SERVICE_UNAVAILABLE);
+				return new StringRepresentation("The submitted query exceeded the configured maximum time limit.");
+			}
+
 			getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
 			return null;
 		}

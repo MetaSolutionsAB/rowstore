@@ -30,11 +30,18 @@ public class QueryResult {
 
 	private List<JSONObject> results;
 
+	private String status;
+
 	public QueryResult(List<JSONObject> results, int limit, int offset, int resultCount) {
+		this(results, limit, offset, resultCount, null);
+	}
+
+	public QueryResult(List<JSONObject> results, int limit, int offset, int resultCount, String status) {
 		this.limit = limit;
 		this.offset = offset;
 		this.resultCount = resultCount;
 		this.results = results;
+		this.status = status;
 	}
 
 	public int getLimit() {
@@ -51,6 +58,18 @@ public class QueryResult {
 
 	public List<JSONObject> getResults() {
 		return results;
+	}
+
+	public String getStatus() {
+		return status;
+	}
+
+	public static class Error extends QueryResult {
+
+		public Error(String sqlStatus) {
+			super(null, 0, 0, 0, sqlStatus);
+		}
+
 	}
 
 }

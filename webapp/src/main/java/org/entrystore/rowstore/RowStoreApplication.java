@@ -86,7 +86,15 @@ public class RowStoreApplication extends Application {
 		if (configURI != null && "file".equals(configURI.getScheme())) {
 			log.info("Loading configuration from " + configURI);
 			config = new RowStoreConfig(new JSONObject(new String(Files.readAllBytes(Paths.get(configURI)))));
+
 			setLogLevel(config.getLogLevel());
+
+			if (config.getQueryTimeout() > -1) {
+				log.info("Query timeout set to " + config.getQueryTimeout() + " second" + (config.getQueryTimeout() > 1 ? "s" : ""));
+			} else {
+				log.info("No query timeout configured");
+			}
+
 			rowstore = new PgRowStore(config);
 			log.info("Started RowStore " + getVersion());
 		} else {
@@ -207,7 +215,7 @@ public class RowStoreApplication extends Application {
 	}
 
 	private void setLogLevel(String logLevel) {
-		log.info("Setting log level to " + logLevel);
+		log.info("Trying to set log level to " + logLevel);
 		//BasicConfigurator.configure(); // we don't need this as long as we have a log4j.properties in the classpath
 		Level l = Level.INFO;
 		if (logLevel != null) {

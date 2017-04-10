@@ -2,6 +2,7 @@
   "baseurl": "https://domain.com/rowstore/",
   "regexpqueries": true,
   "maxetlprocesses": 5,
+  "querytimeout": 15,
   "database": {
     "type": "postgresql",
     "host": "localhost",

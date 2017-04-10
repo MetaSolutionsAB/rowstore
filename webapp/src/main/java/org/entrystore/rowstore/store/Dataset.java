@@ -16,12 +16,9 @@
 
 package org.entrystore.rowstore.store;
 
-import org.json.JSONObject;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Date;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -67,7 +64,7 @@ public interface Dataset {
 	 * Returns matching rows of the dataset.
 	 *
 	 * @param tuples Key/value pairs where the keys must match the row names. Returns all data if the map is emtpy. Keys are treated case-insensitively.
-	 * @return Returns a list of matching JSON objects; null if the query failed.
+	 * @return Returns a list of matching JSON objects.
 	 */
 	QueryResult query(Map<String, String> tuples, int limit, int offset);
 

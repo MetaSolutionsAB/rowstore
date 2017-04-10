@@ -44,6 +44,8 @@ Pagination is supported and enforced for result sets larger than 100 rows. Pagin
 
 The query engine tries to optimize queries by detecting whether a query value contains any characters that are typical for regular expressions. Queries for partial strings may be affected by undesired optimization, in such cases a regexp query can be enforced by prefixing the query value with `~`. E.g. a query for `name=meta` would not trigger a regexp query, whereas a query for `name=^meta` would. To accept `meta` as regexp it must be prefixed with `~`: `name=~meta`.
 
+Queries are subject to an eventually configured query timeout, see configuration section. If a query exceeds the configured timeout the running request to the database is interrupted and a response body is returned containing an explanatory message and HTTP status 503.
+
 ### /dataset/{id}/info
 
 - `GET http://{base-url}/dataset/{id}/info` - Returns information (e.g. status) about a dataset.
@@ -91,6 +93,7 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 - `maxetlprocesses` (Integer) - Maximum number of concurrently running ETL processes (each process takes up one thread).
 - `database` (parent object) - Configures the database connection.
 - `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
+- `querytimeout` (Integer) - Configures query timeout for dataset-queries in seconds. By default no query timeout is active (unless configured directly in the database).
 - `ratelimit` - Configures rate limitation.
     - `type` - `average` or `slidingwindow` (default).
     - `timerange` - The size (in seconds) of the time slot or window to be used for calculating the limitation.

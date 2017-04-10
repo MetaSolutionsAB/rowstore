@@ -64,10 +64,13 @@ public class RowStoreConfig {
 
 	private boolean rateLimitEnabled = false;
 
+	private int queryTimeout = -1;
+
 	public RowStoreConfig(JSONObject config) {
 		try {
 			// Base URL
 			baseURL = config.getString("baseurl");
+
 			// Support for RegExp pattern matching
 			String regExpSupportStr = config.optString("regexpqueries", "false");
 			if ("simple".equalsIgnoreCase(regExpSupportStr)) {
@@ -77,8 +80,10 @@ public class RowStoreConfig {
 			} else {
 				regExpSupport = Dataset.REGEXP_QUERY_DISABLED;
 			}
+
 			// ETL
 			maxEtlProcesses = config.optInt("maxetlprocesses", 5);
+
 			// Logging
 			logLevel = config.optString("loglevel", "info");
 
@@ -103,6 +108,11 @@ public class RowStoreConfig {
 				if (rateLimitTimeRange > 0 && (rateLimitRequestsGlobal > 0 || rateLimitRequestsDataset > 0)) {
 					rateLimitEnabled = true;
 				}
+			}
+
+			// Query time out
+			if (config.has("querytimeout")) {
+				queryTimeout = config.optInt("querytimeout", -1);
 			}
 		} catch (JSONException e) {
 			log.error(e.getMessage());
@@ -175,6 +185,10 @@ public class RowStoreConfig {
 
 	public String getRateLimitType() {
 		return rateLimitType;
+	}
+
+	public int getQueryTimeout() {
+		return queryTimeout;
 	}
 
 }
