@@ -29,12 +29,20 @@ With a few exceptions, all resources expect JSON payloads.
 
 ### /dataset/{id}
 
-- `GET http://{base-url}/dataset/{id}[?column1=value1&column2=value2&_limit=100&_offset=0]` - Queries the dataset with column/value-tuples. If no tuples are supplied the whole dataset is returned. Tuple values may be regular expressions if the RowStore instance is configured accordingly. Pagination is supported and enforced for result sets larger than 100 rows. Pagination is controlled through the URL parameters `_limit` (expects a value from 1 to 100) and `_offset`. The result object contains `limit`, `offset` and `resultCount`, as well as a `results` array with one JSON object per row.
+- `GET http://{base-url}/dataset/{id}[?column1=value1&column2=value2&_limit=100&_offset=0]` - Queries the dataset with column/value-tuples, se subsection "Querying" below.
 - `PUT http://{base-url}/dataset/{id}` - Replaces existing data, same contraints and parameters apply as for `POST http://{base-url}/datasets`.
 - `POST http://{base-url}/dataset/{id}` - Adds data to existing dataset. No structural integrity check is carried out, so it is possible to add data with a different field structure (i.e. column names). It is up to the client to enforce a consistent structure, if needed.
 - `DELETE http://{base-url}/dataset/{id}` - Deletes the dataset.
 
 An alias may be used in the URL instead of the ID above, see below for handling of aliases.
+
+#### Querying
+
+If no tuples are supplied the whole dataset is returned. Tuple values may be regular expressions if the RowStore instance is configured accordingly (see "Configuration" section below).
+
+Pagination is supported and enforced for result sets larger than 100 rows. Pagination is controlled through the URL parameters `_limit` (expects a value from 1 to 100) and `_offset`. The result object contains `limit`, `offset` and `resultCount`, as well as a `results` array with one JSON object per row.
+
+The query engine tries to optimize queries by detecting whether a query value contains any characters that are typical for regular expressions. Queries for partial strings may be affected by undesired optimization, in such cases a regexp query can be enforced by prefixing the query value with `~`. E.g. a query for `name=meta` would not trigger a regexp query, whereas a query for `name=^meta` would. To accept `meta` as regexp it must be prefixed with `~`: `name=~meta`.
 
 ### /dataset/{id}/info
 
@@ -79,7 +87,7 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 ### Properties
 
 - `baseurl` (String) - The base URL under which the root of RowStore can be reached. Used for generating correct URIs in API responses.
-- `regexpqueries` (Boolean) - Determines whether the query interface should allow regular expressions to match column values.
+- `regexpqueries` (String) - Determines whether the query interface should allow regular expressions to match column values. Differentiates between `disabled` (no regexp support), `simple` (support for queries starting with `^`), and `full` (support for any regexp queries).
 - `maxetlprocesses` (Integer) - Maximum number of concurrently running ETL processes (each process takes up one thread).
 - `database` (parent object) - Configures the database connection.
 - `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
@@ -94,7 +102,7 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 ```
 {
   "baseurl": "https://domain.com/rowstore/",
-  "regexpqueries": true,
+  "regexpqueries": "full",
   "maxetlprocesses": 5,
   "database": {
     "type": "postgresql",

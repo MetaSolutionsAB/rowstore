@@ -50,7 +50,7 @@ public class RowStoreConfig {
 
 	private String baseURL;
 
-	private boolean regExpSupport;
+	private int regExpSupport;
 
 	private int maxEtlProcesses;
 
@@ -69,7 +69,14 @@ public class RowStoreConfig {
 			// Base URL
 			baseURL = config.getString("baseurl");
 			// Support for RegExp pattern matching
-			regExpSupport = config.optBoolean("regexpqueries", false);
+			String regExpSupportStr = config.optString("regexpqueries", "false");
+			if ("simple".equalsIgnoreCase(regExpSupportStr)) {
+				regExpSupport = Dataset.REGEXP_QUERY_SIMPLE;
+			} else if ("full".equalsIgnoreCase(regExpSupportStr) || "true".equalsIgnoreCase(regExpSupportStr)) {
+				regExpSupport = Dataset.REGEXP_QUERY_FULL;
+			} else {
+				regExpSupport = Dataset.REGEXP_QUERY_DISABLED;
+			}
 			// ETL
 			maxEtlProcesses = config.optInt("maxetlprocesses", 5);
 			// Logging
@@ -146,7 +153,7 @@ public class RowStoreConfig {
 		return maxEtlProcesses;
 	}
 
-	public boolean hasRegExpQuerySupport() {
+	public int getRegexpQuerySupport() {
 		return regExpSupport;
 	}
 

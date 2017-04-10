@@ -24,6 +24,7 @@ import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.QueryResult;
 import org.entrystore.rowstore.store.RowStore;
+import org.entrystore.rowstore.util.DatasetUtil;
 import org.entrystore.rowstore.util.Hashing;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -74,7 +75,7 @@ public class PgDataset implements Dataset {
 
 	private Map<String, Integer> columnSize = new HashMap<>();
 
-	int maxSizeForIndex = 256;
+	private int maxSizeForIndex = 256;
 
 	protected PgDataset(RowStore rowstore, String id) {
 		if (rowstore == null) {
@@ -310,7 +311,7 @@ public class PgDataset implements Dataset {
 			// TODO instead of just skipping the index we could run a fulltext-index on such fields
 			Integer fieldSize = columnSize.get(field);
 			if (fieldSize != null && fieldSize > maxSizeForIndex) {
-				log.debug("Skipping index creation for field \"" + field + "\"; the configured max field size is " + maxSizeForIndex + ", but the actual size is " + fieldSize);
+				log.warn("Skipping index creation for field \"" + field + "\"; the configured max field size is " + maxSizeForIndex + ", but the actual size is " + fieldSize);
 				continue;
 			}
 			String indexName = dataTable + "_jsonidx_" + Hashing.md5(field).substring(0, 8);
@@ -325,10 +326,9 @@ public class PgDataset implements Dataset {
 					append(indexName).
 					append(" ON ").
 					append(dataTable).
-					append(" (").
-					append("(data->>'").
+					append(" ((data->>'").
 					append(((BaseConnection) conn).escapeString(field)).
-					append("'))").
+					append("') text_pattern_ops)").
 					toString();
 			log.debug("Executing: " + sql);
 			conn.createStatement().execute(sql);
@@ -452,21 +452,37 @@ public class PgDataset implements Dataset {
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
-		boolean regexp = rowstore.getConfig().hasRegExpQuerySupport();
+		String[] values = tuples.values().toArray(new String[tuples.size()]);
+
 		List<JSONObject> result = new ArrayList<>();
 		int resultCount = 0;
+		int regexp = rowstore.getConfig().getRegexpQuerySupport();
+		boolean optimizeRegexp = true;
 		try {
 			conn = rowstore.getConnection();
 			StringBuilder queryTemplate = new StringBuilder("SELECT data, count(*) OVER() AS result_count FROM " + getDataTable());
 			if (tuples != null && tuples.size() > 0) {
 				for (int i = 0; i < tuples.size(); i++) {
+					// We check whether there is a value
+					if (values[i].equals("~")) {
+						log.debug("No value provided after ~");
+						return null;
+					}
+
 					if (i == 0) {
 						queryTemplate.append(" WHERE ");
 					} else {
 						queryTemplate.append(" AND ");
 					}
-					if (regexp) {
-						// we match using ~ to enable regular expressions
+
+					if (regexp == Dataset.REGEXP_QUERY_FULL && values[i].startsWith("~")) {
+						optimizeRegexp = false;
+					}
+
+					// we match using ~ to enable regular expressions
+					if (regexp == Dataset.REGEXP_QUERY_FULL && (!optimizeRegexp || DatasetUtil.isRegExpString(values[i]))) {
+						queryTemplate.append("data->>? ~ ?");
+					} else if (regexp == Dataset.REGEXP_QUERY_SIMPLE && values[i].startsWith("^")) {
 						queryTemplate.append("data->>? ~ ?");
 					} else {
 						queryTemplate.append("data->>? = ?");
@@ -484,7 +500,11 @@ public class PgDataset implements Dataset {
 				while (keys.hasNext()) {
 					String key = keys.next();
 					stmt.setString(paramPos, key.toLowerCase());
-					stmt.setString(paramPos + 1, tuples.get(key));
+					String value = tuples.get(key);
+					if (!optimizeRegexp && value.startsWith("~")) {
+						value = value.substring(1);
+					}
+					stmt.setString(paramPos + 1, value);
 					paramPos += 2;
 				}
 			}
@@ -508,6 +528,7 @@ public class PgDataset implements Dataset {
 			}
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
+			return null;
 		} finally {
 			if (rs != null) {
 				try {
@@ -546,7 +567,11 @@ public class PgDataset implements Dataset {
 		Set<String> result = new HashSet<>();
 		try {
 			conn = rowstore.getConnection();
-			StringBuilder queryTemplate = new StringBuilder("SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable());
+			// FIXME the following query is very slow on large tables
+			// (note: temporarily added WHERE clause to speed it up and avoid a full table scan,
+			// side effect of WHERE clause is that eventually added data with different structure is not
+			// being taken into consideration)
+			StringBuilder queryTemplate = new StringBuilder("SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable() + " WHERE rownr = '1'");
 			stmt = conn.prepareStatement(queryTemplate.toString());
 			log.debug("Executing: " + stmt);
 

@@ -67,7 +67,7 @@ public interface Dataset {
 	 * Returns matching rows of the dataset.
 	 *
 	 * @param tuples Key/value pairs where the keys must match the row names. Returns all data if the map is emtpy. Keys are treated case-insensitively.
-	 * @return Returns a list of matching JSON objects.
+	 * @return Returns a list of matching JSON objects; null if the query failed.
 	 */
 	QueryResult query(Map<String, String> tuples, int limit, int offset);
 
@@ -94,5 +94,11 @@ public interface Dataset {
 	 * @param aliases A set of strings with aliases.
 	 */
 	boolean setAliases(Set<String> aliases);
+
+	int REGEXP_QUERY_DISABLED = 0;
+
+	int REGEXP_QUERY_SIMPLE = 1;
+
+	int REGEXP_QUERY_FULL = 2;
 
 }

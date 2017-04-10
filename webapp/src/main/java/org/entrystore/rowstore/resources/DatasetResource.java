@@ -139,6 +139,11 @@ public class DatasetResource extends BaseResource {
 		long elapsedTime = new Date().getTime() - before.getTime();
 		log.info("Query took " + elapsedTime + " ms");
 
+		if (qResult == null) {
+			getResponse().setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
+			return null;
+		}
+
 		for (JSONObject row : qResult.getResults()) {
 			rows.put(row);
 		}
