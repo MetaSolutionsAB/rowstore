@@ -74,7 +74,9 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
                 rowcount: Number,
                 created: String,
                 columnnames: Array,
-                status: Number
+                status: Number,
+                @id: String,
+                @context: String
             })
             .expectJSON({
                 rowcount: 5,
