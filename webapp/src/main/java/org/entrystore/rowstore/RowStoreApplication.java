@@ -66,7 +66,7 @@ public class RowStoreApplication extends Application {
 
 	public static String NAME = "RowStore";
 
-	private static String CONFIG_URI_ENV = "ROWSTORE_CONFIG_URI";
+	private static String ENV_CONFIG_URI = "ROWSTORE_CONFIG_URI";
 
 	private static String VERSION = null;
 
@@ -82,7 +82,7 @@ public class RowStoreApplication extends Application {
 		super(parentContext);
 		getContext().getAttributes().put(KEY, this);
 		if (configURI == null) {
-			String envConfigURI = System.getenv(CONFIG_URI_ENV);
+			String envConfigURI = System.getenv(ENV_CONFIG_URI);
 			if (envConfigURI != null) {
 				configURI = URI.create(envConfigURI);
 			}
@@ -200,7 +200,7 @@ public class RowStoreApplication extends Application {
 			}
 		}
 
-		if (configURI == null && System.getenv(CONFIG_URI_ENV) == null) {
+		if (configURI == null && System.getenv(ENV_CONFIG_URI) == null) {
 			System.out.println("RowStore - http://entrystore.org/rowstore/");
 			System.out.println("");
 			System.out.println("Usage: rowstore [path to configuration file] [listening port]");
