@@ -66,6 +66,8 @@ public class RowStoreApplication extends Application {
 
 	public static String NAME = "RowStore";
 
+	private static String CONFIG_URI_ENV = "ROWSTORE_CONFIG_URI";
+
 	private static String VERSION = null;
 
 	RowStore rowstore;
@@ -80,7 +82,13 @@ public class RowStoreApplication extends Application {
 		super(parentContext);
 		getContext().getAttributes().put(KEY, this);
 		if (configURI == null) {
-			configURI = getConfigurationURI("rowstore.json");
+			String envConfigURI = System.getenv(CONFIG_URI_ENV);
+			if (envConfigURI != null) {
+				configURI = URI.create(envConfigURI);
+			}
+			if (configURI == null) {
+				configURI = getConfigurationURI("rowstore.json");
+			}
 		}
 
 		if (configURI != null && "file".equals(configURI.getScheme())) {
@@ -179,7 +187,7 @@ public class RowStoreApplication extends Application {
 		if (args.length > 0) {
 			configURI = new File(args[0]).toURI();
 			if (!new File(configURI).exists()) {
-				System.err.println("Configuration file not found");
+				System.err.println("Configuration file not found: " + configURI);
 				configURI = null;
 			}
 		}
@@ -192,11 +200,14 @@ public class RowStoreApplication extends Application {
 			}
 		}
 
-		if (configURI == null) {
+		if (configURI == null && System.getenv(CONFIG_URI_ENV) == null) {
 			System.out.println("RowStore - http://entrystore.org/rowstore/");
 			System.out.println("");
-			System.out.println("Usage: rowstore <path to configuration file> [listening port]");
+			System.out.println("Usage: rowstore [path to configuration file] [listening port]");
 			System.out.println("");
+			System.out.println("Path to configuration file may be omitted only if environment variable ROWSTORE_CONFIG_URI is set to a URI. No other parameters must be provided if the configuration file is not provided as parameter.");
+			System.out.println("Default listening port is " + port + ".");
+
 			System.exit(1);
 		}
 
