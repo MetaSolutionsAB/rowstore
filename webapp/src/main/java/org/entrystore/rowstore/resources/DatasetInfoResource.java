@@ -64,6 +64,7 @@ public class DatasetInfoResource extends BaseResource {
 			result.put("columnnames", dataset.getColumnNames());
 			result.put("rowcount", dataset.getRowCount());
 			result.put("identifier", dataset.getId());
+			result.put("aliases", dataset.getAliases());
 
 			// we add JSON-LD stuff
 			String baseURL = getRowStore().getConfig().getBaseURL();

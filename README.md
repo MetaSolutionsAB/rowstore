@@ -57,7 +57,8 @@ Example information object:
   "status": 3,
   "created": 2015-04-23T12:20:43.511Z,
   "columnnames": ["Station", "Lat", "Long", "Air quality"],
-  "rowcount": 342
+  "rowcount": 342,
+  "aliases": ["alias1", "alias2"]
 }
 ```
 
@@ -71,7 +72,7 @@ Available status values:
 
 ### /dataset/{id}/aliases
 
-- `GET http://{base-url}/dataset/{id}/aliases` - Returns a JSON array with all aliases of a dataset.
+- `GET http://{base-url}/dataset/{id}/aliases` - Returns a JSON array with all aliases of a dataset. This information is also included in the info-object (see above for information about the info-resource).
 - `PUT http://{base-url}/dataset/{id}/aliases` - Sets (and replaces if applicable) aliases of the dataset, expects a JSON array.
 - `POST http://{base-url}/dataset/{id}/aliases` - Adds an alias, does not replace existing datasets.
 - `DELETE http://{base-url}/dataset/{id}/aliases` - Removes all aliases of a dataset.
