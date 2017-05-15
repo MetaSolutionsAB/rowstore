@@ -189,7 +189,9 @@ public class DatasetResource extends BaseResource {
 
 			boolean appendData = Method.POST.equals(getRequest().getMethod());
 
-			dataset.setStatus(EtlStatus.ACCEPTED_DATA);
+			if (dataset.getStatus() != EtlStatus.PROCESSING) {
+				dataset.setStatus(EtlStatus.ACCEPTED_DATA);
+			}
 			EtlResource etlResource = new EtlResource(dataset, tmpFile, MediaType.TEXT_CSV, appendData);
 			getRowStore().getEtlProcessor().submit(etlResource);
 
@@ -199,7 +201,7 @@ public class DatasetResource extends BaseResource {
 			try {
 				result.put("id", dataset.getId());
 				result.put("url", datasetURL);
-				result.put("status", EtlStatus.ACCEPTED_DATA);
+				result.put("status", dataset.getStatus());
 				result.put("info", datasetURL + "/info");
 			} catch (JSONException e) {
 				log.error(e.getMessage());
