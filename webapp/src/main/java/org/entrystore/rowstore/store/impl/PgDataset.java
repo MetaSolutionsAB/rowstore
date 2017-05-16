@@ -229,6 +229,21 @@ public class PgDataset implements Dataset {
 					for (int i = 0; i < line.length; i++) {
 						labels[i] = line[i].toLowerCase();
 					}
+
+					if (append) {
+						// we must compare existing column names with new ones
+						Set<String> newColumnNames = new HashSet(Arrays.asList(labels));
+						Set<String> oldColumnNames = getColumnNames();
+
+						// if there are no old column names we assume this dataset is newly created
+						if (oldColumnNames.size() > 0 &&
+								!((oldColumnNames.size() == newColumnNames.size()) && oldColumnNames.containsAll(newColumnNames))) {
+							log.error("Column name mismatch: new tabular structure does not equal existing structure");
+							log.error("Rolling back transaction");
+							conn.rollback();
+							return false;
+						}
+					}
 				} else {
 					JSONObject jsonLine = null;
 					try {
@@ -577,7 +592,9 @@ public class PgDataset implements Dataset {
 			// (note: temporarily added WHERE clause to speed it up and avoid a full table scan,
 			// side effect of WHERE clause is that eventually added data with different structure is not
 			// being taken into consideration)
-			StringBuilder queryTemplate = new StringBuilder("SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable() + " WHERE rownr = '1'");
+			//StringBuilder queryTemplate = new StringBuilder("SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable() + " WHERE rownr = '1'");
+			StringBuilder queryTemplate = new StringBuilder("SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable() +
+					" WHERE rownr=(SELECT min(rownr) FROM " + getDataTable() + ")");
 			stmt = conn.prepareStatement(queryTemplate.toString());
 			log.debug("Executing: " + stmt);
 
