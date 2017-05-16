@@ -44,7 +44,7 @@ public class RateLimitFilter extends Filter {
 
 	private Cache<String, RateLimiter> rateLimiters;
 
-	private Cache<String, Cache> slidingWindows;
+	private Cache<String, Cache<Date, Object>> slidingWindows;
 
 	private boolean rateLimitFilterEnabled = false;
 
@@ -96,9 +96,9 @@ public class RateLimitFilter extends Filter {
 		try {
 			if (rateLimitTypeSlidingWindow) {
 				// Checking for global rate limit
-				Cache globalWindow = slidingWindows.get("global", new Callable<Cache>() {
+				Cache<Date, Object> globalWindow = slidingWindows.get("global", new Callable<Cache<Date, Object>>() {
 					@Override
-					public Cache call() throws Exception {
+					public Cache<Date, Object> call() throws Exception {
 						return CacheBuilder.newBuilder().expireAfterWrite(config.getRateLimitTimeRange(), TimeUnit.SECONDS).build();
 					}
 				});
@@ -109,9 +109,9 @@ public class RateLimitFilter extends Filter {
 				}
 
 				// Checking for per-dataset rate limit
-				Cache datasetWindow = slidingWindows.get(dataset, new Callable<Cache>() {
+				Cache<Date, Object> datasetWindow = slidingWindows.get(dataset, new Callable<Cache<Date, Object>>() {
 					@Override
-					public Cache call() throws Exception {
+					public Cache<Date, Object> call() throws Exception {
 						return CacheBuilder.newBuilder().expireAfterWrite(config.getRateLimitTimeRange(), TimeUnit.SECONDS).build();
 					}
 				});

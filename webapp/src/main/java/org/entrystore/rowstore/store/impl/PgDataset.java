@@ -232,7 +232,7 @@ public class PgDataset implements Dataset {
 
 					if (append) {
 						// we must compare existing column names with new ones
-						Set<String> newColumnNames = new HashSet(Arrays.asList(labels));
+						Set<String> newColumnNames = new HashSet<String>(Arrays.asList(labels));
 						Set<String> oldColumnNames = getColumnNames();
 
 						// if there are no old column names we assume this dataset is newly created
