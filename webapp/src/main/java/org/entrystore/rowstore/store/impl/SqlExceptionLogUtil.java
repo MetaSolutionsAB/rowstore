@@ -16,7 +16,6 @@
 
 package org.entrystore.rowstore.store.impl;
 
-import org.apache.log4j.lf5.LogLevel;
 import org.slf4j.Logger;
 
 import java.sql.SQLException;

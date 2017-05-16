@@ -30,7 +30,6 @@ import org.restlet.resource.Post;
 import org.restlet.resource.Put;
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 
