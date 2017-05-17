@@ -9,38 +9,378 @@
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-table/1.11.1/bootstrap-table.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-table/1.11.1/bootstrap-table.min.js"></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Montserrat:400,700">
+
+    <style>
+        body > .container {
+            padding: 60px 15px 0;
+        }
+
+        .logo-text {
+            text-transform: uppercase;
+            font-family: Montserrat, "Helvetica Neue", Helvetica, Arial, sans-serif;
+            font-weight: 400;
+            font-size: 22px;
+            margin-right: 10px;
+            margin-top: -3px;
+            color: #555;
+        }
+
+        .logo-text img {
+            height: 32px;
+            margin: -3px 10px 0px 0px;
+        }
+
+        .navbar-default {
+            background-color: white;
+            opacity: 1;
+            padding: 0px 0px;
+            border: none;
+            box-shadow: 0px 1px 2px -1px #999999;
+            border-color: transparent;
+        }
+
+        @media (min-width: 768px) {
+            .navbar-default {
+                background-color: white;
+                opacity: 1;
+                padding: 0px 0px;
+                /*-webkit-transition: padding 0.3s;
+                -moz-transition: padding 0.3s;
+                transition: padding 0.3s;*/
+                border: none;
+                box-shadow: 0px 1px 2px -1px #999999;
+            }
+            .navbar-default .navbar-brand {
+                font-size: 1.5em;
+                -webkit-transition: all 0.3s;
+                -moz-transition: all 0.3s;
+                transition: all 0.3s;
+            }
+            .navbar-default .navbar-nav > .active > a {
+                border-radius: 3px;
+            }
+        }
+    </style>
+
+    <script>
+        !function ($) {
+            'use strict';
+
+            function getCurrentHeader(that) {
+                var header = that.$header;
+                if (that.options.height) {
+                    header = that.$tableHeader;
+                }
+
+                return header;
+            }
+
+            function getFilterFields(that) {
+                return getCurrentHeader(that).find('[data-filter-field]');
+            }
+
+            function setFilterValues(that) {
+                var $filterElms = getFilterFields(that);
+                if (!$.isEmptyObject(that.filterColumnsPartial)) {
+                    $filterElms.each(function (index, ele) {
+                        var $ele = $(ele),
+                                field = $ele.attr('data-filter-field'),
+                                value = that.filterColumnsPartial[field];
+                        $ele.val(value);
+                    });
+                }
+            }
+
+            function createFilter(that, header) {
+                var enableFilter = false,
+                        isVisible,
+                        html,
+                        timeoutId = 0;
+
+                $.each(that.columns, function (i, column) {
+                    isVisible = 'hidden';
+                    html = [];
+
+                    if (!column.visible) {
+                        return;
+                    }
+
+                    if (!column.filter) {
+                        html.push('<div class="no-filter"></div>');
+                    } else {
+                        var filterClass = column.filter.class ? ' ' + column.filter.class : '';
+                        html.push('<div style="margin: 0px 2px 2px 2px;" class="filter' + filterClass + '">');
+
+                        if (column.searchable) {
+                            enableFilter = true;
+                            isVisible = 'visible'
+                        }
+
+                        switch (column.filter.type.toLowerCase()) {
+                            case 'input' :
+                                html.push('<input type="text" placeholder="Search..." data-filter-field="' + column.field + '" style="font-weight: normal; width: 100%; visibility:' + isVisible + '">');
+                                break;
+                        }
+                    }
+
+                    $.each(header.children().children(), function (i, tr) {
+                        tr = $(tr);
+                        if (tr.data('field') === column.field) {
+                            tr.find('.fht-cell').append(html.join(''));
+                            return false;
+                        }
+                    });
+                });
+
+                if (enableFilter) {
+                    var $inputs = header.find('input');
+
+
+                    if ($inputs.length > 0) {
+                        $inputs.off('keyup').on('keyup', function (event) {
+                            if (event.keyCode == '13') {
+                                event.preventDefault();
+                                clearTimeout(timeoutId);
+                                timeoutId = setTimeout(function () {
+                                    that.onColumnSearch(event);
+                                }, that.options.searchTimeOut);
+                            } else {
+                                return false;
+                            }
+                        });
+
+                        $inputs.off('mouseup').on('mouseup', function (event) {
+                            var $input = $(this),
+                                    oldValue = $input.val();
+
+                            if (oldValue === "") {
+                                return;
+                            }
+
+                            setTimeout(function () {
+                                var newValue = $input.val();
+
+                                if (newValue === "") {
+                                    clearTimeout(timeoutId);
+                                    timeoutId = setTimeout(function () {
+                                        that.onColumnSearch(event);
+                                    }, that.options.searchTimeOut);
+                                }
+                            }, 1);
+                        });
+                    }
+                } else {
+                    header.find('.filter').hide();
+                }
+            }
+
+            $.extend($.fn.bootstrapTable.defaults, {
+                filter: false,
+                filterValues: {}
+            });
+
+            $.extend($.fn.bootstrapTable.COLUMN_DEFAULTS, {
+                filter: undefined
+            });
+
+            var BootstrapTable = $.fn.bootstrapTable.Constructor,
+                    _init = BootstrapTable.prototype.init,
+                    _initHeader = BootstrapTable.prototype.initHeader,
+                    _initSearch = BootstrapTable.prototype.initSearch;
+
+            BootstrapTable.prototype.init = function () {
+                //Make sure that the filtercontrol option is set
+                if (this.options.filter) {
+                    var that = this;
+
+                    if (!$.isEmptyObject(that.options.filterValues)) {
+                        that.filterColumnsPartial = that.options.filterValues;
+                        that.options.filterValues = {};
+                    }
+
+                    this.$el.on('reset-view.bs.table', function () {
+                        //Create controls on $tableHeader if the height is set
+                        if (!that.options.height) {
+                            return;
+                        }
+
+                        //Avoid recreate the controls
+                        if (that.$tableHeader.find('input').length > 0) {
+                            return;
+                        }
+
+                        createFilter(that, that.$tableHeader);
+                    }).on('post-header.bs.table', function () {
+                        var timeoutId = 0;
+
+                        clearTimeout(timeoutId);
+                        timeoutId = setTimeout(function () {
+                            setFilterValues(that);
+                        }, that.options.searchTimeOut - 1000);
+                    }).on('column-switch.bs.table', function (field, checked) {
+                        setFilterValues(that);
+                    });
+                }
+
+                _init.apply(this, Array.prototype.slice.apply(arguments));
+            };
+
+            BootstrapTable.prototype.initHeader = function () {
+                _initHeader.apply(this, Array.prototype.slice.apply(arguments));
+                if (this.options.filter) {
+                    createFilter(this, this.$header);
+                }
+            };
+
+            BootstrapTable.prototype.initSearch = function () {
+                _initSearch.apply(this, Array.prototype.slice.apply(arguments));
+
+                var that = this,
+                        filterValues = that.filterColumnsPartial;
+
+                // Filter for client
+                if (that.options.sidePagination === 'client') {
+                    this.data = $.grep(this.data, function (row, idx) {
+                        for (var field in filterValues) {
+                            var column = that.columns[$.fn.bootstrapTable.utils.getFieldIndex(that.columns, field)],
+                                    filterValue = filterValues[field].toLowerCase(),
+                                    rowValue = row[field];
+
+                            rowValue = $.fn.bootstrapTable.utils.calculateObjectValue(
+                                    that.header,
+                                    that.header.formatters[$.inArray(field, that.header.fields)],
+                                    [rowValue, row, idx], rowValue);
+
+                            if (column.filterStrictSearch) {
+                                if (!($.inArray(field, that.header.fields) !== -1 &&
+                                        (typeof rowValue === 'string' || typeof rowValue === 'number') &&
+                                        rowValue.toString().toLowerCase() === filterValue.toString().toLowerCase())) {
+                                    return false;
+                                }
+                            } else {
+                                if (!($.inArray(field, that.header.fields) !== -1 &&
+                                        (typeof rowValue === 'string' || typeof rowValue === 'number') &&
+                                        (rowValue + '').toLowerCase().indexOf(filterValue) !== -1)) {
+                                    return false;
+                                }
+                            }
+                        }
+
+                        return true;
+                    });
+                }
+            };
+
+            BootstrapTable.prototype.onColumnSearch = function (event) {
+                var field = $(event.currentTarget).attr('data-filter-field'),
+                        value = $.trim($(event.currentTarget).val());
+
+                if ($.isEmptyObject(this.filterColumnsPartial)) {
+                    this.filterColumnsPartial = {};
+                }
+
+                if (value) {
+                    this.filterColumnsPartial[field] = value;
+                } else {
+                    delete this.filterColumnsPartial[field];
+                }
+
+                this.options.pageNumber = 1;
+                this.onSearch(event);
+            };
+
+            BootstrapTable.prototype.setFilterData = function (field, data) {
+                var that = this,
+                        $header = getCurrentHeader(that);
+
+                data.unshift("");
+
+                $.each(this.columns, function (idx, column) {
+                    if (column.field === field) {
+                        column.filter.data = data;
+                        return false;
+                    }
+                });
+            };
+
+            BootstrapTable.prototype.setFilterValues = function (values) {
+                this.filterColumnsPartial = values;
+            };
+
+            $.fn.bootstrapTable.methods.push('setFilterData');
+            $.fn.bootstrapTable.methods.push('setFilterValues');
+
+        }(jQuery);
+    </script>
 </head>
+
 <body>
 
-<br/>
+<nav class="navbar navbar-default navbar-fixed-top">
+    <div class="container">
+        <div class="navbar-header page-scroll">
+            <a class="navbar-brand page-scroll">
+                <div class="logo-text">
+                    <!--<div class="logo"></div>-->
+                    <img src="data:image/svg+xml;base64,PHN2ZwogICB4bWxuczpkYz0iaHR0cDovL3B1cmwub3JnL2RjL2VsZW1lbnRzLzEuMS8iCiAgIHhtbG5zOmNjPSJodHRwOi8vY3JlYXRpdmVjb21tb25zLm9yZy9ucyMiCiAgIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyIKICAgeG1sbnM6c3ZnPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogICB4bWxuczpzb2RpcG9kaT0iaHR0cDovL3NvZGlwb2RpLnNvdXJjZWZvcmdlLm5ldC9EVEQvc29kaXBvZGktMC5kdGQiCiAgIHhtbG5zOmlua3NjYXBlPSJodHRwOi8vd3d3Lmlua3NjYXBlLm9yZy9uYW1lc3BhY2VzL2lua3NjYXBlIgogICBpZD0ic3ZnMiIKICAgdmVyc2lvbj0iMS4xIgogICBpbmtzY2FwZTp2ZXJzaW9uPSIwLjkxIHIxMzcyNSIKICAgd2lkdGg9IjEwMi4yNTE3NSIKICAgaGVpZ2h0PSI3OS40MDMzNzQiCiAgIHhtbDpzcGFjZT0icHJlc2VydmUiCiAgIHNvZGlwb2RpOmRvY25hbWU9ImxvZ28uc3ZnIj48bWV0YWRhdGEKICAgICBpZD0ibWV0YWRhdGE4Ij48cmRmOlJERj48Y2M6V29yawogICAgICAgICByZGY6YWJvdXQ9IiI+PGRjOmZvcm1hdD5pbWFnZS9zdmcreG1sPC9kYzpmb3JtYXQ+PGRjOnR5cGUKICAgICAgICAgICByZGY6cmVzb3VyY2U9Imh0dHA6Ly9wdXJsLm9yZy9kYy9kY21pdHlwZS9TdGlsbEltYWdlIiAvPjxkYzp0aXRsZT48L2RjOnRpdGxlPjwvY2M6V29yaz48L3JkZjpSREY+PC9tZXRhZGF0YT48ZGVmcwogICAgIGlkPSJkZWZzNiI+PGNsaXBQYXRoCiAgICAgICBjbGlwUGF0aFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIKICAgICAgIGlkPSJjbGlwUGF0aDIyIj48cGF0aAogICAgICAgICBkPSJNIDAsNjAwIDgwMCw2MDAgODAwLDAgMCwwIDAsNjAwIFoiCiAgICAgICAgIGlkPSJwYXRoMjQiCiAgICAgICAgIGlua3NjYXBlOmNvbm5lY3Rvci1jdXJ2YXR1cmU9IjAiIC8+PC9jbGlwUGF0aD48Y2xpcFBhdGgKICAgICAgIGNsaXBQYXRoVW5pdHM9InVzZXJTcGFjZU9uVXNlIgogICAgICAgaWQ9ImNsaXBQYXRoNDQiPjxwYXRoCiAgICAgICAgIGQ9Ik0gMCw2MDAgODAwLDYwMCA4MDAsMCAwLDAgMCw2MDAgWiIKICAgICAgICAgaWQ9InBhdGg0NiIKICAgICAgICAgaW5rc2NhcGU6Y29ubmVjdG9yLWN1cnZhdHVyZT0iMCIgLz48L2NsaXBQYXRoPjwvZGVmcz48c29kaXBvZGk6bmFtZWR2aWV3CiAgICAgcGFnZWNvbG9yPSIjZmZmZmZmIgogICAgIGJvcmRlcmNvbG9yPSIjNjY2NjY2IgogICAgIGJvcmRlcm9wYWNpdHk9IjEiCiAgICAgb2JqZWN0dG9sZXJhbmNlPSIxMCIKICAgICBncmlkdG9sZXJhbmNlPSIxMCIKICAgICBndWlkZXRvbGVyYW5jZT0iMTAiCiAgICAgaW5rc2NhcGU6cGFnZW9wYWNpdHk9IjEiCiAgICAgaW5rc2NhcGU6cGFnZXNoYWRvdz0iMiIKICAgICBpbmtzY2FwZTp3aW5kb3ctd2lkdGg9IjI1NjAiCiAgICAgaW5rc2NhcGU6d2luZG93LWhlaWdodD0iMTQxNiIKICAgICBpZD0ibmFtZWR2aWV3NCIKICAgICBzaG93Z3JpZD0iZmFsc2UiCiAgICAgaW5rc2NhcGU6em9vbT0iMS44ODA5MDQiCiAgICAgaW5rc2NhcGU6Y3g9Ii05NC41MjYyNDMiCiAgICAgaW5rc2NhcGU6Y3k9Ii03MS4yMzE4OTIiCiAgICAgaW5rc2NhcGU6d2luZG93LXg9IjAiCiAgICAgaW5rc2NhcGU6d2luZG93LXk9IjI0IgogICAgIGlua3NjYXBlOndpbmRvdy1tYXhpbWl6ZWQ9IjEiCiAgICAgaW5rc2NhcGU6Y3VycmVudC1sYXllcj0iZzEwIgogICAgIGZpdC1tYXJnaW4tdG9wPSI0IgogICAgIGZpdC1tYXJnaW4tbGVmdD0iNCIKICAgICBmaXQtbWFyZ2luLXJpZ2h0PSI0IgogICAgIGZpdC1tYXJnaW4tYm90dG9tPSI0IiAvPjxnCiAgICAgaW5rc2NhcGU6Z3JvdXBtb2RlPSJsYXllciIKICAgICBpZD0ibGF5ZXIxIgogICAgIGlua3NjYXBlOmxhYmVsPSJMYXllciIKICAgICB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtMjA3LjMwMzY2LDU4NS45MzgzNSkiPjxnCiAgICAgICBpZD0iZzIwNC05LTUiCiAgICAgICB0cmFuc2Zvcm09Im1hdHJpeCgtMC4yODk4NDM0LDIuOTEwNTMzMSwxLjA3MDI4MDEsMS44NDQ3OTM5LDMyMS40NDU3NSwtNDk3LjQ5MzIyKSIgLz48ZwogICAgICAgaWQ9ImcyMDQtOS0wIgogICAgICAgdHJhbnNmb3JtPSJtYXRyaXgoMi44MzI0ODMsMC43Mjk1NTYyNSwxLjk4NjIyNzQsLTAuNzc2OTU4NzEsMzM0LjA0MTAxLC0zODQuMzU5OCkiIC8+PHBhdGgKICAgICAgIHN0eWxlPSJmaWxsOm5vbmU7ZmlsbC1ydWxlOmV2ZW5vZGQ7c3Ryb2tlOiM5MDkzOTQ7c3Ryb2tlLXdpZHRoOjIuNTtzdHJva2UtbGluZWNhcDpidXR0O3N0cm9rZS1saW5lam9pbjptaXRlcjtzdHJva2UtbWl0ZXJsaW1pdDo0O3N0cm9rZS1kYXNoYXJyYXk6bm9uZTtzdHJva2Utb3BhY2l0eToxIgogICAgICAgZD0ibSAyMjQuMjg5NTQsLTU2OS41MDc3NCAyNi41ODI5Nyw0NS4wNTgxMyIKICAgICAgIGlkPSJwYXRoODc2NiIKICAgICAgIGlua3NjYXBlOmNvbm5lY3Rvci1jdXJ2YXR1cmU9IjAiCiAgICAgICBzb2RpcG9kaTpub2RldHlwZXM9ImNjIiAvPjxwYXRoCiAgICAgICBzdHlsZT0iZmlsbDpub25lO2ZpbGwtcnVsZTpldmVub2RkO3N0cm9rZTojOTA5Mzk0O3N0cm9rZS13aWR0aDoyLjU7c3Ryb2tlLWxpbmVjYXA6YnV0dDtzdHJva2UtbGluZWpvaW46bWl0ZXI7c3Ryb2tlLW1pdGVybGltaXQ6NDtzdHJva2UtZGFzaGFycmF5Om5vbmU7c3Ryb2tlLW9wYWNpdHk6MSIKICAgICAgIGQ9Im0gMjcwLjk0MjYzLC01NTguNjc1MTkgLTE5LjY3MTM4LDMzLjYyNzQ2IgogICAgICAgaWQ9InBhdGg4NzY2LTUiCiAgICAgICBpbmtzY2FwZTpjb25uZWN0b3ItY3VydmF0dXJlPSIwIgogICAgICAgc29kaXBvZGk6bm9kZXR5cGVzPSJjYyIgLz48cGF0aAogICAgICAgc3R5bGU9ImZpbGw6bm9uZTtmaWxsLXJ1bGU6ZXZlbm9kZDtzdHJva2U6IzkwOTM5NDtzdHJva2Utd2lkdGg6Mi41O3N0cm9rZS1saW5lY2FwOmJ1dHQ7c3Ryb2tlLWxpbmVqb2luOm1pdGVyO3N0cm9rZS1taXRlcmxpbWl0OjQ7c3Ryb2tlLWRhc2hhcnJheTpub25lO3N0cm9rZS1vcGFjaXR5OjEiCiAgICAgICBkPSJtIDI5MS4wMTI3NywtNTI0LjUxNjA3IC00MC4wMDczNSwxMGUtNiIKICAgICAgIGlkPSJwYXRoODc2Ni02IgogICAgICAgaW5rc2NhcGU6Y29ubmVjdG9yLWN1cnZhdHVyZT0iMCIKICAgICAgIHNvZGlwb2RpOm5vZGV0eXBlcz0iY2MiIC8+PC9nPjxnCiAgICAgaWQ9ImcxMCIKICAgICBpbmtzY2FwZTpncm91cG1vZGU9ImxheWVyIgogICAgIGlua3NjYXBlOmxhYmVsPSJ3aWRnZXRzIgogICAgIHRyYW5zZm9ybT0ibWF0cml4KDEuMjUsMCwwLC0xLjI1LC0yODEuNjA4NDEsMTI0MC45Mzg1KSI+PGcKICAgICAgIGlkPSJnODIiCiAgICAgICB0cmFuc2Zvcm09InRyYW5zbGF0ZSgyODQuOTg0MjMsOTcxLjQ4NjM3KSIKICAgICAgIHN0eWxlPSJmaWxsOiNhZDBlMDg7ZmlsbC1vcGFjaXR5OjEiPjxwYXRoCiAgICAgICAgIGQ9Im0gMCwwIGMgMCwtNS4wNjUgLTQuMTA2LC05LjE3IC05LjE3MSwtOS4xNyAtNS4wNjcsMCAtOS4xNzMsNC4xMDUgLTkuMTczLDkuMTcgMCw1LjA2NyA0LjEwNiw5LjE3MyA5LjE3Myw5LjE3MyBDIC00LjEwNiw5LjE3MyAwLDUuMDY3IDAsMCIKICAgICAgICAgc3R5bGU9ImZpbGw6I2FkMGUwODtmaWxsLW9wYWNpdHk6MTtmaWxsLXJ1bGU6bm9uemVybztzdHJva2U6bm9uZSIKICAgICAgICAgaWQ9InBhdGg4NCIKICAgICAgICAgaW5rc2NhcGU6Y29ubmVjdG9yLWN1cnZhdHVyZT0iMCIgLz48L2c+PHBhdGgKICAgICAgIGlua3NjYXBlOmNvbm5lY3Rvci1jdXJ2YXR1cmU9IjAiCiAgICAgICBpZD0icGF0aDg4IgogICAgICAgc3R5bGU9ImZpbGw6I2UwNWYyMTtmaWxsLW9wYWNpdHk6MTtmaWxsLXJ1bGU6bm9uemVybztzdHJva2U6bm9uZSIKICAgICAgIGQ9Im0gMzAzLjg4ODEzLDk0NC4wNDAwNyBjIDAsLTYuNDE0IC01LjE5OSwtMTEuNjEyIC0xMS42MTQsLTExLjYxMiAtNi40MTIsMCAtMTEuNjE0LDUuMTk4IC0xMS42MTQsMTEuNjEyIDAsNi40MTUgNS4yMDIsMTEuNjE0IDExLjYxNCwxMS42MTQgNi40MTUsMCAxMS42MTQsLTUuMTk5IDExLjYxNCwtMTEuNjE0IiAvPjxnCiAgICAgICBpZD0iZzkwIgogICAgICAgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMjY5LjExODUzLDk0My43NTE0NykiCiAgICAgICBzdHlsZT0iZmlsbDojMTU0ODYyO2ZpbGwtb3BhY2l0eToxIj48cGF0aAogICAgICAgICBkPSJtIDAsMCBjIDAsLTUuMDY1IC00LjEwNywtOS4xNzEgLTkuMTc0LC05LjE3MSAtNS4wNjUsMCAtOS4xNzIsNC4xMDYgLTkuMTcyLDkuMTcxIDAsNS4wNjYgNC4xMDcsOS4xNzMgOS4xNzIsOS4xNzMgQyAtNC4xMDcsOS4xNzMgMCw1LjA2NiAwLDAiCiAgICAgICAgIHN0eWxlPSJmaWxsOiMxNTQ4NjI7ZmlsbC1vcGFjaXR5OjE7ZmlsbC1ydWxlOm5vbnplcm87c3Ryb2tlOm5vbmUiCiAgICAgICAgIGlkPSJwYXRoOTIiCiAgICAgICAgIGlua3NjYXBlOmNvbm5lY3Rvci1jdXJ2YXR1cmU9IjAiIC8+PC9nPjxnCiAgICAgICBpZD0iZzk0IgogICAgICAgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMjQ4LjE5MjczLDk3OS42OTU3NykiCiAgICAgICBzdHlsZT0iZmlsbDojZTA1ZjIxO2ZpbGwtb3BhY2l0eToxIj48cGF0aAogICAgICAgICBkPSJtIDAsMCBjIDAsLTUuNDQxIC00LjQxMSwtOS44NTIgLTkuODU0LC05Ljg1MiAtNS40NCwwIC05Ljg1Miw0LjQxMSAtOS44NTIsOS44NTIgMCw1LjQ0MiA0LjQxMiw5Ljg1NSA5Ljg1Miw5Ljg1NSBDIC00LjQxMSw5Ljg1NSAwLDUuNDQyIDAsMCIKICAgICAgICAgc3R5bGU9ImZpbGw6I2UwNWYyMTtmaWxsLW9wYWNpdHk6MTtmaWxsLXJ1bGU6bm9uemVybztzdHJva2U6bm9uZSIKICAgICAgICAgaWQ9InBhdGg5NiIKICAgICAgICAgaW5rc2NhcGU6Y29ubmVjdG9yLWN1cnZhdHVyZT0iMCIgLz48L2c+PHRleHQKICAgICAgIHhtbDpzcGFjZT0icHJlc2VydmUiCiAgICAgICBzdHlsZT0iZm9udC1zdHlsZTpub3JtYWw7Zm9udC13ZWlnaHQ6bm9ybWFsO2ZvbnQtc2l6ZTozMnB4O2xpbmUtaGVpZ2h0OjEyNSU7Zm9udC1mYW1pbHk6U2FucztsZXR0ZXItc3BhY2luZzowcHg7d29yZC1zcGFjaW5nOjBweDtmaWxsOiMwMDAwMDA7ZmlsbC1vcGFjaXR5OjE7c3Ryb2tlOm5vbmU7c3Ryb2tlLXdpZHRoOjFweDtzdHJva2UtbGluZWNhcDpidXR0O3N0cm9rZS1saW5lam9pbjptaXRlcjtzdHJva2Utb3BhY2l0eToxIgogICAgICAgeD0iMTkwLjQ0NDYzIgogICAgICAgeT0iLTc5MS42MDMzOSIKICAgICAgIGlkPSJ0ZXh0OTM4NSIKICAgICAgIHNvZGlwb2RpOmxpbmVzcGFjaW5nPSIxMjUlIgogICAgICAgdHJhbnNmb3JtPSJzY2FsZSgxLC0xKSI+PHRzcGFuCiAgICAgICAgIHNvZGlwb2RpOnJvbGU9ImxpbmUiCiAgICAgICAgIGlkPSJ0c3BhbjkzODciCiAgICAgICAgIHg9IjE5MC40NDQ2MyIKICAgICAgICAgeT0iLTc5MS42MDMzOSIgLz48L3RleHQ+CjwvZz48L3N2Zz4K" width="42px" height="32px">
+                    <span>EntryScape Tabular Data Explorer</span>
+                </div>
+            </a>
+        </div>
+    </div>
+</nav>
 
 <div class="container">
-    <table id="table" data-height="460">
-    </table>
+    <table id="table"></table>
 </div>
 
 <script type="text/javascript">
-    const baseURL = window.location.href.substr(0, window.location.href.length - 4);
+    const baseURL = window.location.href.substr(0, window.location.href.length - 5);
 
     $.getJSON(baseURL + "/info", function(data) {
         var headerItems = [];
         $.each(data.columnnames, function(idx, value) {
-            headerItems.push({field: value, title: value});
-        });
-
-        $.getJSON(baseURL, function(data) {
-            $('#table').bootstrapTable({
-                columns: headerItems,
-                data: data.results
+            headerItems.push({
+                field: value,
+                title: value,
+                filter: {
+                    type: "input"
+                }
             });
         });
+
+        $('#table').bootstrapTable({
+            columns: headerItems,
+            url: baseURL,
+            dataField: 'results',
+            totalField: 'resultCount',
+            sortable: false,
+            silentSort: true,
+            pagination: true,
+            sidePagination: 'server',
+            smartDisplay: true,
+            showRefresh: true,
+            showColumns: true,
+            filter: true,
+            queryParams: function(params) {
+                var newParams = {};
+                newParams._limit = params.limit;
+                newParams._offset = params.offset;
+                if (params.filter != undefined) {
+                    $.each(JSON.parse(params.filter), function(key, value) {
+                        newParams[key] = value;
+                    });
+                }
+                return newParams;
+            },
+            responseHandler: function(data) {
+                data.total = data.resultCount;
+                delete data.resultCount;
+                return data;
+            }
+        });
     });
-    
-    // TODO iterate over columns and add one row with <td> with "Search..." to the <tbody>
-
-    // TODO make search-cells clickable and editable
-
-    // TODO if a search-cell is unfocused or enter is pressed we run the search and reload the tbody
 
 </script>
 </body>
