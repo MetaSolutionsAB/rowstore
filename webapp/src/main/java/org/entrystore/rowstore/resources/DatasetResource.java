@@ -78,7 +78,7 @@ public class DatasetResource extends BaseResource {
 
 		String redir = getRowStore().getConfig().getBaseURL();
 		redir += redir.endsWith("/") ? "" : "/";
-		redir += "dataset/" + datasetId + "/gui";
+		redir += "dataset/" + datasetId + "/html";
 		getResponse().redirectSeeOther(redir);
 		return null;
 	}
