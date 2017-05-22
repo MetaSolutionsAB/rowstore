@@ -52,6 +52,12 @@ public class PgRowStore implements RowStore {
 		}
 		this.config = config;
 
+		try {
+			Class.forName("org.postgresql.Driver");
+		} catch (ClassNotFoundException e) {
+			log.error(e.getMessage());
+		}
+
 		//datasource = new PGPoolingDataSource();
 		datasource = new PGSimpleDataSource();
 		PGSimpleDataSource pgDs = (PGSimpleDataSource) datasource;
