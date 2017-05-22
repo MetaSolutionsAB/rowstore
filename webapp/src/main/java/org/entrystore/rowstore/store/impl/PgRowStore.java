@@ -52,6 +52,12 @@ public class PgRowStore implements RowStore {
 		}
 		this.config = config;
 
+		try {
+			Class.forName("org.postgresql.Driver");
+		} catch (ClassNotFoundException e) {
+			log.error(e.getMessage());
+		}
+
 		//datasource = new PGPoolingDataSource();
 		datasource = new PGSimpleDataSource();
 		PGSimpleDataSource pgDs = (PGSimpleDataSource) datasource;
@@ -62,6 +68,13 @@ public class PgRowStore implements RowStore {
 		pgDs.setDatabaseName(config.getDbName());
 		pgDs.setPortNumber(config.getDbPort());
 		pgDs.setSsl(config.getDbSsl());
+		if (!config.getDbSsl()) {
+			try {
+				pgDs.setProperty("sslMode", "disable");
+			} catch (SQLException e) {
+				SqlExceptionLogUtil.error(log, e);
+			}
+		}
 
 		etlProcessor = new EtlProcessor(this);
 	}
