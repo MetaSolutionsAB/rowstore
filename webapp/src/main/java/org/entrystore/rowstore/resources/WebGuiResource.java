@@ -20,24 +20,42 @@ import org.apache.log4j.Logger;
 import org.entrystore.rowstore.store.Dataset;
 import org.restlet.data.MediaType;
 import org.restlet.data.Status;
-import org.restlet.representation.FileRepresentation;
 import org.restlet.representation.Representation;
+import org.restlet.representation.StringRepresentation;
 import org.restlet.resource.Get;
 
-import java.io.File;
+import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * Returns a basic search GUI.
  *
  * @author Hannes Ebner
  */
-public class HtmlSearchResource extends BaseResource {
+public class WebGuiResource extends BaseResource {
 
-	static Logger log = Logger.getLogger(HtmlSearchResource.class);
+	static Logger log = Logger.getLogger(WebGuiResource.class);
 
 	private Dataset dataset;
+
+	static String htmlEmbed = null;
+
+	static String htmlFull = null;
+
+	static {
+		try {
+			htmlEmbed = new String(Files.readAllBytes(getHtmlPath("webgui_header.html")));
+			htmlFull = htmlEmbed;
+			htmlEmbed += new String(Files.readAllBytes(getHtmlPath("webgui_body_embed.html")));
+			htmlFull += new String(Files.readAllBytes(getHtmlPath("webgui_body_full.html")));
+		} catch (IOException e) {
+			log.error(e.getMessage());
+		}
+	}
 
 	@Override
 	public void doInit() {
@@ -54,21 +72,23 @@ public class HtmlSearchResource extends BaseResource {
 			return null;
 		}
 
-		File htmlFile = getHtml("searchgui.html");
-		if (htmlFile != null) {
-			log.debug("Loading HTML file from " + htmlFile.getAbsolutePath());
-			return new FileRepresentation(htmlFile, MediaType.TEXT_HTML);
+		if (htmlEmbed == null || htmlFull == null) {
+			setStatus(Status.SERVER_ERROR_INTERNAL);
+			return null;
 		}
 
-		getResponse().setStatus(Status.CLIENT_ERROR_NOT_FOUND);
-		return null;
+		if (parameters.containsKey("embed")) {
+			return new StringRepresentation(htmlEmbed, MediaType.TEXT_HTML);
+		}
+
+		return new StringRepresentation(htmlFull, MediaType.TEXT_HTML);
 	}
 
-	private File getHtml(String fileName) {
+	static Path getHtmlPath(String fileName) {
 		URL resURL = Thread.currentThread().getContextClassLoader().getResource(fileName);
 		if (resURL != null) {
 			try {
-				return new File(resURL.toURI());
+				return Paths.get(resURL.toURI());
 			} catch (URISyntaxException e) {
 				log.error(e.getMessage());
 			}
