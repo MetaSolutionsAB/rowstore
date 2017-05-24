@@ -54,9 +54,11 @@ public class DatasetResource extends BaseResource {
 
 	private Dataset dataset;
 
+	private String datasetId;
+
 	@Override
 	public void doInit() {
-		String datasetId = (String) getRequest().getAttributes().get("id");
+		datasetId = (String) getRequest().getAttributes().get("id");
 		if (datasetId != null) {
 			try {
 				dataset = getRowStore().getDatasets().getDataset(datasetId);
@@ -67,8 +69,22 @@ public class DatasetResource extends BaseResource {
 		}
 	}
 
-	@Get("application/json")
-	public Representation represent() {
+	@Get("html")
+	public Representation representHtml() {
+		if (dataset == null) {
+			getResponse().setStatus(Status.CLIENT_ERROR_NOT_FOUND);
+			return null;
+		}
+
+		String redir = getRowStore().getConfig().getBaseURL();
+		redir += redir.endsWith("/") ? "" : "/";
+		redir += "dataset/" + datasetId + "/html";
+		getResponse().redirectSeeOther(redir);
+		return null;
+	}
+
+	@Get("json")
+	public Representation representJson() {
 		if (dataset == null) {
 			getResponse().setStatus(Status.CLIENT_ERROR_NOT_FOUND);
 			return null;

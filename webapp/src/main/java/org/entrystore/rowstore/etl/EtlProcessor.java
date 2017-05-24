@@ -114,7 +114,7 @@ public class EtlProcessor {
 
 	public EtlProcessor(RowStore rowstore) {
 		this.rowstore = rowstore;
-		this.concurrentConversions = rowstore.getConfig().getMaxEtlProcesses();
+		this.concurrentConversions = this.rowstore.getConfig().getMaxEtlProcesses();
 		datasetSubmitter = new DatasetSubmitter();
 		log.info("Starting dataset submitter");
 		datasetSubmitter.start();

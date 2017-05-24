@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RowStore Web GUI</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js" integrity="sha256-BbhdlvQf/xTY9gja0Dq3HiwQF8LaCRTXxZKRutelT44=" crossorigin="anonymous"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-table/1.11.1/bootstrap-table.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-table/1.11.1/bootstrap-table.min.js"></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Montserrat:400,700">
+
+    <style>
+        .logo-text {
+            text-transform: uppercase;
+            font-family: Montserrat, "Helvetica Neue", Helvetica, Arial, sans-serif;
+            font-weight: 400;
+            font-size: 22px;
+            margin-right: 10px;
+            margin-top: -3px;
+            color: #555;
+        }
+
+        .logo-text img {
+            height: 32px;
+            margin: -3px 10px 0px 0px;
+        }
+
+        .navbar-default {
+            background-color: white;
+            opacity: 1;
+            padding: 0px 0px;
+            border: none;
+            box-shadow: 0px 1px 2px -1px #999999;
+            border-color: transparent;
+        }
+
+        @media (min-width: 768px) {
+            .navbar-default {
+                background-color: white;
+                opacity: 1;
+                padding: 0px 0px;
+                /*-webkit-transition: padding 0.3s;
+                -moz-transition: padding 0.3s;
+                transition: padding 0.3s;*/
+                border: none;
+                box-shadow: 0px 1px 2px -1px #999999;
+            }
+            .navbar-default .navbar-brand {
+                font-size: 1.5em;
+                -webkit-transition: all 0.3s;
+                -moz-transition: all 0.3s;
+                transition: all 0.3s;
+            }
+            .navbar-default .navbar-nav > .active > a {
+                border-radius: 3px;
+            }
+        }
+    </style>
+
+    <script>
+        !function ($) {
+            'use strict';
+
+            function getCurrentHeader(that) {
+                var header = that.$header;
+                if (that.options.height) {
+                    header = that.$tableHeader;
+                }
+
+                return header;
+            }
+
+            function getFilterFields(that) {
+                return getCurrentHeader(that).find('[data-filter-field]');
+            }
+
+            function setFilterValues(that) {
+                var $filterElms = getFilterFields(that);
+                if (!$.isEmptyObject(that.filterColumnsPartial)) {
+                    $filterElms.each(function (index, ele) {
+                        var $ele = $(ele),
+                                field = $ele.attr('data-filter-field'),
+                                value = that.filterColumnsPartial[field];
+                        $ele.val(value);
+                    });
+                }
+            }
+
+            function createFilter(that, header) {
+                var enableFilter = false,
+                        isVisible,
+                        html,
+                        timeoutId = 0;
+
+                $.each(that.columns, function (i, column) {
+                    isVisible = 'hidden';
+                    html = [];
+
+                    if (!column.visible) {
+                        return;
+                    }
+
+                    if (!column.filter) {
+                        html.push('<div class="no-filter"></div>');
+                    } else {
+                        var filterClass = column.filter.class ? ' ' + column.filter.class : '';
+                        html.push('<div style="margin: 0px 2px 2px 2px;" class="filter' + filterClass + '">');
+
+                        if (column.searchable) {
+                            enableFilter = true;
+                            isVisible = 'visible'
+                        }
+
+                        switch (column.filter.type.toLowerCase()) {
+                            case 'input' :
+                                html.push('<input type="text" placeholder="Search..." data-filter-field="' + column.field + '" style="font-weight: normal; width: 100%; visibility:' + isVisible + '">');
+                                break;
+                        }
+                    }
+
+                    $.each(header.children().children(), function (i, tr) {
+                        tr = $(tr);
+                        if (tr.data('field') === column.field) {
+                            tr.find('.fht-cell').append(html.join(''));
+                            return false;
+                        }
+                    });
+                });
+
+                if (enableFilter) {
+                    var $inputs = header.find('input');
+
+
+                    if ($inputs.length > 0) {
+                        $inputs.off('keyup').on('keyup', function (event) {
+                            if (event.keyCode == '13') {
+                                event.preventDefault();
+                                clearTimeout(timeoutId);
+                                timeoutId = setTimeout(function () {
+                                    that.onColumnSearch(event);
+                                }, that.options.searchTimeOut);
+                            } else {
+                                return false;
+                            }
+                        });
+
+                        /*
+                        $inputs.off('mouseup').on('mouseup', function (event) {
+                            var $input = $(this),
+                                    oldValue = $input.val();
+
+                            if (oldValue === "") {
+                                return;
+                            }
+
+                            setTimeout(function () {
+                                var newValue = $input.val();
+
+                                if (newValue === "") {
+                                    clearTimeout(timeoutId);
+                                    timeoutId = setTimeout(function () {
+                                        that.onColumnSearch(event);
+                                    }, that.options.searchTimeOut);
+                                }
+                            }, 1);
+                        });
+                        */
+                    }
+                } else {
+                    header.find('.filter').hide();
+                }
+            }
+
+            $.extend($.fn.bootstrapTable.defaults, {
+                filter: false,
+                filterValues: {}
+            });
+
+            $.extend($.fn.bootstrapTable.COLUMN_DEFAULTS, {
+                filter: undefined
+            });
+
+            var BootstrapTable = $.fn.bootstrapTable.Constructor,
+                    _init = BootstrapTable.prototype.init,
+                    _initHeader = BootstrapTable.prototype.initHeader,
+                    _initSearch = BootstrapTable.prototype.initSearch;
+
+            BootstrapTable.prototype.init = function () {
+                //Make sure that the filtercontrol option is set
+                if (this.options.filter) {
+                    var that = this;
+
+                    if (!$.isEmptyObject(that.options.filterValues)) {
+                        that.filterColumnsPartial = that.options.filterValues;
+                        that.options.filterValues = {};
+                    }
+
+                    this.$el.on('reset-view.bs.table', function () {
+                        //Create controls on $tableHeader if the height is set
+                        if (!that.options.height) {
+                            return;
+                        }
+
+                        //Avoid recreate the controls
+                        if (that.$tableHeader.find('input').length > 0) {
+                            return;
+                        }
+
+                        createFilter(that, that.$tableHeader);
+                    }).on('post-header.bs.table', function () {
+                        var timeoutId = 0;
+
+                        clearTimeout(timeoutId);
+                        timeoutId = setTimeout(function () {
+                            setFilterValues(that);
+                        }, that.options.searchTimeOut - 1000);
+                    }).on('column-switch.bs.table', function (field, checked) {
+                        setFilterValues(that);
+                    });
+                }
+
+                _init.apply(this, Array.prototype.slice.apply(arguments));
+            };
+
+            BootstrapTable.prototype.initHeader = function () {
+                _initHeader.apply(this, Array.prototype.slice.apply(arguments));
+                if (this.options.filter) {
+                    createFilter(this, this.$header);
+                }
+            };
+
+            BootstrapTable.prototype.initSearch = function () {
+                _initSearch.apply(this, Array.prototype.slice.apply(arguments));
+
+                var that = this,
+                        filterValues = that.filterColumnsPartial;
+
+                // Filter for client
+                if (that.options.sidePagination === 'client') {
+                    this.data = $.grep(this.data, function (row, idx) {
+                        for (var field in filterValues) {
+                            var column = that.columns[$.fn.bootstrapTable.utils.getFieldIndex(that.columns, field)],
+                                    filterValue = filterValues[field].toLowerCase(),
+                                    rowValue = row[field];
+
+                            rowValue = $.fn.bootstrapTable.utils.calculateObjectValue(
+                                    that.header,
+                                    that.header.formatters[$.inArray(field, that.header.fields)],
+                                    [rowValue, row, idx], rowValue);
+
+                            if (column.filterStrictSearch) {
+                                if (!($.inArray(field, that.header.fields) !== -1 &&
+                                        (typeof rowValue === 'string' || typeof rowValue === 'number') &&
+                                        rowValue.toString().toLowerCase() === filterValue.toString().toLowerCase())) {
+                                    return false;
+                                }
+                            } else {
+                                if (!($.inArray(field, that.header.fields) !== -1 &&
+                                        (typeof rowValue === 'string' || typeof rowValue === 'number') &&
+                                        (rowValue + '').toLowerCase().indexOf(filterValue) !== -1)) {
+                                    return false;
+                                }
+                            }
+                        }
+
+                        return true;
+                    });
+                }
+            };
+
+            BootstrapTable.prototype.onColumnSearch = function (event) {
+                var field = $(event.currentTarget).attr('data-filter-field'),
+                        value = $.trim($(event.currentTarget).val());
+
+                if ($.isEmptyObject(this.filterColumnsPartial)) {
+                    this.filterColumnsPartial = {};
+                }
+
+                if (value) {
+                    this.filterColumnsPartial[field] = value;
+                } else {
+                    delete this.filterColumnsPartial[field];
+                }
+
+                this.options.pageNumber = 1;
+                this.onSearch(event);
+            };
+
+            BootstrapTable.prototype.setFilterData = function (field, data) {
+                var that = this,
+                        $header = getCurrentHeader(that);
+
+                data.unshift("");
+
+                $.each(this.columns, function (idx, column) {
+                    if (column.field === field) {
+                        column.filter.data = data;
+                        return false;
+                    }
+                });
+            };
+
+            BootstrapTable.prototype.setFilterValues = function (values) {
+                this.filterColumnsPartial = values;
+            };
+
+            $.fn.bootstrapTable.methods.push('setFilterData');
+            $.fn.bootstrapTable.methods.push('setFilterValues');
+
+        }(jQuery);
+    </script>
+
+    <script type="text/javascript">
+        var initTable = function () {
+            var baseURL = window.location.href;
+            if (baseURL.indexOf("?") > -1) {
+                baseURL = baseURL.substr(0, baseURL.indexOf("?"));
+                console.log(baseURL);
+            }
+            baseURL = baseURL.substr(0, baseURL.length - 5);
+            console.log(baseURL);
+
+            $.getJSON(baseURL + "/info", function (data) {
+                var headerItems = [];
+                $.each(data.columnnames, function (idx, value) {
+                    headerItems.push({
+                        field: value,
+                        title: value,
+                        filter: {
+                            type: "input"
+                        }
+                    });
+                });
+
+                $('#table').bootstrapTable({
+                    columns: headerItems,
+                    url: baseURL,
+                    dataField: 'results',
+                    totalField: 'resultCount',
+                    sortable: false,
+                    silentSort: true,
+                    pagination: true,
+                    sidePagination: 'server',
+                    smartDisplay: true,
+                    showRefresh: true,
+                    showColumns: true,
+                    filter: true,
+                    queryParams: function (params) {
+                        var newParams = {};
+                        newParams._limit = params.limit;
+                        newParams._offset = params.offset;
+                        if (params.filter != undefined) {
+                            $.each(JSON.parse(params.filter), function (key, value) {
+                                newParams[key] = value;
+                            });
+                        }
+                        return newParams;
+                    },
+                    responseHandler: function (data) {
+                        data.total = data.resultCount;
+                        delete data.resultCount;
+                        return data;
+                    }
+                });
+            });
+        }
+    </script>
+</head>
