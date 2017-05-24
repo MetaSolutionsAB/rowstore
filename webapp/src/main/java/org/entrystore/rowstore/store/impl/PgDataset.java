@@ -135,6 +135,7 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public void setStatus(int status) {
+		Date before = new Date();
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		try {
@@ -166,6 +167,8 @@ public class PgDataset implements Dataset {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Setting status took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 
 		this.status = status;
@@ -207,6 +210,7 @@ public class PgDataset implements Dataset {
 			}
 		}
 
+		Date before = new Date();
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		CSVReader cr = null;
@@ -280,7 +284,6 @@ public class PgDataset implements Dataset {
 			conn.commit();
 
 			setStatus(EtlStatus.AVAILABLE);
-			return true;
 		} catch (TikaException te) {
 			log.error(te.getMessage());
 			setStatus(EtlStatus.ERROR);
@@ -317,10 +320,15 @@ public class PgDataset implements Dataset {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Populating dataset took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
+
+		return true;
 	}
 
 	private void createIndexes(Connection conn, Set<String> fields) throws SQLException {
+		Date before = new Date();
 		Set<String> existingIndices = getIndexNames();
 		for (String field : fields) {
 			// We do not try to index fields that are too large as we would get an error from PostgreSQL
@@ -357,9 +365,12 @@ public class PgDataset implements Dataset {
 		log.debug("Executing: " + sql);
 		conn.createStatement().execute(sql);
 		*/
+
+		log.debug("Creating indexes took " + (new Date().getTime() - before.getTime()) + " ms");
 	}
 
 	private boolean truncateTable() {
+		Date before = new Date();
 		Connection conn = null;
 		Statement stmt = null;
 		try {
@@ -384,7 +395,6 @@ public class PgDataset implements Dataset {
 			}
 
 			conn.commit();
-			return true;
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 			try {
@@ -409,10 +419,15 @@ public class PgDataset implements Dataset {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Truncating table took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
+
+		return true;
 	}
 
 	private Set<String> getIndexNames() {
+		Date before = new Date();
 		Set<String> result = new HashSet<>();
 		Connection conn = null;
 		ResultSet rs = null;
@@ -456,7 +471,10 @@ public class PgDataset implements Dataset {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Fetching index names took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
+
 		return result;
 	}
 
@@ -465,6 +483,7 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public QueryResult query(Map<String, String> tuples, int limit, int offset) {
+		Date before = new Date();
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
@@ -572,6 +591,8 @@ public class PgDataset implements Dataset {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Performing query took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 
 		return new QueryResult(result, limit, offset, resultCount);
@@ -582,6 +603,7 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public Set<String> getColumnNames() {
+		Date before = new Date();
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
@@ -626,6 +648,8 @@ public class PgDataset implements Dataset {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Fetching column names took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 
 		return result;
@@ -635,6 +659,7 @@ public class PgDataset implements Dataset {
 	 * Initializes the object by loading all information from the database.
 	 */
 	private void initFromDb() {
+		Date before = new Date();
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
@@ -680,6 +705,8 @@ public class PgDataset implements Dataset {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Loading dataset took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 	}
 
@@ -687,18 +714,19 @@ public class PgDataset implements Dataset {
 	 * @see Dataset#getRowCount()
 	 */
 	@Override
-	public int getRowCount() {
-		int result = -1;
+	public long getRowCount() {
+		Date before = new Date();
+		long result = -1;
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
 		try {
 			conn = rowstore.getConnection();
-			stmt = conn.prepareStatement("SELECT COUNT(rownr) AS rowcount FROM " + getDataTable());
+			stmt = conn.prepareStatement("SELECT COUNT(rownr)::BIGINT AS rowcount FROM " + getDataTable());
 			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
-			while (rs.next()) {
-				result = rs.getInt("rowcount");
+			if (rs.next()) {
+				result = rs.getLong("rowcount");
 			}
 			rs.close();
 		} catch (SQLException e) {
@@ -725,6 +753,8 @@ public class PgDataset implements Dataset {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Fetching row count took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 
 		return result;
@@ -735,6 +765,7 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public Set<String> getAliases() {
+		Date before = new Date();
 		Set<String> result = new HashSet<>();;
 		Connection conn = null;
 		PreparedStatement stmt = null;
@@ -777,6 +808,8 @@ public class PgDataset implements Dataset {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Fetching aliases took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 
 		return result;
@@ -790,6 +823,7 @@ public class PgDataset implements Dataset {
 		if (id == null) {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
+		Date before = new Date();
 		Set<String> existingAliases = getAliases();
 		Connection conn = null;
 		PreparedStatement ps = null;
@@ -823,8 +857,6 @@ public class PgDataset implements Dataset {
 			ps.executeBatch();
 			ps.close();
 			conn.commit();
-
-			return true;
 		} catch (SQLException e) {
 			try {
 				conn.rollback();
@@ -841,10 +873,15 @@ public class PgDataset implements Dataset {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Setting aliases took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
+
+		return true;
 	}
 
 	public String resolveAlias(String alias) {
+		Date before = new Date();
 		String result = null;
 		Connection conn = null;
 		PreparedStatement stmt = null;
@@ -883,6 +920,8 @@ public class PgDataset implements Dataset {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Resolving alias took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 
 		return result;

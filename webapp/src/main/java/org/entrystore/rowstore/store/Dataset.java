@@ -76,7 +76,7 @@ public interface Dataset {
 	/**
 	 * @return Returns the size (amount of rows) of the dataset.
 	 */
-	int getRowCount();
+	long getRowCount();
 
 	/**
 	 * Returns all aliases of the dataset.
