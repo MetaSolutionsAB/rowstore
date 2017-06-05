@@ -16,12 +16,9 @@
 
 package org.entrystore.rowstore.store;
 
-import org.json.JSONObject;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Date;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -69,7 +66,7 @@ public interface Dataset {
 	 * @param tuples Key/value pairs where the keys must match the row names. Returns all data if the map is emtpy. Keys are treated case-insensitively.
 	 * @return Returns a list of matching JSON objects.
 	 */
-	List<JSONObject> query(Map<String, String> tuples);
+	QueryResult query(Map<String, String> tuples, int limit, int offset);
 
 	/**
 	 * @return Returns the dataset's column names.
@@ -79,7 +76,7 @@ public interface Dataset {
 	/**
 	 * @return Returns the size (amount of rows) of the dataset.
 	 */
-	int getRowCount();
+	long getRowCount();
 
 	/**
 	 * Returns all aliases of the dataset.
@@ -94,5 +91,11 @@ public interface Dataset {
 	 * @param aliases A set of strings with aliases.
 	 */
 	boolean setAliases(Set<String> aliases);
+
+	int REGEXP_QUERY_DISABLED = 0;
+
+	int REGEXP_QUERY_SIMPLE = 1;
+
+	int REGEXP_QUERY_FULL = 2;
 
 }

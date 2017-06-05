@@ -46,23 +46,35 @@ public class DatasetInfoResource extends BaseResource {
 		}
 	}
 
-	@Get("application/json")
+	@Get("json")
 	public Representation represent() {
-		JSONObject result = new JSONObject();
-		if (dataset != null) {
-			try {
-				result.put("status", dataset.getStatus());
-				result.put("created", new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ").format(dataset.getCreationDate()));
-				result.put("columnnames", dataset.getColumnNames());
-				result.put("rowcount", dataset.getRowCount());
-			} catch (JSONException e) {
-				log.error(e.getMessage());
-			}
-		} else {
+		if (dataset == null) {
 			setStatus(Status.CLIENT_ERROR_NOT_FOUND);
+			return null;
 		}
 
-		return new JsonRepresentation(result);
+		return new JsonRepresentation(constructInfo());
+	}
+
+	private JSONObject constructInfo() {
+		JSONObject result = new JSONObject();
+		try {
+			result.put("status", dataset.getStatus());
+			result.put("created", new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ").format(dataset.getCreationDate()));
+			result.put("columnnames", dataset.getColumnNames());
+			result.put("rowcount", dataset.getRowCount());
+			result.put("identifier", dataset.getId());
+			result.put("aliases", dataset.getAliases());
+
+			// we add JSON-LD stuff
+			String baseURL = getRowStore().getConfig().getBaseURL();
+			baseURL += baseURL.endsWith("/") ? "" : "/";
+			result.put("@context", "http://entrystore.org/rowstore/");
+			result.put("@id", baseURL + "dataset/" + dataset.getId());
+		} catch (JSONException e) {
+			log.error(e.getMessage());
+		}
+		return result;
 	}
 
 }

@@ -16,6 +16,7 @@
 
 package org.entrystore.rowstore.util;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Logger;
 import org.entrystore.rowstore.RowStoreApplication;
 import org.restlet.representation.Representation;
@@ -92,6 +93,19 @@ public class DatasetUtil {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Tries to detect whether a given string contains a regular expression. Very
+	 * simple heuristics as only the occurrence of the most typical characters in
+	 * a regular expression is checked for.
+	 *
+	 * @param s The string to check.
+	 * @return True if there is a chance that this string contains a regular expression.
+	 */
+	public static boolean isRegExpString(String s) {
+		char[] indicators = {'^', '$', '(', '|', '[', '*', '+', '{', '?', '/'};
+		return StringUtils.indexOfAny(s, indicators) > -1;
 	}
 
 }

@@ -25,6 +25,7 @@ import org.entrystore.rowstore.resources.DatasetInfoResource;
 import org.entrystore.rowstore.resources.DatasetResource;
 import org.entrystore.rowstore.resources.DatasetsResource;
 import org.entrystore.rowstore.resources.DefaultResource;
+import org.entrystore.rowstore.resources.WebGuiResource;
 import org.entrystore.rowstore.resources.StatusResource;
 import org.entrystore.rowstore.resources.SwaggerResource;
 import org.entrystore.rowstore.store.RowStore;
@@ -66,6 +67,8 @@ public class RowStoreApplication extends Application {
 
 	public static String NAME = "RowStore";
 
+	private static String ENV_CONFIG_URI = "ROWSTORE_CONFIG_URI";
+
 	private static String VERSION = null;
 
 	RowStore rowstore;
@@ -80,13 +83,27 @@ public class RowStoreApplication extends Application {
 		super(parentContext);
 		getContext().getAttributes().put(KEY, this);
 		if (configURI == null) {
-			configURI = getConfigurationURI("rowstore.json");
+			String envConfigURI = System.getenv(ENV_CONFIG_URI);
+			if (envConfigURI != null) {
+				configURI = URI.create(envConfigURI);
+			}
+			if (configURI == null) {
+				configURI = getConfigurationURI("rowstore.json");
+			}
 		}
 
 		if (configURI != null && "file".equals(configURI.getScheme())) {
 			log.info("Loading configuration from " + configURI);
 			config = new RowStoreConfig(new JSONObject(new String(Files.readAllBytes(Paths.get(configURI)))));
+
 			setLogLevel(config.getLogLevel());
+
+			if (config.getQueryTimeout() > -1) {
+				log.info("Query timeout set to " + config.getQueryTimeout() + " second" + (config.getQueryTimeout() > 1 ? "s" : ""));
+			} else {
+				log.info("No query timeout configured");
+			}
+
 			rowstore = new PgRowStore(config);
 			log.info("Started RowStore " + getVersion());
 		} else {
@@ -103,9 +120,10 @@ public class RowStoreApplication extends Application {
 		// global scope
 		router.attach("/status", StatusResource.class);
 		router.attach("/dataset/{id}", DatasetResource.class);
+		router.attach("/dataset/{id}/aliases", AliasResource.class);
+		router.attach("/dataset/{id}/html", WebGuiResource.class);
 		router.attach("/dataset/{id}/info", DatasetInfoResource.class);
 		router.attach("/dataset/{id}/swagger", SwaggerResource.class);
-		router.attach("/dataset/{id}/aliases", AliasResource.class);
 		router.attach("/datasets", DatasetsResource.class);
 		router.attach("/", DefaultResource.class);
 
@@ -171,7 +189,7 @@ public class RowStoreApplication extends Application {
 		if (args.length > 0) {
 			configURI = new File(args[0]).toURI();
 			if (!new File(configURI).exists()) {
-				System.err.println("Configuration file not found");
+				System.err.println("Configuration file not found: " + configURI);
 				configURI = null;
 			}
 		}
@@ -184,11 +202,14 @@ public class RowStoreApplication extends Application {
 			}
 		}
 
-		if (configURI == null) {
+		if (configURI == null && System.getenv(ENV_CONFIG_URI) == null) {
 			System.out.println("RowStore - http://entrystore.org/rowstore/");
 			System.out.println("");
-			System.out.println("Usage: rowstore <path to configuration file> [listening port]");
+			System.out.println("Usage: rowstore [path to configuration file] [listening port]");
 			System.out.println("");
+			System.out.println("Path to configuration file may be omitted only if environment variable ROWSTORE_CONFIG_URI is set to a URI. No other parameters must be provided if the configuration file is not provided as parameter.");
+			System.out.println("Default listening port is " + port + ".");
+
 			System.exit(1);
 		}
 
@@ -207,7 +228,7 @@ public class RowStoreApplication extends Application {
 	}
 
 	private void setLogLevel(String logLevel) {
-		log.info("Setting log level to " + logLevel);
+		log.info("Trying to set log level to " + logLevel);
 		//BasicConfigurator.configure(); // we don't need this as long as we have a log4j.properties in the classpath
 		Level l = Level.INFO;
 		if (logLevel != null) {

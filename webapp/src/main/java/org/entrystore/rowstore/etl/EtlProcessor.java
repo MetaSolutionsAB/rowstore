@@ -88,6 +88,15 @@ public class EtlProcessor {
 			try {
 				File fileToLoad = etlResource.getDataSource();
 				Dataset dataset = etlResource.getDataset();
+				while (EtlStatus.PROCESSING == dataset.getStatus()) {
+					log.info("Dataset is already being processed, retrying in 5 seconds");
+					try {
+						Thread.sleep(5000);
+					} catch (InterruptedException ie) {
+						log.error("Dataset loader got interrupted, shutting down loader thread before loading data");
+						return;
+					}
+				}
 				log.info("Populating dataset " + dataset.getId() + " with data from file " + fileToLoad);
 				if (dataset.populate(fileToLoad, etlResource.isAppending())) {
 					log.info("Dataset " + dataset.getId() + " successfully populated");
@@ -105,7 +114,7 @@ public class EtlProcessor {
 
 	public EtlProcessor(RowStore rowstore) {
 		this.rowstore = rowstore;
-		this.concurrentConversions = rowstore.getConfig().getMaxEtlProcesses();
+		this.concurrentConversions = this.rowstore.getConfig().getMaxEtlProcesses();
 		datasetSubmitter = new DatasetSubmitter();
 		log.info("Starting dataset submitter");
 		datasetSubmitter.start();

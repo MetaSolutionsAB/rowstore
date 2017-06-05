@@ -28,6 +28,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -59,6 +60,7 @@ public class PgDatasets implements Datasets {
 	 */
 	@Override
 	public Set<Dataset> getAll() {
+		Date before = new Date();
 		Set<Dataset> result = null;
 		Connection conn = null;
 		PreparedStatement stmt = null;
@@ -101,6 +103,8 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+
+			log.debug("Fetching datasets took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 
 		return result;
@@ -111,6 +115,7 @@ public class PgDatasets implements Datasets {
 	 */
 	@Override
 	public Dataset createDataset() {
+		Date before = new Date();
 		String id = createUniqueDatasetId();
 		Connection conn = null;
 		String dataTable = constructDataTableName(id);
@@ -131,7 +136,7 @@ public class PgDatasets implements Datasets {
 			ps.execute();
 			ps.close();
 
-			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + dataTable + " (rownr SERIAL, data JSONB NOT NULL)");
+			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + dataTable + " (rownr SERIAL PRIMARY KEY, data JSONB NOT NULL)");
 			log.debug("Executing: " + ps);
 			ps.execute();
 			ps.close();
@@ -154,6 +159,7 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+			log.debug("Creating dataset took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 
 		return null;
@@ -167,6 +173,7 @@ public class PgDatasets implements Datasets {
 		if (id == null) {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
+		Date before = new Date();
 		Connection conn = null;
 		try {
 			conn = getRowStore().getConnection();
@@ -205,6 +212,7 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+			log.debug("Purging dataset took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 	}
 
@@ -230,6 +238,7 @@ public class PgDatasets implements Datasets {
 	 */
 	@Override
 	public boolean hasDataset(String id) {
+		Date before = new Date();
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
@@ -269,6 +278,7 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+			log.debug("Checking for dataset existance took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 
 		return false;
@@ -305,7 +315,7 @@ public class PgDatasets implements Datasets {
 		Connection conn = null;
 		try {
 			conn = getRowStore().getConnection();
-			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + ALIAS_TABLE_NAME + " (id SERIAL, dataset_id UUID NOT NULL, alias TEXT NOT NULL)");
+			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + ALIAS_TABLE_NAME + " (id SERIAL PRIMARY KEY, dataset_id UUID NOT NULL, alias TEXT NOT NULL)");
 			log.debug("Executing: " + ps);
 			ps.execute();
 			ps.close();
@@ -334,6 +344,7 @@ public class PgDatasets implements Datasets {
 	 */
 	@Override
 	public int amount() {
+		Date before = new Date();
 		int result = -1;
 		Connection conn = null;
 		PreparedStatement stmt = null;
@@ -371,6 +382,7 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
+			log.debug("Fetching amount of datasets took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 
 		return result;

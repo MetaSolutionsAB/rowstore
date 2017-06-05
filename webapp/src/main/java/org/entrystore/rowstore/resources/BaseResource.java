@@ -22,12 +22,13 @@ import org.entrystore.rowstore.store.RowStore;
 import org.restlet.Context;
 import org.restlet.Request;
 import org.restlet.Response;
+import org.restlet.data.MediaType;
+import org.restlet.data.ServerInfo;
 import org.restlet.resource.ServerResource;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Base resource from which all other REST resources are subclassed.
@@ -38,6 +39,10 @@ import java.util.Map;
  */
 public class BaseResource extends ServerResource {
 
+	private static ServerInfo serverInfo;
+
+	protected MediaType format;
+
 	protected HashMap<String,String> parameters;
 
 	private static Logger log = Logger.getLogger(BaseResource.class);
@@ -46,6 +51,18 @@ public class BaseResource extends ServerResource {
 	public void init(Context c, Request request, Response response) {
 		parameters = parseRequest(request.getResourceRef().getRemainingPart());
 		super.init(c, request, response);
+
+		if (parameters.containsKey("format")) {
+			String format = parameters.get("format");
+			if (format != null) {
+				// workaround for URL-decoded pluses (space) in MIME-type names, e.g. ld+json
+				format = format.replaceAll(" ", "+");
+				this.format = new MediaType(format);
+			}
+		}
+
+		// we set a custom Server header in the HTTP response
+		setServerInfo(this.getServerInfo());
 	}
 
 	@Override
@@ -101,6 +118,16 @@ public class BaseResource extends ServerResource {
 
 	public RowStore getRowStore() {
 		return getRowStoreApplication().getRowStore();
+	}
+
+	@Override
+	public ServerInfo getServerInfo() {
+		if (serverInfo == null) {
+			ServerInfo si = super.getServerInfo();
+			si.setAgent(RowStoreApplication.NAME + "/" + RowStoreApplication.getVersion());
+			serverInfo = si;
+		}
+		return serverInfo;
 	}
 
 }
