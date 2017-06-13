@@ -72,7 +72,7 @@ public class PgRowStore implements RowStore {
 			try {
 				pgDs.setProperty("sslMode", "disable");
 			} catch (SQLException e) {
-				SqlExceptionLogUtil.error(log, e);
+				log.warn(e.getMessage());
 			}
 		}
 
