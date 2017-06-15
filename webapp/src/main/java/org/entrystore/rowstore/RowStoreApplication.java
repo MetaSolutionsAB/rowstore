@@ -25,9 +25,9 @@ import org.entrystore.rowstore.resources.DatasetInfoResource;
 import org.entrystore.rowstore.resources.DatasetResource;
 import org.entrystore.rowstore.resources.DatasetsResource;
 import org.entrystore.rowstore.resources.DefaultResource;
-import org.entrystore.rowstore.resources.WebGuiResource;
 import org.entrystore.rowstore.resources.StatusResource;
 import org.entrystore.rowstore.resources.SwaggerResource;
+import org.entrystore.rowstore.resources.WebGuiResource;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStoreConfig;
 import org.entrystore.rowstore.store.impl.PgRowStore;
@@ -123,6 +123,7 @@ public class RowStoreApplication extends Application {
 		router.attach("/dataset/{id}/aliases", AliasResource.class);
 		router.attach("/dataset/{id}/html", WebGuiResource.class);
 		router.attach("/dataset/{id}/info", DatasetInfoResource.class);
+		router.attach("/dataset/{id}/json", DatasetResource.class);
 		router.attach("/dataset/{id}/swagger", SwaggerResource.class);
 		router.attach("/datasets", DatasetsResource.class);
 		router.attach("/", DefaultResource.class);

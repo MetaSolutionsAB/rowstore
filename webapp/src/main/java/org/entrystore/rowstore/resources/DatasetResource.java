@@ -76,6 +76,10 @@ public class DatasetResource extends BaseResource {
 			return null;
 		}
 
+		if (getRequest().getResourceRef().getPath().endsWith("/json")) {
+			return representJson();
+		}
+
 		String redir = getRowStore().getConfig().getBaseURL();
 		redir += redir.endsWith("/") ? "" : "/";
 		redir += "dataset/" + datasetId + "/html";

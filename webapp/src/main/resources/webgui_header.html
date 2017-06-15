@@ -317,10 +317,9 @@
             var baseURL = window.location.href;
             if (baseURL.indexOf("?") > -1) {
                 baseURL = baseURL.substr(0, baseURL.indexOf("?"));
-                console.log(baseURL);
             }
             baseURL = baseURL.substr(0, baseURL.length - 5);
-            console.log(baseURL);
+            $('#apiURL').html('<a href="' + baseURL + '" target="_blank">' + baseURL + '</a>');
 
             $.getJSON(baseURL + "/info", function (data) {
                 var headerItems = [];
