@@ -57,6 +57,29 @@
                 border-radius: 3px;
             }
         }
+
+        .entryscape-footer {
+            padding: 0px 0;
+            text-align: center;
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            height: 40px;
+            background-color: white;
+            box-shadow: 1px 0px 1px #999999;
+            font-size: 12px;
+        }
+
+        .entryscape-footer .btn-link {
+            font-size: 12px;
+        }
+
+        .entryscape-footer span.copyright {
+            line-height: 40px;
+            font-family: "Montserrat", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            text-transform: uppercase;
+            text-transform: none;
+        }
     </style>
 
     <script>
@@ -317,10 +340,9 @@
             var baseURL = window.location.href;
             if (baseURL.indexOf("?") > -1) {
                 baseURL = baseURL.substr(0, baseURL.indexOf("?"));
-                console.log(baseURL);
             }
             baseURL = baseURL.substr(0, baseURL.length - 5);
-            console.log(baseURL);
+            $('#apiURL').html('<a href="' + baseURL + '" target="_blank">' + baseURL + '</a>');
 
             $.getJSON(baseURL + "/info", function (data) {
                 var headerItems = [];

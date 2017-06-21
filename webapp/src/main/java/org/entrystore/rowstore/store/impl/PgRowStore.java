@@ -68,12 +68,8 @@ public class PgRowStore implements RowStore {
 		pgDs.setDatabaseName(config.getDbName());
 		pgDs.setPortNumber(config.getDbPort());
 		pgDs.setSsl(config.getDbSsl());
-		if (!config.getDbSsl()) {
-			try {
-				pgDs.setProperty("sslMode", "disable");
-			} catch (SQLException e) {
-				SqlExceptionLogUtil.error(log, e);
-			}
+		if (pgDs.getSsl()) {
+			pgDs.setSslMode("require");
 		}
 
 		etlProcessor = new EtlProcessor(this);
