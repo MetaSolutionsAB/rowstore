@@ -500,4 +500,30 @@ frisby.create('POST corrupt CSV file (less columns in first row that in followin
     })
     .toss();
 
+var csv5Path = path.resolve(__dirname, 'data/dataset1_utf8_emptycolumn.csv');
+var csv5Content = fs.readFileSync(csv5Path);
+
+frisby.create('POST CSV file (UTF-8, comma-separated, empty column label) to create new dataset5')
+  .post(URL + 'datasets',
+    csv5Content,
+    {
+      json: false,
+      headers: {
+        'Content-Type': 'text/csv'
+      }
+    })
+  .expectStatus(202)
+  .expectHeaderContains('Content-Type', 'application/json')
+  .afterJSON(function(json) {
+    frisby.create('GET dataset5 info')
+      .get(json.info)
+      .expectStatus(200)
+      .expectHeaderContains('Content-Type', 'application/json')
+      .expectJSONLength("columnnames", 4)
+      .waits(initialDelay)
+      .retry(retryCount, retryDelay)
+      .toss();
+  })
+  .toss();
+
 // TODO test rate limitation
