@@ -958,6 +958,10 @@ public class PgDataset implements Dataset {
 
 		JSONObject result = new JSONObject();
 		for (int i = 0; i < line.length; i++) {
+			// we skip empty strings as this would result in emtpy key names in the JSON result
+			if (labels[i].trim().length() == 0) {
+				continue;
+			}
 			result.put(labels[i], line[i]);
 			putAndRetainLargestValue(labels[i], line[i].length());
 		}
