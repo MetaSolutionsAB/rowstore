@@ -75,14 +75,13 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
         created: String,
         columnnames: Array,
         status: Number,
-                @id: String,
-                @context: String
-  })
-    .
-    expectJSON({
-      rowcount: 5,
-      status: 3
-    })
+        "@id": String,
+        "@context": String
+      })
+      .expectJSON({
+        rowcount: 5,
+        status: 3
+      })
       .waits(initialDelay)
       .retry(retryCount, retryDelay)
       .toss();
@@ -187,7 +186,7 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
       .expectHeaderContains('Content-Type', 'application/json')
       .expectJSONTypes("results", [{
         name: String,
-        comment: String,
+        telephone: String,
         "some other column": String,
         comment: String
       }])
@@ -202,7 +201,7 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
       .expectHeaderContains('Content-Type', 'application/json')
       .expectJSONTypes("results", [{
         name: String,
-        comment: String,
+        telephone: String,
         "some other column": String,
         comment: String
       }])
