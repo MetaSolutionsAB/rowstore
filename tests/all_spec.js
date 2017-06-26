@@ -501,7 +501,7 @@ frisby.create('POST corrupt CSV file (less columns in first row that in followin
   })
   .toss();
 
-var csv5Path = path.resolve(__dirname, 'data/dataset1_utf8_emptycolumn.csv');
+var csv5Path = path.resolve(__dirname, 'data/dataset5_utf8_emptycolumn.csv');
 var csv5Content = fs.readFileSync(csv5Path);
 
 frisby.create('POST CSV file (UTF-8, comma-separated, empty column label) to create new dataset5')
