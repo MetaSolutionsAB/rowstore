@@ -93,6 +93,8 @@ public class PgDataset implements Dataset {
 		String resolvedAlias = resolveAlias(id);
 		if (resolvedAlias != null) {
 			this.id = resolvedAlias;
+		} else if (this.id.length() < 36) {
+			throw new IllegalArgumentException("Dataset ID must be a valid UUID with a length of 36 characters");
 		}
 
 		initFromDb();
