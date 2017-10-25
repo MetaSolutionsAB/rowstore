@@ -46,8 +46,8 @@ public class JSCallbackFilter extends Filter {
 				response.getEntity() != null &&
 				isJSON(response.getEntity().getMediaType())) {
 			HashMap<String, String> parameters = BaseResource.parseRequest(request.getResourceRef().getRemainingPart());
-			if (parameters.containsKey("callback")) {
-				String callback = parameters.get("callback");
+			if (parameters.containsKey("_callback")) {
+				String callback = parameters.get("_callback");
 				if (callback == null) {
 					callback = "callback";
 				}

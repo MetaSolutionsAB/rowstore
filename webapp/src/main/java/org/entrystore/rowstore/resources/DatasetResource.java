@@ -108,7 +108,7 @@ public class DatasetResource extends BaseResource {
 		Map<String, String> tuples = new HashMap<>();
 		int specialParamCount = 0;
 		for (String k : parameters.keySet()) {
-			if ("_limit".equals(k) || "_offset".equals(k) || "_sort".equals(k)) {
+			if ("_limit".equals(k) || "_offset".equals(k) || "_sort".equals(k) || "_callback".equals(k)) {
 				specialParamCount++;
 				continue;
 			}
