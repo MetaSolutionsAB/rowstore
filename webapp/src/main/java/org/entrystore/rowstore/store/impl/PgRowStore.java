@@ -26,7 +26,10 @@ import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.Driver;
+import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.Enumeration;
 
 /**
  * A PostgreSQL-specific implementation of the RowStore interface.
@@ -115,6 +118,24 @@ public class PgRowStore implements RowStore {
 	public void shutdown() {
 		log.info("Shutting down RowStore");
 		etlProcessor.shutdown();
+
+		// Deregister JDBC driver that were loaded by this webapp
+		ClassLoader cl = Thread.currentThread().getContextClassLoader();
+		Enumeration<Driver> drivers = DriverManager.getDrivers();
+		while (drivers.hasMoreElements()) {
+			Driver driver = drivers.nextElement();
+			if (driver.getClass().getClassLoader() == cl) {
+				// This driver was registered by the webapp's ClassLoader, so deregister it
+				try {
+					log.info("Deregistering JDBC driver: {}", driver);
+					DriverManager.deregisterDriver(driver);
+				} catch (SQLException ex) {
+					log.error("An error occured when deregistering JDBC driver: {}", driver, ex);
+				}
+			} else {
+				log.trace("Not deregistering JDBC driver {} as it does not belong to this webapp's ClassLoader", driver);
+			}
+		}
 	}
 
 }
