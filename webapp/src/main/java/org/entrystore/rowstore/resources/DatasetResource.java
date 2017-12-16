@@ -94,6 +94,15 @@ public class DatasetResource extends BaseResource {
 			return null;
 		}
 
+		if (dataset.getStatus() == EtlStatus.CREATED) {
+			getResponse().setStatus(Status.CLIENT_ERROR_FAILED_DEPENDENCY);
+			return null;
+		}
+
+		// inactive, more conservative approach to handling status,
+		// does not work well with updates in progress, failed updates
+		// that leave a working (but outdated) dataset, etc
+		/*
 		if (dataset.getStatus() == EtlStatus.ERROR) {
 			getResponse().setStatus(Status.CLIENT_ERROR_FAILED_DEPENDENCY);
 			return null;
@@ -101,6 +110,7 @@ public class DatasetResource extends BaseResource {
 			getResponse().setStatus(Status.CLIENT_ERROR_LOCKED);
 			return null;
 		}
+		*/
 
 		// We only pass on the parameters that match column names of the dataset's JSON
 		// We also skip parameters _limit, _offset and _sort as they are needed for advanced functionality
