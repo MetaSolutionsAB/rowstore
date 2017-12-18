@@ -56,11 +56,7 @@ public class EtlProcessor {
 				if (!postQueue.isEmpty() && runningConversions <= concurrentConversions) {
 					EtlResource res = postQueue.poll();
 					if (res != null) {
-						log.info("Starting dataset loader for " + res.getDataset().getId());
 						new DatasetLoader(res).start();
-						synchronized (mutex) {
-							runningConversions++;
-						}
 					}
 				} else {
 					try {
@@ -85,6 +81,8 @@ public class EtlProcessor {
 
 		@Override
 		public void run() {
+			notifyStarted(etlResource);
+			log.info("Started dataset loader for " + etlResource.getDataset().getId());
 			try {
 				File fileToLoad = etlResource.getDataSource();
 				Dataset dataset = etlResource.getDataset();
@@ -123,6 +121,12 @@ public class EtlProcessor {
 	public void submit(EtlResource etlResource) {
 		log.info("Adding dataset " + etlResource.getDataset().getId() + " to ETL processing queue");
 		postQueue.add(etlResource);
+	}
+
+	public void notifyStarted(EtlResource etlResource) {
+		synchronized (mutex) {
+			runningConversions++;
+		}
 	}
 
 	public void notifyFinished(EtlResource etlResource) {
