@@ -97,6 +97,15 @@ public class SwaggerResource extends BaseResource {
 		paramOffset.put("description", "The offset (results, not pages) to be used when paginating through query results; example: page 3 of a multi page result can be requested with _limit=50 and _offset=100");
 		apiParams.put(paramOffset);
 
+		// _callback
+		JSONObject paramJsonp = new JSONObject();
+		paramJsonp.put("name", "_callback");
+		paramJsonp.put("in", "query");
+		paramJsonp.put("required", false);
+		paramJsonp.put("type", "string");
+		paramJsonp.put("description", "The name of the callback method to be used for JSONP");
+		apiParams.put(paramJsonp);
+
 		String result = swaggerTemplate.
 				replaceAll("__ROWSTORE_VERSION__", getVersion()).
 				replaceAll("__DATASET_ID__", dataset.getId()).
