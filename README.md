@@ -93,6 +93,7 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 - `regexpqueries` (String) - Determines whether the query interface should allow regular expressions to match column values. Differentiates between `disabled` (no regexp support), `simple` (support for queries starting with `^`), and `full` (support for any regexp queries).
 - `maxetlprocesses` (Integer) - Maximum number of concurrently running ETL processes (each process takes up one thread).
 - `database` (parent object) - Configures the database connection.
+- `queryDatabase` (parent object) - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica.  
 - `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
 - `querytimeout` (Integer) - Configures query timeout for dataset-queries in seconds. By default no query timeout is active (unless configured directly in the database).
 - `ratelimit` - Configures rate limitation.
@@ -113,7 +114,16 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
     "host": "localhost",
     "database": "rowstore",
     "user": "rowstore",
-    "password": ""
+    "password": "",
+    "ssl": true
+  },
+  "queryDatabase": {
+    "type": "postgresql",
+    "host": "read-replica",
+    "database": "rowstore",
+    "user": "rowstore",
+    "password": "",
+    "ssl": false
   },
   "ratelimit": {
     "type": "slidingwindow",

@@ -43,6 +43,8 @@ public class PgRowStore implements RowStore {
 
 	DataSource datasource;
 
+	DataSource queryDatasource;
+
 	Datasets datasets;
 
 	EtlProcessor etlProcessor;
@@ -62,20 +64,32 @@ public class PgRowStore implements RowStore {
 		}
 
 		//datasource = new PGPoolingDataSource();
-		datasource = new PGSimpleDataSource();
-		PGSimpleDataSource pgDs = (PGSimpleDataSource) datasource;
-		//pgDs.setMaxConnections(config.getDbMaxConnections());
-		pgDs.setUser(config.getDbUser());
-		pgDs.setPassword(config.getDbPassword());
-		pgDs.setServerName(config.getDbHost());
-		pgDs.setDatabaseName(config.getDbName());
-		pgDs.setPortNumber(config.getDbPort());
-		pgDs.setSsl(config.getDbSsl());
-		if (pgDs.getSsl()) {
-			pgDs.setSslMode("require");
+		datasource = initializeDataSource(new PGSimpleDataSource(), config.getDatabase());
+		if (config.getDatabase() == config.getQueryDatabase()) {
+			datasource = queryDatasource;
+		} else {
+			queryDatasource = initializeDataSource(new PGSimpleDataSource(), config.getQueryDatabase());
 		}
 
 		etlProcessor = new EtlProcessor(this);
+	}
+
+	private PGSimpleDataSource initializeDataSource(PGSimpleDataSource dataSource, RowStoreConfig.Database dbConfig) {
+		if (dataSource == null || dbConfig == null) {
+			throw new IllegalArgumentException("Parameters must not be null");
+		}
+
+		//dataSource.setMaxConnections(dbConfig.getMaxConnections());
+		dataSource.setUser(dbConfig.getUser());
+		dataSource.setPassword(dbConfig.getPassword());
+		dataSource.setServerName(dbConfig.getHost());
+		dataSource.setDatabaseName(dbConfig.getName());
+		dataSource.setPortNumber(dbConfig.getPort());
+		dataSource.setSsl(dbConfig.getSsl());
+		if (dataSource.getSsl()) {
+			dataSource.setSslMode("require");
+		}
+		return dataSource;
 	}
 
 	/**
@@ -84,6 +98,14 @@ public class PgRowStore implements RowStore {
 	@Override
 	public Connection getConnection() throws SQLException {
 		return datasource.getConnection();
+	}
+
+	/**
+	 * @see RowStore#getQueryConnection()
+	 */
+	@Override
+	public Connection getQueryConnection() throws SQLException {
+		return queryDatasource.getConnection();
 	}
 
 	/**

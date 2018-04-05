@@ -30,22 +30,6 @@ public class RowStoreConfig {
 
 	private static Logger log = LoggerFactory.getLogger(RowStoreConfig.class);
 
-	private String dbUser;
-
-	private String dbPassword;
-
-	private String dbHost;
-
-	private int dbPort;
-
-	private String dbType;
-
-	private String dbName;
-
-	private boolean dbSsl;
-
-	private int dbMaxConnections;
-
 	private String logLevel;
 
 	private String baseURL;
@@ -65,6 +49,10 @@ public class RowStoreConfig {
 	private boolean rateLimitEnabled = false;
 
 	private int queryTimeout = -1;
+
+	private Database database;
+
+	private Database queryDatabase;
 
 	public RowStoreConfig(JSONObject config) {
 		try {
@@ -88,15 +76,12 @@ public class RowStoreConfig {
 			logLevel = config.optString("loglevel", "info");
 
 			// Database
-			JSONObject dbConfig = config.getJSONObject("database");
-			dbType = dbConfig.optString("type", "postgresql");
-			dbHost = dbConfig.getString("host");
-			dbPort = dbConfig.optInt("port", 5432);
-			dbName = dbConfig.getString("database");
-			dbUser = dbConfig.getString("user");
-			dbPassword = dbConfig.getString("password");
-			dbMaxConnections = dbConfig.optInt("maxconnections", 30);
-			dbSsl = dbConfig.optBoolean("ssl", false);
+			database = new Database(config.getJSONObject("database"));
+			if (config.has("queryDatabase")) {
+				queryDatabase = new Database(config.getJSONObject("queryDatabase"));
+			} else {
+				queryDatabase = database;
+			}
 
 			// Rate limitation
 			if (config.has("ratelimit")) {
@@ -117,38 +102,6 @@ public class RowStoreConfig {
 		} catch (JSONException e) {
 			log.error(e.getMessage());
 		}
-	}
-
-	public String getDbUser() {
-		return dbUser;
-	}
-
-	public String getDbPassword() {
-		return dbPassword;
-	}
-
-	public String getDbHost() {
-		return dbHost;
-	}
-
-	public int getDbPort() {
-		return dbPort;
-	}
-
-	public String getDbType() {
-		return dbType;
-	}
-
-	public String getDbName() {
-		return dbName;
-	}
-
-	public int getDbMaxConnections() {
-		return dbMaxConnections;
-	}
-
-	public boolean getDbSsl() {
-		return dbSsl;
 	}
 
 	public String getLogLevel() {
@@ -189,6 +142,120 @@ public class RowStoreConfig {
 
 	public int getQueryTimeout() {
 		return queryTimeout;
+	}
+
+	public Database getDatabase() {
+		return database;
+	}
+
+	public Database getQueryDatabase() {
+		return queryDatabase;
+	}
+
+	public class Database {
+
+		private String user;
+
+		private String password;
+
+		private String host;
+
+		private int port;
+
+		private String type;
+
+		private String name;
+
+		private boolean ssl;
+
+		private int maxConnections;
+
+		Database() {
+		}
+
+		public Database(JSONObject dbConfig) {
+			setType(dbConfig.optString("type", "postgresql"));
+			setHost(dbConfig.getString("host"));
+			setPort(dbConfig.optInt("port", 5432));
+			setName(dbConfig.getString("database"));
+			setUser(dbConfig.getString("user"));
+			setPassword(dbConfig.getString("password"));
+			setDbMaxConnections(dbConfig.optInt("maxconnections", 30));
+			setSsl(dbConfig.optBoolean("ssl", false));
+		}
+
+		public Database setUser(String user) {
+			this.user = user;
+			return this;
+		}
+
+		public Database setPassword(String password) {
+			this.password = password;
+			return this;
+		}
+
+		public Database setHost(String host) {
+			this.host = host;
+			return this;
+		}
+
+		public Database setPort(int port) {
+			this.port = port;
+			return this;
+		}
+
+		public Database setType(String type) {
+			this.type = type;
+			return this;
+		}
+
+		public Database setName(String name) {
+			this.name = name;
+			return this;
+		}
+
+		public Database setDbMaxConnections(int maxConnections) {
+			this.maxConnections = maxConnections;
+			return this;
+		}
+
+		public Database setSsl(boolean ssl) {
+			this.ssl = ssl;
+			return this;
+		}
+
+		public String getUser() {
+			return user;
+		}
+
+		public String getPassword() {
+			return password;
+		}
+
+		public String getHost() {
+			return host;
+		}
+
+		public int getPort() {
+			return port;
+		}
+
+		public String getType() {
+			return type;
+		}
+
+		public String getName() {
+			return name;
+		}
+
+		public int getMaxConnections() {
+			return maxConnections;
+		}
+
+		public boolean getSsl() {
+			return ssl;
+		}
+
 	}
 
 }

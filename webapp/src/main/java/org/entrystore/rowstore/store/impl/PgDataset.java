@@ -240,7 +240,7 @@ public class PgDataset implements Dataset {
 						if (append) {
 							// we must compare existing column names with new ones
 							Set<String> newColumnNames = new HashSet<String>(Arrays.asList(labels));
-							Set<String> oldColumnNames = getColumnNames();
+							Set<String> oldColumnNames = getColumnNames(false);
 
 							// if there are no old column names we assume this dataset is newly created
 							if (oldColumnNames.size() > 0 &&
@@ -505,7 +505,7 @@ public class PgDataset implements Dataset {
 		int regexp = rowstore.getConfig().getRegexpQuerySupport();
 		boolean optimizeRegexp = true;
 		try {
-			conn = rowstore.getConnection();
+			conn = rowstore.getQueryConnection();
 			StringBuilder queryTemplate = new StringBuilder("SELECT data, count(*) OVER() AS result_count FROM " + getDataTable());
 			if (tuples != null && tuples.size() > 0) {
 				for (int i = 0; i < tuples.size(); i++) {
@@ -612,15 +612,22 @@ public class PgDataset implements Dataset {
 	/**
 	 * @see Dataset#getColumnNames()
 	 */
-	@Override
 	public Set<String> getColumnNames() {
+		return this.getColumnNames(true);
+	}
+
+	private Set<String> getColumnNames(boolean useQueryDatabase) {
 		Date before = new Date();
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
 		Set<String> result = new HashSet<>();
 		try {
-			conn = rowstore.getConnection();
+			if (useQueryDatabase) {
+				conn = rowstore.getQueryConnection();
+			} else {
+				conn = rowstore.getConnection();
+			}
 			// FIXME the following query is very slow on large tables
 			// (note: temporarily added WHERE clause to speed it up and avoid a full table scan,
 			// side effect of WHERE clause is that eventually added data with different structure is not
@@ -732,7 +739,7 @@ public class PgDataset implements Dataset {
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
 		try {
-			conn = rowstore.getConnection();
+			conn = rowstore.getQueryConnection();
 			stmt = conn.prepareStatement("SELECT COUNT(rownr)::BIGINT AS rowcount FROM " + getDataTable());
 			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
@@ -776,13 +783,21 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public Set<String> getAliases() {
+		return this.getAliases(true);
+	}
+
+	private Set<String> getAliases(boolean useQueryDatabase) {
 		Date before = new Date();
 		Set<String> result = new HashSet<>();;
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
 		try {
-			conn = rowstore.getConnection();
+			if (useQueryDatabase) {
+				conn = rowstore.getQueryConnection();
+			} else {
+				conn = rowstore.getConnection();
+			}
 			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?");
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
@@ -835,7 +850,7 @@ public class PgDataset implements Dataset {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
 		Date before = new Date();
-		Set<String> existingAliases = getAliases();
+		Set<String> existingAliases = getAliases(false);
 		Connection conn = null;
 		PreparedStatement ps = null;
 		try {
