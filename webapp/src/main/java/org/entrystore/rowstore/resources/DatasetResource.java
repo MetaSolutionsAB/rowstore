@@ -38,6 +38,8 @@ import org.restlet.resource.Put;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -190,6 +192,10 @@ public class DatasetResource extends BaseResource {
 		result.put("offset", qResult.getOffset());
 		result.put("resultCount", qResult.getResultCount());
 
+		if (qResult.getResultCount() >= (qResult.getLimit() + qResult.getOffset())) {
+			result.put("next", constructNextPageUrl(qResult));
+		}
+
 		getResponse().setStatus(Status.SUCCESS_OK);
 		return new JsonRepresentation(result);
 	}
@@ -272,6 +278,32 @@ public class DatasetResource extends BaseResource {
 			log.error("An error occurred while purging dataset " + dataset.getId());
 			setStatus(Status.SERVER_ERROR_INTERNAL);
 		}
+	}
+
+	private String constructNextPageUrl(QueryResult qr) {
+		StringBuilder nextPageUrl = new StringBuilder(DatasetUtil.buildDatasetURL(getRowStore().getConfig().getBaseURL(), dataset.getId()));
+		nextPageUrl.append("/json?_offset=");
+		nextPageUrl.append(qr.getOffset() + qr.getLimit());
+		nextPageUrl.append("&_limit=");
+		nextPageUrl.append(qr.getLimit());
+
+		for(Map.Entry<String, String> entry : parameters.entrySet()) {
+			String k = entry.getKey();
+			String v = entry.getValue();
+			if ("_offset".equals(k) || "_limit".equals(k)) {
+				continue;
+			}
+			try {
+				nextPageUrl.append("&");
+				nextPageUrl.append(URLEncoder.encode(k, "UTF-8"));
+				nextPageUrl.append("=");
+				nextPageUrl.append(URLEncoder.encode(v, "UTF-8"));
+			} catch (UnsupportedEncodingException e) {
+				log.error(e.getMessage());
+			}
+		}
+
+		return nextPageUrl.toString();
 	}
 
 }
