@@ -40,6 +40,9 @@
           },
           "500": {
             "description": "Internal error"
+          },
+          "503": {
+            "description": "Query timeout"
           }
         }
       }

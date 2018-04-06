@@ -72,7 +72,11 @@ public class SwaggerResource extends BaseResource {
 			JSONObject apiParam = new JSONObject();
 			apiParam.put("name", p);
 			apiParam.put("in", "query");
-			//apiParam.put("description", "");
+			if (getRowStore().getConfig().getRegexpQuerySupport() > 0) {
+				apiParam.put("description", "Responses contain only rows with rows that match the provided tuple. Regular expressions may be used.");
+			} else {
+				apiParam.put("description", "Responses contain only rows that match the provided tuple(s). Exact matching is applied.");
+			}
 			apiParam.put("required", false);
 			apiParam.put("type", "string");
 			apiParams.put(apiParam);
