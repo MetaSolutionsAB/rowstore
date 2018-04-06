@@ -29,6 +29,7 @@ import org.restlet.resource.Get;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
@@ -106,8 +107,12 @@ public class SwaggerResource extends BaseResource {
 		paramJsonp.put("description", "The name of the callback method to be used for JSONP");
 		apiParams.put(paramJsonp);
 
+		URI base = URI.create(getRowStore().getConfig().getBaseURL());
+
 		String result = swaggerTemplate.
 				replaceAll("__ROWSTORE_VERSION__", getVersion()).
+				replaceAll("__HOST__", base.getHost()).
+				replaceAll("__BASEPATH__", base.getPath()).
 				replaceAll("__DATASET_ID__", dataset.getId()).
 				replaceAll("__DATASET_PARAMETERS__", apiParams.toString());
 

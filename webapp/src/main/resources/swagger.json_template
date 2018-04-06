@@ -1,7 +1,6 @@
 {
   "swagger": "2.0",
   "schemes": [
-    "http",
     "https"
   ],
   "info": {
@@ -13,6 +12,8 @@
     "description": "RowStore official code and documentation repository",
     "url": "https://bitbucket.org/metasolutions/rowstore/"
   },
+  "host": "__HOST__",
+  "basePath": "__BASEPATH__",
   "paths": {
     "/dataset/__DATASET_ID__": {
       "get": {
