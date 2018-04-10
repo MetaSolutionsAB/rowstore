@@ -69,7 +69,7 @@ public class DatasetInfoResource extends BaseResource {
 			// we add JSON-LD stuff
 			String baseURL = getRowStore().getConfig().getBaseURL();
 			baseURL += baseURL.endsWith("/") ? "" : "/";
-			result.put("@context", "http://entrystore.org/rowstore/");
+			result.put("@context", "https://entrystore.org/rowstore/");
 			result.put("@id", baseURL + "dataset/" + dataset.getId());
 		} catch (JSONException e) {
 			log.error(e.getMessage());
