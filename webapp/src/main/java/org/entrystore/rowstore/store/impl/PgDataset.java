@@ -93,7 +93,7 @@ public class PgDataset implements Dataset {
 		String resolvedAlias = resolveAlias(id);
 		if (resolvedAlias != null) {
 			this.id = resolvedAlias;
-		} else if (this.id.length() < 36) {
+		} else if (this.id.length() < 36 || !DatasetUtil.isUUID(this.id)) {
 			throw new IllegalArgumentException("Dataset ID must be a valid UUID with a length of 36 characters");
 		}
 
@@ -699,7 +699,13 @@ public class PgDataset implements Dataset {
 				throw new IllegalStateException("Unable to initialize Dataset object from database");
 			}
 		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
+			// We ignore SQL Exceptions due to wrong UUID input format
+			if (!"22P02".equalsIgnoreCase(e.getSQLState())) {
+				SqlExceptionLogUtil.error(log, e);
+			} else {
+				// hack to avoid text "ERROR:" in log message
+				log.info(e.getMessage().replaceFirst("ERROR: ", ""));
+			}
 			throw new IllegalArgumentException(e);
 		} finally {
 			if (rs != null) {

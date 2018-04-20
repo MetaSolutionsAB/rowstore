@@ -25,6 +25,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.UUID;
 
 /**
  * @author Hannes Ebner
@@ -106,6 +107,15 @@ public class DatasetUtil {
 	public static boolean isRegExpString(String s) {
 		char[] indicators = {'^', '$', '(', '|', '[', '*', '+', '{', '?', '/'};
 		return StringUtils.indexOfAny(s, indicators) > -1;
+	}
+
+	public static boolean isUUID(String string) {
+		try {
+			UUID.fromString(string);
+			return true;
+		} catch (Exception ex) {
+			return false;
+		}
 	}
 
 }
