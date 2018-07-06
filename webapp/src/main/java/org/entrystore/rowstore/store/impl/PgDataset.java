@@ -93,6 +93,8 @@ public class PgDataset implements Dataset {
 		String resolvedAlias = resolveAlias(id);
 		if (resolvedAlias != null) {
 			this.id = resolvedAlias;
+		} else if (this.id.length() < 36 || !DatasetUtil.isUUID(this.id)) {
+			throw new IllegalArgumentException("Dataset ID must be a valid UUID with a length of 36 characters");
 		}
 
 		initFromDb();
@@ -201,127 +203,136 @@ public class PgDataset implements Dataset {
 			return false;
 		}
 
-		setStatus(EtlStatus.PROCESSING);
+		try {
+			setStatus(EtlStatus.PROCESSING);
 
-		if (!append) {
-			if (!truncateTable()) {
+			if (!append) {
+				if (!truncateTable()) {
+					setStatus(EtlStatus.ERROR);
+					return false;
+				}
+			}
+
+			Date before = new Date();
+			Connection conn = null;
+			PreparedStatement stmt = null;
+			CSVReader cr = null;
+			try {
+				conn = rowstore.getConnection();
+				char separator = detectSeparator(csvFile);
+				cr = new CSVReader(new AutoDetectReader(new FileInputStream(csvFile)), separator, '"');
+				long lineCount = 0;
+				String[] labels = null;
+				String[] line;
+
+				conn.setAutoCommit(false);
+
+				stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (data) VALUES (?)");
+				while ((line = cr.readNext()) != null) {
+					if (lineCount == 0) {
+						labels = new String[line.length];
+						// We convert all column names to lower case,
+						// otherwise all queries must be case sensitive later
+						for (int i = 0; i < line.length; i++) {
+							labels[i] = line[i].trim().toLowerCase();
+						}
+
+						if (append) {
+							// we must compare existing column names with new ones
+							Set<String> newColumnNames = new HashSet<String>(Arrays.asList(labels));
+							Set<String> oldColumnNames = getColumnNames(false);
+
+							// if there are no old column names we assume this dataset is newly created
+							if (oldColumnNames.size() > 0 &&
+									!((oldColumnNames.size() == newColumnNames.size()) && oldColumnNames.containsAll(newColumnNames))) {
+								log.error("Column name mismatch: new tabular structure does not equal existing structure");
+								log.error("Rolling back transaction");
+								conn.rollback();
+								return false;
+							}
+						}
+					} else {
+						JSONObject jsonLine = null;
+						try {
+							jsonLine = csvLineToJsonObject(line, labels);
+						} catch (Exception e) {
+							log.error(e.getMessage());
+							log.info("Rolling back transaction");
+							conn.rollback();
+							setStatus(EtlStatus.ERROR);
+							return false;
+						}
+						PGobject jsonb = new PGobject();
+						jsonb.setType("jsonb");
+						jsonb.setValue(jsonLine.toString());
+						stmt.setObject(1, jsonb);
+						log.debug("Adding to batch: " + stmt);
+						stmt.addBatch();
+						// we execute the batch every 100th line
+						if ((lineCount % 200) == 0) {
+							log.debug("Executing: " + stmt);
+							stmt.executeBatch();
+						}
+					}
+					lineCount++;
+				}
+				// in case there are some inserts left to be sent (i.e.
+				// batch size above was smaller than 100 when loop ended)
+				log.debug("Executing: " + stmt);
+				stmt.executeBatch();
+
+				createIndexes(conn, new HashSet<String>(Arrays.asList(labels)));
+
+				// we commit the transaction and free the resources of the statement
+				conn.commit();
+
+				setStatus(EtlStatus.AVAILABLE);
+			} catch (TikaException te) {
+				log.error(te.getMessage());
+				setStatus(EtlStatus.ERROR);
+				return false;
+			} catch (SQLException e) {
+				SqlExceptionLogUtil.error(log, e);
+				try {
+					log.info("Rolling back transaction");
+					conn.rollback();
+				} catch (SQLException e1) {
+					SqlExceptionLogUtil.error(log, e1);
+				}
+				setStatus(EtlStatus.ERROR);
+				return false;
+			} finally {
+				if (cr != null) {
+					try {
+						cr.close();
+					} catch (IOException e) {
+						log.error(e.getMessage());
+					}
+				}
+				if (stmt != null) {
+					try {
+						stmt.close();
+					} catch (SQLException e) {
+						SqlExceptionLogUtil.error(log, e);
+					}
+				}
+				if (conn != null) {
+					try {
+						conn.close();
+					} catch (SQLException e) {
+						SqlExceptionLogUtil.error(log, e);
+					}
+				}
+
+				log.debug("Populating dataset took " + (new Date().getTime() - before.getTime()) + " ms");
+			}
+		} finally {
+			if (getStatus() == EtlStatus.PROCESSING) {
+				// something has gone wrong if the status is still "processing"
+				// at this point, so we set it to "error", just in case
 				setStatus(EtlStatus.ERROR);
 				return false;
 			}
-		}
-
-		Date before = new Date();
-		Connection conn = null;
-		PreparedStatement stmt = null;
-		CSVReader cr = null;
-		try {
-			conn = rowstore.getConnection();
-			char separator = detectSeparator(csvFile);
-			cr = new CSVReader(new AutoDetectReader(new FileInputStream(csvFile)), separator, '"');
-			long lineCount = 0;
-			String[] labels = null;
-			String[] line;
-
-			conn.setAutoCommit(false);
-
-			stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (data) VALUES (?)");
-			while ((line = cr.readNext()) != null) {
-				if (lineCount == 0) {
-					labels = new String[line.length];
-					// We convert all column names to lower case,
-					// otherwise all queries must be case sensitive later
-					for (int i = 0; i < line.length; i++) {
-						labels[i] = line[i].toLowerCase();
-					}
-
-					if (append) {
-						// we must compare existing column names with new ones
-						Set<String> newColumnNames = new HashSet<String>(Arrays.asList(labels));
-						Set<String> oldColumnNames = getColumnNames();
-
-						// if there are no old column names we assume this dataset is newly created
-						if (oldColumnNames.size() > 0 &&
-								!((oldColumnNames.size() == newColumnNames.size()) && oldColumnNames.containsAll(newColumnNames))) {
-							log.error("Column name mismatch: new tabular structure does not equal existing structure");
-							log.error("Rolling back transaction");
-							conn.rollback();
-							return false;
-						}
-					}
-				} else {
-					JSONObject jsonLine = null;
-					try {
-						jsonLine = csvLineToJsonObject(line, labels);
-					} catch (Exception e) {
-						log.error(e.getMessage());
-						log.info("Rolling back transaction");
-						conn.rollback();
-						setStatus(EtlStatus.ERROR);
-						return false;
-					}
-					PGobject jsonb = new PGobject();
-					jsonb.setType("jsonb");
-					jsonb.setValue(jsonLine.toString());
-					stmt.setObject(1, jsonb);
-					log.debug("Adding to batch: " + stmt);
-					stmt.addBatch();
-					// we execute the batch every 100th line
-					if ((lineCount % 200) == 0) {
-						log.debug("Executing: " + stmt);
-						stmt.executeBatch();
-					}
-				}
-				lineCount++;
-			}
-			// in case there are some inserts left to be sent (i.e.
-			// batch size above was smaller than 100 when loop ended)
-			log.debug("Executing: " + stmt);
-			stmt.executeBatch();
-
-			createIndexes(conn, new HashSet<String>(Arrays.asList(labels)));
-
-			// we commit the transaction and free the resources of the statement
-			conn.commit();
-
-			setStatus(EtlStatus.AVAILABLE);
-		} catch (TikaException te) {
-			log.error(te.getMessage());
-			setStatus(EtlStatus.ERROR);
-			return false;
-		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
-			try {
-				log.info("Rolling back transaction");
-				conn.rollback();
-			} catch (SQLException e1) {
-				SqlExceptionLogUtil.error(log, e1);
-			}
-			setStatus(EtlStatus.ERROR);
-			return false;
-		} finally {
-			if (cr != null) {
-				try {
-					cr.close();
-				} catch (IOException e) {
-					log.error(e.getMessage());
-				}
-			}
-			if (stmt != null) {
-				try {
-					stmt.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
-			log.debug("Populating dataset took " + (new Date().getTime() - before.getTime()) + " ms");
 		}
 
 		return true;
@@ -494,7 +505,7 @@ public class PgDataset implements Dataset {
 		int regexp = rowstore.getConfig().getRegexpQuerySupport();
 		boolean optimizeRegexp = true;
 		try {
-			conn = rowstore.getConnection();
+			conn = rowstore.getQueryConnection();
 			StringBuilder queryTemplate = new StringBuilder("SELECT data, count(*) OVER() AS result_count FROM " + getDataTable());
 			if (tuples != null && tuples.size() > 0) {
 				for (int i = 0; i < tuples.size(); i++) {
@@ -601,15 +612,22 @@ public class PgDataset implements Dataset {
 	/**
 	 * @see Dataset#getColumnNames()
 	 */
-	@Override
 	public Set<String> getColumnNames() {
+		return this.getColumnNames(true);
+	}
+
+	private Set<String> getColumnNames(boolean useQueryDatabase) {
 		Date before = new Date();
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
 		Set<String> result = new HashSet<>();
 		try {
-			conn = rowstore.getConnection();
+			if (useQueryDatabase) {
+				conn = rowstore.getQueryConnection();
+			} else {
+				conn = rowstore.getConnection();
+			}
 			// FIXME the following query is very slow on large tables
 			// (note: temporarily added WHERE clause to speed it up and avoid a full table scan,
 			// side effect of WHERE clause is that eventually added data with different structure is not
@@ -681,7 +699,13 @@ public class PgDataset implements Dataset {
 				throw new IllegalStateException("Unable to initialize Dataset object from database");
 			}
 		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
+			// We ignore SQL Exceptions due to wrong UUID input format
+			if (!"22P02".equalsIgnoreCase(e.getSQLState())) {
+				SqlExceptionLogUtil.error(log, e);
+			} else {
+				// hack to avoid text "ERROR:" in log message
+				log.info(e.getMessage().replaceFirst("ERROR: ", ""));
+			}
 			throw new IllegalArgumentException(e);
 		} finally {
 			if (rs != null) {
@@ -721,7 +745,7 @@ public class PgDataset implements Dataset {
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
 		try {
-			conn = rowstore.getConnection();
+			conn = rowstore.getQueryConnection();
 			stmt = conn.prepareStatement("SELECT COUNT(rownr)::BIGINT AS rowcount FROM " + getDataTable());
 			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
@@ -765,13 +789,21 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public Set<String> getAliases() {
+		return this.getAliases(true);
+	}
+
+	private Set<String> getAliases(boolean useQueryDatabase) {
 		Date before = new Date();
 		Set<String> result = new HashSet<>();;
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
 		try {
-			conn = rowstore.getConnection();
+			if (useQueryDatabase) {
+				conn = rowstore.getQueryConnection();
+			} else {
+				conn = rowstore.getConnection();
+			}
 			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?");
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
@@ -824,7 +856,7 @@ public class PgDataset implements Dataset {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
 		Date before = new Date();
-		Set<String> existingAliases = getAliases();
+		Set<String> existingAliases = getAliases(false);
 		Connection conn = null;
 		PreparedStatement ps = null;
 		try {
@@ -958,6 +990,10 @@ public class PgDataset implements Dataset {
 
 		JSONObject result = new JSONObject();
 		for (int i = 0; i < line.length; i++) {
+			// we skip empty strings as this would result in empty key names in the JSON result
+			if (labels[i].trim().length() == 0) {
+				continue;
+			}
 			result.put(labels[i], line[i]);
 			putAndRetainLargestValue(labels[i], line[i].length());
 		}

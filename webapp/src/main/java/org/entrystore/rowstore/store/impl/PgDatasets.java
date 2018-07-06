@@ -227,8 +227,10 @@ public class PgDatasets implements Datasets {
 		try {
 			return new PgDataset(rowstore, id);
 		} catch (IllegalArgumentException iae) {
+			log.info("Unable to load dataset with ID " + id);
 			return null;
 		} catch (IllegalStateException ise) {
+			log.info("Unable to load dataset with ID " + id);
 			return null;
 		}
 	}

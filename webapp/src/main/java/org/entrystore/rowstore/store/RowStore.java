@@ -33,6 +33,14 @@ public interface RowStore {
 	Connection getConnection() throws SQLException;
 
 	/**
+	 * @return Returns a database connection to a DB instance which is primarily intended
+	 * for read access (i.e., a read replica). Depending on the configuration this may
+	 * return a connection to the same DB instance as getConnection().
+	 * @throws SQLException
+	 */
+	Connection getQueryConnection() throws SQLException;
+
+	/**
 	 * @return Returns an instance of the dataset manager.
 	 */
 	Datasets getDatasets();

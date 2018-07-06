@@ -10,6 +10,15 @@
     "database": "rowstore",
     "user": "rowstore",
     "password": "",
+    "ssl": true
+  },
+  "queryDatabase": {
+    "type": "postgresql",
+    "host": "read-replica",
+    "port": 5432,
+    "database": "rowstore",
+    "user": "rowstore",
+    "password": "",
     "ssl": false
   },
   "ratelimit": {

@@ -19,7 +19,6 @@ package org.entrystore.rowstore.resources;
 import org.apache.log4j.Logger;
 import org.entrystore.rowstore.store.Dataset;
 import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 import org.restlet.data.MediaType;
 import org.restlet.data.Status;
@@ -30,6 +29,7 @@ import org.restlet.resource.Get;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
@@ -70,20 +70,53 @@ public class SwaggerResource extends BaseResource {
 		JSONArray apiParams = new JSONArray();
 		for (String p : dataset.getColumnNames()) {
 			JSONObject apiParam = new JSONObject();
-			try {
-				apiParam.put("name", p);
-				apiParam.put("in", "query");
-				//apiParam.put("description", "");
-				apiParam.put("required", false);
-				apiParam.put("type", "string");
-			} catch (JSONException jsone) {
-				log.error(jsone.getMessage());
+			apiParam.put("name", p);
+			apiParam.put("in", "query");
+			if (getRowStore().getConfig().getRegexpQuerySupport() > 0) {
+				apiParam.put("description", "Responses contain only rows with rows that match the provided tuple. Regular expressions may be used.");
+			} else {
+				apiParam.put("description", "Responses contain only rows that match the provided tuple(s). Exact matching is applied.");
 			}
+			apiParam.put("required", false);
+			apiParam.put("type", "string");
 			apiParams.put(apiParam);
 		}
 
+		// _limit
+		JSONObject paramLimit = new JSONObject();
+		paramLimit.put("name", "_limit");
+		paramLimit.put("in", "query");
+		paramLimit.put("required", false);
+		paramLimit.put("type", "integer");
+		paramLimit.put("default", 100);
+		paramLimit.put("description", "Size of the result windows, expects a value from 1 to 100");
+		apiParams.put(paramLimit);
+
+		// _offset
+		JSONObject paramOffset = new JSONObject();
+		paramOffset.put("name", "_offset");
+		paramOffset.put("in", "query");
+		paramOffset.put("required", false);
+		paramOffset.put("type", "integer");
+		paramOffset.put("default", 0);
+		paramOffset.put("description", "The offset (results, not pages) to be used when paginating through query results; example: page 3 of a multi page result can be requested with _limit=50 and _offset=100");
+		apiParams.put(paramOffset);
+
+		// _callback
+		JSONObject paramJsonp = new JSONObject();
+		paramJsonp.put("name", "_callback");
+		paramJsonp.put("in", "query");
+		paramJsonp.put("required", false);
+		paramJsonp.put("type", "string");
+		paramJsonp.put("description", "The name of the callback method to be used for JSONP");
+		apiParams.put(paramJsonp);
+
+		URI base = URI.create(getRowStore().getConfig().getBaseURL());
+
 		String result = swaggerTemplate.
 				replaceAll("__ROWSTORE_VERSION__", getVersion()).
+				replaceAll("__HOST__", base.getHost()).
+				replaceAll("__BASEPATH__", base.getPath()).
 				replaceAll("__DATASET_ID__", dataset.getId()).
 				replaceAll("__DATASET_PARAMETERS__", apiParams.toString());
 
@@ -94,7 +127,7 @@ public class SwaggerResource extends BaseResource {
 		if (path == null || !path.toFile().exists()) {
 			return null;
 		}
-		byte[] encoded = new byte[0];
+		byte[] encoded;
 		try {
 			encoded = Files.readAllBytes(path);
 		} catch (IOException e) {

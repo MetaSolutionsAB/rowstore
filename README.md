@@ -10,7 +10,7 @@ RowStore is a minimum footprint storage and query engine for tabular data with t
 In order for RowStore to be able to properly process CSV files, some conventions have to be followed:
 
 - String values within the tabular data model (such as column titles or cell string values) must contain only Unicode characters.
-- The first row should contain short names for each column; they are used as property names during the CSV2JSON conversion. They are also used as variable names by the query API. The column titles are converted to lower case upon import.
+- The first row should contain short names for each column; they are used as property names during the CSV2JSON conversion. They are also used as variable names by the query API. The column titles are trimmed and converted to lower case upon import.
 - Comma ("`,`") must be used as column delimiter. There is some basic detection for CSV-files that are using semi-colon ("`;`") as separator, but it is recommended to use comma.
 - Quotation marks ("`"`") must be used as quotation characters.
 - Double backslash ("`\\`) must be used as escape characters.
@@ -93,6 +93,7 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 - `regexpqueries` (String) - Determines whether the query interface should allow regular expressions to match column values. Differentiates between `disabled` (no regexp support), `simple` (support for queries starting with `^`), and `full` (support for any regexp queries).
 - `maxetlprocesses` (Integer) - Maximum number of concurrently running ETL processes (each process takes up one thread).
 - `database` (parent object) - Configures the database connection.
+- `queryDatabase` (parent object) - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica.  
 - `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
 - `querytimeout` (Integer) - Configures query timeout for dataset-queries in seconds. By default no query timeout is active (unless configured directly in the database).
 - `ratelimit` - Configures rate limitation.
@@ -113,7 +114,16 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
     "host": "localhost",
     "database": "rowstore",
     "user": "rowstore",
-    "password": ""
+    "password": "",
+    "ssl": true
+  },
+  "queryDatabase": {
+    "type": "postgresql",
+    "host": "read-replica",
+    "database": "rowstore",
+    "user": "rowstore",
+    "password": "",
+    "ssl": false
   },
   "ratelimit": {
     "type": "slidingwindow",

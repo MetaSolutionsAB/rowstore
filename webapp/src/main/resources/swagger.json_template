@@ -1,7 +1,6 @@
 {
   "swagger": "2.0",
   "schemes": [
-    "http",
     "https"
   ],
   "info": {
@@ -13,6 +12,8 @@
     "description": "RowStore official code and documentation repository",
     "url": "https://bitbucket.org/metasolutions/rowstore/"
   },
+  "host": "__HOST__",
+  "basePath": "__BASEPATH__",
   "paths": {
     "/dataset/__DATASET_ID__": {
       "get": {
@@ -34,8 +35,14 @@
           "404": {
             "description": "Dataset not found"
           },
+          "429": {
+            "description": "Too many requests"
+          },
           "500": {
             "description": "Internal error"
+          },
+          "503": {
+            "description": "Query timeout"
           }
         }
       }
