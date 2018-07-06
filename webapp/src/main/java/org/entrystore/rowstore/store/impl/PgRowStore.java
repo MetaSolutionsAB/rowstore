@@ -66,7 +66,7 @@ public class PgRowStore implements RowStore {
 		//datasource = new PGPoolingDataSource();
 		datasource = initializeDataSource(new PGSimpleDataSource(), config.getDatabase());
 		if (config.getDatabase() == config.getQueryDatabase()) {
-			datasource = queryDatasource;
+			queryDatasource = datasource;
 		} else {
 			queryDatasource = initializeDataSource(new PGSimpleDataSource(), config.getQueryDatabase());
 		}
