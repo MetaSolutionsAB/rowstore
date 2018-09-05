@@ -16,3 +16,5 @@ pipelines:
           - npm install -g jasmine-node
           - npm install --save-dev frisby
           - jasmine-node .
+          - ( cd standalone/target/dist && tar czf rowstore-`cat ../../../VERSION.txt`.tar.gz * )
+          - scp -v webapp/target/*.war standalone/target/dist/*.tar.gz deploy@meta1.metasolutions.se:/var/www/entrystore.org/download/
