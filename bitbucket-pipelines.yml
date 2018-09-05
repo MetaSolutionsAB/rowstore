@@ -12,9 +12,10 @@ pipelines:
           - chmod +x standalone/target/dist/bin/rowstore
           - standalone/target/dist/bin/rowstore tests/rowstore_tests.json 8282 &
           - sleep 5
-          - cd tests
+          - pushd tests
           - npm install -g jasmine-node
           - npm install --save-dev frisby
           - jasmine-node .
+          - popd
           - ( cd standalone/target/dist && tar czf rowstore-`cat ../../../VERSION.txt`.tar.gz * )
           - scp -v webapp/target/*.war standalone/target/dist/*.tar.gz deploy@meta1.metasolutions.se:/var/www/entrystore.org/download/
