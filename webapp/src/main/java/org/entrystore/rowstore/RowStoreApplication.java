@@ -197,7 +197,7 @@ public class RowStoreApplication extends Application {
 
 		if (args.length > 1) {
 			try {
-				port = Integer.valueOf(args[0]);
+				port = Integer.valueOf(args[1]);
 			} catch (NumberFormatException nfe) {
 				System.err.println(nfe.getMessage());
 			}
