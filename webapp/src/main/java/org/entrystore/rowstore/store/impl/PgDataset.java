@@ -688,7 +688,7 @@ public class PgDataset implements Dataset {
 			uuid.setType("uuid");
 			uuid.setValue(getId());
 			stmt.setObject(1, uuid);
-			log.info("Loading dataset " + getId() + " from database");
+			log.debug("Loading dataset " + getId() + " from database");
 			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
 			if (rs.next()) {
@@ -809,7 +809,7 @@ public class PgDataset implements Dataset {
 			uuid.setType("uuid");
 			uuid.setValue(getId());
 			stmt.setObject(1, uuid);
-			log.info("Loading aliases for dataset " + getId());
+			log.debug("Loading aliases for dataset " + getId());
 			log.debug("Executing: " + stmt);
 			rs = stmt.executeQuery();
 			while (rs.next()) {

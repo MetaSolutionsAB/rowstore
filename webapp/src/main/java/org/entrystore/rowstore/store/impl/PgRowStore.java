@@ -158,6 +158,7 @@ public class PgRowStore implements RowStore {
 				log.trace("Not deregistering JDBC driver {} as it does not belong to this webapp's ClassLoader", driver);
 			}
 		}
+		log.info("Shutdown complete");
 	}
 
 }
