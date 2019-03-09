@@ -22,6 +22,7 @@ import com.google.common.util.concurrent.RateLimiter;
 import org.entrystore.rowstore.store.RowStoreConfig;
 import org.restlet.Request;
 import org.restlet.Response;
+import org.restlet.data.Header;
 import org.restlet.data.Method;
 import org.restlet.data.Status;
 import org.restlet.routing.Filter;
@@ -96,6 +97,9 @@ public class RateLimitFilter extends Filter {
 
 		String dataset = request.getResourceRef().getPath();
 		String clientIP = request.getClientInfo().getUpstreamAddress();
+		for (Header h : request.getHeaders()) {
+			log.debug("Request header: " + h.getName() + " " + h.getValue());
+		}
 
 		try {
 			if (rateLimitTypeSlidingWindow) {
