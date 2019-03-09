@@ -135,7 +135,7 @@ public class RowStoreApplication extends Application {
 		jsCallback.setNext(router);
 
 		if (config.isRateLimitEnabled()) {
-			log.info("Request limit enabled. Time range: " + config.getRateLimitTimeRange() + " seconds, limit globally: " + config.getRateLimitRequestsGlobal() + ", limit per dataset: " + config.getRateLimitRequestsDataset());
+			log.info("Request limit enabled. Time range: " + config.getRateLimitTimeRange() + " seconds. Limit globally: " + config.getRateLimitRequestsGlobal() + ", limit per dataset: " + config.getRateLimitRequestsDataset() + ", limit per client IP: " + config.getRateLimitRequestsClientIP());
 			RateLimitFilter rateLimitFilter = new RateLimitFilter(config);
 			rateLimitFilter.setNext(jsCallback);
 			return rateLimitFilter;
