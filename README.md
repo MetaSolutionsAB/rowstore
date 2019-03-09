@@ -101,6 +101,7 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
     - `timerange` - The size (in seconds) of the time slot or window to be used for calculating the limitation.
     - `dataset` - Amount of permitted requests per dataset.
     - `global` - Amount of permitted requests globally for a RowStore instance.
+    - `clientip` - Amount of permitted requests per client IP. Uses the real upstream IP, i.e., if an `X-Forwarded-For` header is supplied by a reverse proxy, this IP is taken, otherwise the direct client's IP is used.
 
 ### Example
 
