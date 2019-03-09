@@ -96,7 +96,10 @@ public class RateLimitFilter extends Filter {
 		}
 
 		String dataset = request.getResourceRef().getPath();
-		String clientIP = request.getClientInfo().getUpstreamAddress();
+
+		// NOTE: request.getClientInfo().getUpstreamAddress() does not seem to work (bug in Restlet),
+		// so we try to read the header manually
+		String clientIP = request.getHeaders().getFirstValue("x-forwarded-for", true, request.getClientInfo().getAddress());
 		for (Header h : request.getHeaders()) {
 			log.debug("Request header: " + h.getName() + " " + h.getValue());
 		}
