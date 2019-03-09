@@ -46,6 +46,8 @@ public class RowStoreConfig {
 
 	private int rateLimitRequestsDataset = -1;
 
+	private int rateLimitRequestsClientIP = -1;
+
 	private boolean rateLimitEnabled = false;
 
 	private int queryTimeout = -1;
@@ -90,6 +92,7 @@ public class RowStoreConfig {
 				rateLimitTimeRange = rateLimitConfig.optInt("timerange", -1);
 				rateLimitRequestsGlobal = rateLimitConfig.optInt("global", -1);
 				rateLimitRequestsDataset = rateLimitConfig.optInt("dataset", -1);
+				rateLimitRequestsClientIP = rateLimitConfig.optInt("clientip", -1);
 				if (rateLimitTimeRange > 0 && (rateLimitRequestsGlobal > 0 || rateLimitRequestsDataset > 0)) {
 					rateLimitEnabled = true;
 				}
@@ -134,6 +137,10 @@ public class RowStoreConfig {
 
 	public int getRateLimitRequestsDataset() {
 		return rateLimitRequestsDataset;
+	}
+
+	public int getRateLimitRequestsClientIP() {
+		return rateLimitRequestsClientIP;
 	}
 
 	public String getRateLimitType() {

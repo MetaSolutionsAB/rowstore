@@ -37,6 +37,7 @@ import org.restlet.Application;
 import org.restlet.Component;
 import org.restlet.Context;
 import org.restlet.Restlet;
+import org.restlet.Server;
 import org.restlet.data.Protocol;
 import org.restlet.routing.Router;
 import org.restlet.routing.Template;
@@ -114,6 +115,8 @@ public class RowStoreApplication extends Application {
 
 	@Override
 	public synchronized Restlet createInboundRoot() {
+		getContext().getParameters().add("useForwardedForHeader", "true");
+
 		Router router = new Router(getContext());
 		router.setDefaultMatchingMode(Template.MODE_EQUALS);
 
@@ -215,7 +218,8 @@ public class RowStoreApplication extends Application {
 		}
 
 		Component component = new Component();
-		component.getServers().add(Protocol.HTTP, port);
+		Server server = component.getServers().add(Protocol.HTTP, port);
+		server.getContext().getParameters().add("useForwardedForHeader", "true");
 		component.getClients().add(Protocol.HTTP);
 		component.getClients().add(Protocol.HTTPS);
 		Context c = component.getContext().createChildContext();
@@ -224,7 +228,7 @@ public class RowStoreApplication extends Application {
 			component.getDefaultHost().attach(new RowStoreApplication(c, configURI));
 			component.start();
 		} catch (Exception e) {
-			e.printStackTrace();
+			log.error(e.getMessage(), e);
 		}
 	}
 

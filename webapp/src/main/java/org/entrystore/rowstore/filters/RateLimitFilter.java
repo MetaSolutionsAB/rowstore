@@ -66,10 +66,10 @@ public class RateLimitFilter extends Filter {
 			rateLimitTypeSlidingWindow = !"average".equalsIgnoreCase(config.getRateLimitType());
 			if (rateLimitTypeSlidingWindow) {
 				log.info("Rate limiting using sliding windows");
-				slidingWindows = CacheBuilder.newBuilder().maximumSize(4096).build();
+				slidingWindows = CacheBuilder.newBuilder().maximumSize(32768).build();
 			} else {
 				log.info("Rate limiting using averaging");
-				rateLimiters = CacheBuilder.newBuilder().maximumSize(4096).build();
+				rateLimiters = CacheBuilder.newBuilder().maximumSize(32768).build();
 			}
 		}
 	}
@@ -79,10 +79,9 @@ public class RateLimitFilter extends Filter {
 		String path = request.getResourceRef().getPath();
 		if (rateLimitFilterEnabled &&
 				path != null &&
-				request != null &&
 				isRateLimitedPath(path) &&
 				isRateLimitedMethod(request.getMethod())) {
-			if (!countAndCheckIfRequestPermitted(path)) {
+			if (!countAndCheckIfRequestPermitted(request)) {
 				response.setStatus(Status.CLIENT_ERROR_TOO_MANY_REQUESTS);
 				return STOP;
 			}
@@ -90,20 +89,20 @@ public class RateLimitFilter extends Filter {
 		return CONTINUE;
 	}
 
-	private boolean countAndCheckIfRequestPermitted(String dataset) {
-		if (dataset == null) {
-			throw new IllegalArgumentException("Dataset must not be null");
+	private boolean countAndCheckIfRequestPermitted(Request request) {
+		if (request == null) {
+			throw new IllegalArgumentException("Request parameter must not be null");
 		}
+
+		String dataset = request.getResourceRef().getPath();
+		String clientIP = request.getClientInfo().getUpstreamAddress();
 
 		try {
 			if (rateLimitTypeSlidingWindow) {
+				Callable<Cache<Date, Object>> loader = () -> CacheBuilder.newBuilder().expireAfterWrite(config.getRateLimitTimeRange(), TimeUnit.SECONDS).build();
+
 				// Checking for global rate limit
-				Cache<Date, Object> globalWindow = slidingWindows.get("global", new Callable<Cache<Date, Object>>() {
-					@Override
-					public Cache<Date, Object> call() throws Exception {
-						return CacheBuilder.newBuilder().expireAfterWrite(config.getRateLimitTimeRange(), TimeUnit.SECONDS).build();
-					}
-				});
+				Cache<Date, Object> globalWindow = slidingWindows.get("global", loader);
 				globalWindow.cleanUp();
 				if (globalWindow.size() >= config.getRateLimitRequestsGlobal()) {
 					log.debug("Request rate limit reached globally");
@@ -111,29 +110,31 @@ public class RateLimitFilter extends Filter {
 				}
 
 				// Checking for per-dataset rate limit
-				Cache<Date, Object> datasetWindow = slidingWindows.get(dataset, new Callable<Cache<Date, Object>>() {
-					@Override
-					public Cache<Date, Object> call() throws Exception {
-						return CacheBuilder.newBuilder().expireAfterWrite(config.getRateLimitTimeRange(), TimeUnit.SECONDS).build();
-					}
-				});
+				Cache<Date, Object> datasetWindow = slidingWindows.get(dataset, loader);
 				datasetWindow.cleanUp();
 				if (datasetWindow.size() >= config.getRateLimitRequestsDataset()) {
 					log.debug("Request rate limit reached for " + dataset);
 					return false;
 				}
 
-				globalWindow.put(new Date(), dummy);
-				datasetWindow.put(new Date(), dummy);
+				// Checking for per-client IP rate limit
+				Cache<Date, Object> clientIPWindow = slidingWindows.get(clientIP, loader);
+				clientIPWindow.cleanUp();
+				if (clientIPWindow.size() >= config.getRateLimitRequestsClientIP()) {
+					log.debug("Request rate limit reached for client IP " + clientIP);
+					return false;
+				}
+
+				Date now = new Date();
+				globalWindow.put(now, dummy);
+				datasetWindow.put(now, dummy);
+				clientIPWindow.put(now, dummy);
 			} else {
 				// Checking for global rate limit
 				if (config.getRateLimitRequestsGlobal() > 0 &&
-						!rateLimiters.get("global", new Callable<RateLimiter>() {
-							@Override
-							public RateLimiter call() throws Exception {
-								double permits = (double) config.getRateLimitRequestsGlobal() / (double) config.getRateLimitTimeRange();
-								return RateLimiter.create(permits);
-							}
+						!rateLimiters.get("global", () -> {
+							double permits = (double) config.getRateLimitRequestsGlobal() / (double) config.getRateLimitTimeRange();
+							return RateLimiter.create(permits);
 						}).tryAcquire()) {
 					log.debug("Request rate limit reached globally");
 					return false;
@@ -141,14 +142,21 @@ public class RateLimitFilter extends Filter {
 
 				// Checking for per-dataset rate limit
 				if (config.getRateLimitRequestsDataset() > 0 &&
-						!rateLimiters.get(dataset, new Callable<RateLimiter>() {
-							@Override
-							public RateLimiter call() throws Exception {
-								double permits = (double) config.getRateLimitRequestsDataset() / (double) config.getRateLimitTimeRange();
-								return RateLimiter.create(permits);
-							}
+						!rateLimiters.get(dataset, () -> {
+							double permits = (double) config.getRateLimitRequestsDataset() / (double) config.getRateLimitTimeRange();
+							return RateLimiter.create(permits);
 						}).tryAcquire()) {
 					log.debug("Request rate limit reached for " + dataset);
+					return false;
+				}
+
+				// Checking for per-client IP rate limit
+				if (config.getRateLimitRequestsClientIP() > 0 &&
+						!rateLimiters.get(clientIP, () -> {
+							double permits = (double) config.getRateLimitRequestsClientIP() / (double) config.getRateLimitTimeRange();
+							return RateLimiter.create(permits);
+						}).tryAcquire()) {
+					log.debug("Request rate limit reached for client IP " + clientIP);
 					return false;
 				}
 			}
@@ -169,7 +177,6 @@ public class RateLimitFilter extends Filter {
 		if (path == null) {
 			throw new IllegalArgumentException("Path must not be null");
 		}
-
 		return !path.endsWith("/status");
 	}
 
