@@ -76,11 +76,13 @@ public class RateLimitFilter extends Filter {
 
 	@Override
 	protected int beforeHandle(Request request, Response response) {
-		String dataset = request.getResourceRef().getPath();
-		if (dataset != null &&
-				rateLimitFilterEnabled &&
-				request != null && isRateLimitedMethod(request.getMethod())) {
-			if (!countAndCheckIfRequestPermitted(dataset)) {
+		String path = request.getResourceRef().getPath();
+		if (rateLimitFilterEnabled &&
+				path != null &&
+				request != null &&
+				isRateLimitedPath(path) &&
+				isRateLimitedMethod(request.getMethod())) {
+			if (!countAndCheckIfRequestPermitted(path)) {
 				response.setStatus(Status.CLIENT_ERROR_TOO_MANY_REQUESTS);
 				return STOP;
 			}
@@ -161,6 +163,14 @@ public class RateLimitFilter extends Filter {
 
 	private boolean isRateLimitedMethod(Method method) {
 		return Method.GET.equals(method) || Method.HEAD.equals(method);
+	}
+
+	private boolean isRateLimitedPath(String path) {
+		if (path == null) {
+			throw new IllegalArgumentException("Path must not be null");
+		}
+
+		return !path.endsWith("/status");
 	}
 
 }
