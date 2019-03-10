@@ -17,9 +17,11 @@
 package org.entrystore.rowstore.util;
 
 import com.ibm.icu.text.CharsetDetector;
+import com.ibm.icu.text.CharsetMatch;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Logger;
 import org.entrystore.rowstore.RowStoreApplication;
+import org.mozilla.universalchardet.UniversalDetector;
 import org.restlet.representation.Representation;
 
 import java.io.File;
@@ -27,6 +29,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.UUID;
 
 /**
@@ -121,15 +124,37 @@ public class DatasetUtil {
 	}
 
 	public static String detectCharset(File f) throws IOException {
-		CharsetDetector detector = new CharsetDetector();
+		byte[] data;
 		try (InputStream is = new FileInputStream(f)) {
-			byte[] data = new byte[32768]; // we try to read up to 32 kB
-			int byteCount = is.read(data);
+			byte[] tmpData = new byte[16384]; // we try to read up to 16 kB
+			int byteCount = is.read(tmpData);
+			data = Arrays.copyOf(tmpData, byteCount);
 			log.debug("Read " + byteCount + " bytes from " + f.getAbsolutePath() + " to detect charset");
-			detector.setText(data);
 		}
-		String name = detector.detect().getName();
-		log.debug("Detected " + name + " for file " + f.getAbsolutePath());
+
+		UniversalDetector detector = new UniversalDetector(null);
+		detector.handleData(data, 0, data.length);
+		detector.dataEnd();
+		String name = detector.getDetectedCharset();
+		detector.reset();
+
+		if (name != null) {
+			log.debug("Detected charset " + name + " for file " + f.getAbsolutePath() + " using juniversalchardet");
+		} else {
+			CharsetDetector icuDetector = new CharsetDetector();
+			icuDetector.setText(data);
+			CharsetMatch match = icuDetector.detect();
+			if (match != null) {
+				name = match.getName();
+				log.debug("Detected charset " + name + " for file " + f.getAbsolutePath() + " using ICU");
+			}
+		}
+
+		if (name == null) {
+			log.debug("Unable to detect charset for " + f.getAbsolutePath() + ", falling back to UTF-8");
+			name = "UTF-8";
+		}
+
 		return name;
 	}
 
