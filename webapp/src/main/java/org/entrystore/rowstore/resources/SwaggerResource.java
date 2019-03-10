@@ -89,7 +89,7 @@ public class SwaggerResource extends BaseResource {
 		paramLimit.put("required", false);
 		paramLimit.put("type", "integer");
 		paramLimit.put("default", 100);
-		paramLimit.put("description", "Size of the result windows, expects a value from 1 to 100");
+		paramLimit.put("description", "Size of the result windows, expects a value from 1 to " + getRowStore().getConfig().getQueryMaxLimit() + ". Default is 100.");
 		apiParams.put(paramLimit);
 
 		// _offset
