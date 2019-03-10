@@ -96,6 +96,7 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 - `queryDatabase` (parent object) - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica.  
 - `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
 - `querytimeout` (Integer) - Configures query timeout for dataset-queries in seconds. By default no query timeout is active (unless configured directly in the database).
+- `querymaxlimit` (Integer) - Configures the maximum allowed size of the query response limit, i.e. the `_limit` URL parameter when querying a dataset. Default: 100.
 - `ratelimit` - Configures rate limitation.
     - `type` - `average` or `slidingwindow` (default).
     - `timerange` - The size (in seconds) of the time slot or window to be used for calculating the limitation.
@@ -110,6 +111,8 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
   "baseurl": "https://domain.com/rowstore/",
   "regexpqueries": "full",
   "maxetlprocesses": 5,
+  "querytimeout": 10,
+  "querymaxlimit": 250,
   "database": {
     "type": "postgresql",
     "host": "localhost",

@@ -52,6 +52,8 @@ public class RowStoreConfig {
 
 	private int queryTimeout = -1;
 
+	private int queryMaxLimit = -1;
+
 	private Database database;
 
 	private Database queryDatabase;
@@ -99,9 +101,10 @@ public class RowStoreConfig {
 			}
 
 			// Query time out
-			if (config.has("querytimeout")) {
-				queryTimeout = config.optInt("querytimeout", -1);
-			}
+			queryTimeout = config.optInt("querytimeout", -1);
+
+			// Maximum size of reponse size limit (i.e. "_limit" in the URL parameters)
+			queryMaxLimit = config.optInt("querymaxlimit", 100);
 		} catch (JSONException e) {
 			log.error(e.getMessage());
 		}
@@ -149,6 +152,10 @@ public class RowStoreConfig {
 
 	public int getQueryTimeout() {
 		return queryTimeout;
+	}
+
+	public int getQueryMaxLimit() {
+		return queryMaxLimit;
 	}
 
 	public Database getDatabase() {

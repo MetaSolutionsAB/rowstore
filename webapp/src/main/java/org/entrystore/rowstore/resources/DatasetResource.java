@@ -135,7 +135,7 @@ public class DatasetResource extends BaseResource {
 			return null;
 		}
 
-		int limit = 100;
+		int limit = getRowStore().getConfig().getQueryMaxLimit();
 		if (parameters.containsKey("_limit")) {
 			try {
 				int paramLimit = Integer.valueOf(parameters.get("_limit"));
