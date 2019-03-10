@@ -183,7 +183,7 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
       })
       .toss();
     frisby.create('GET dataset1 query1 with exact match')
-      .get(json.url + "?name=%C3%85kesson")
+      .get(json.url + "?Name=%C3%85kesson")
       .expectStatus(200)
       .expectHeaderContains('Content-Type', 'application/json')
       .expectJSONTypes("results", [{
@@ -198,7 +198,7 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
       .retry(retryCount, retryDelay)
       .toss();
     frisby.create('GET dataset1 query1-b (lower case key) with exact match')
-      .get(json.url + "?name=%C3%85kesson")
+      .get(json.url + "?Name=%C3%85kesson")
       .expectStatus(200)
       .expectHeaderContains('Content-Type', 'application/json')
       .expectJSONTypes("results", [{
@@ -212,7 +212,7 @@ frisby.create('POST CSV file (UTF-8, comma-separated) to create new dataset1')
       .retry(retryCount, retryDelay)
       .toss();
     frisby.create('GET dataset1 query2 with exact match')
-      .get(json.url + "?some+other+column=x")
+      .get(json.url + "?Some+other+column=x")
       .expectStatus(200)
       .expectHeaderContains('Content-Type', 'application/json')
       .expectJSONTypes("results", [{
