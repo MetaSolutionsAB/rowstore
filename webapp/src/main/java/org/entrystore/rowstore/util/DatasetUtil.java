@@ -16,12 +16,14 @@
 
 package org.entrystore.rowstore.util;
 
+import com.ibm.icu.text.CharsetDetector;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Logger;
 import org.entrystore.rowstore.RowStoreApplication;
 import org.restlet.representation.Representation;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -116,6 +118,19 @@ public class DatasetUtil {
 		} catch (Exception ex) {
 			return false;
 		}
+	}
+
+	public static String detectCharset(File f) throws IOException {
+		CharsetDetector detector = new CharsetDetector();
+		try (InputStream is = new FileInputStream(f)) {
+			byte[] data = new byte[32768]; // we try to read up to 32 kB
+			int byteCount = is.read(data);
+			log.debug("Read " + byteCount + " bytes from " + f.getAbsolutePath() + " to detect charset");
+			detector.setText(data);
+		}
+		String name = detector.detect().getName();
+		log.debug("Detected " + name + " for file " + f.getAbsolutePath());
+		return name;
 	}
 
 }

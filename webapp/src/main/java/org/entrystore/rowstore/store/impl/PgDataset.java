@@ -18,8 +18,6 @@ package org.entrystore.rowstore.store.impl;
 
 import com.opencsv.CSVReader;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.tika.detect.AutoDetectReader;
-import org.apache.tika.exception.TikaException;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.QueryResult;
@@ -38,6 +36,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -220,7 +219,7 @@ public class PgDataset implements Dataset {
 			try {
 				conn = rowstore.getConnection();
 				char separator = detectSeparator(csvFile);
-				cr = new CSVReader(new AutoDetectReader(new FileInputStream(csvFile)), separator, '"');
+				cr = new CSVReader(new InputStreamReader(new FileInputStream(csvFile), DatasetUtil.detectCharset(csvFile)), separator, '"');
 				long lineCount = 0;
 				String[] labels = null;
 				String[] line;
@@ -287,10 +286,6 @@ public class PgDataset implements Dataset {
 				conn.commit();
 
 				setStatus(EtlStatus.AVAILABLE);
-			} catch (TikaException te) {
-				log.error(te.getMessage());
-				setStatus(EtlStatus.ERROR);
-				return false;
 			} catch (SQLException e) {
 				SqlExceptionLogUtil.error(log, e);
 				try {
@@ -1012,7 +1007,7 @@ public class PgDataset implements Dataset {
 		char result = ',';
 		BufferedReader br = null;
 		try {
-			br = new BufferedReader(new AutoDetectReader(new FileInputStream(csvFile)));
+			br = new BufferedReader(new InputStreamReader(new FileInputStream(csvFile), DatasetUtil.detectCharset(csvFile)));
 			String line1 = br.readLine();
 			String line2 = br.readLine();
 			int semiCount1 = StringUtils.countMatches(line1, ";");
@@ -1024,8 +1019,6 @@ public class PgDataset implements Dataset {
 			}
 		} catch (IOException e) {
 			log.info(e.getMessage());
-		} catch (TikaException te) {
-			log.info(te.getMessage());
 		} finally {
 			if (br != null) {
 				try {
