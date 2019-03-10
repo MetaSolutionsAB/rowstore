@@ -132,11 +132,13 @@
             <artifactId>tika-core</artifactId>
             <version>1.20</version>
         </dependency>
+        <!--
         <dependency>
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-parsers</artifactId>
             <version>1.20</version>
         </dependency>
+        -->
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
