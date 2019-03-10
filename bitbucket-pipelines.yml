@@ -14,7 +14,7 @@ pipelines:
           - sleep 5
           - pushd tests
           - npm install -g jasmine-node
-          - npm install --save-dev frisby
+          - npm install frisby@0.8.5
           - jasmine-node .
           - popd
           - ( cd standalone/target/dist && tar czf rowstore-`cat ../../../VERSION.txt`.tar.gz * )
