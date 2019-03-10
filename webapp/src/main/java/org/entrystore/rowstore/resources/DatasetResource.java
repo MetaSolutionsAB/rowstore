@@ -135,11 +135,12 @@ public class DatasetResource extends BaseResource {
 			return null;
 		}
 
-		int limit = getRowStore().getConfig().getQueryMaxLimit();
+		int maxLimit = getRowStore().getConfig().getQueryMaxLimit();
+		int limit = 100;
 		if (parameters.containsKey("_limit")) {
 			try {
 				int paramLimit = Integer.valueOf(parameters.get("_limit"));
-				if (paramLimit <= limit && paramLimit > 0) {
+				if (paramLimit <= maxLimit && paramLimit > 0) {
 					limit = paramLimit;
 				}
 			} catch (NumberFormatException nfe) {
