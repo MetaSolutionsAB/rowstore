@@ -3,6 +3,7 @@
   "regexpqueries": true,
   "maxetlprocesses": 5,
   "querytimeout": 15,
+  "querymaxlimit": 250,
   "database": {
     "type": "postgresql",
     "host": "localhost",
@@ -24,8 +25,9 @@
   "ratelimit": {
     "type": "slidingwindow",
     "timerange": 60,
-    "dataset": 30,
-    "global": 300
+    "dataset": 150,
+    "global": 300,
+    "clientip": 30
   },
   "loglevel": "debug"
 }
