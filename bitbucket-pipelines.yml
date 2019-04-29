@@ -1,8 +1,13 @@
 image: metasolutions/openjdk-node-postgresql
 
+options:
+  max-time: 10
+
 pipelines:
   default:
     - step:
+        caches:
+          - maven
         script:
           - mvn --version
           - mvn clean install
@@ -19,3 +24,4 @@ pipelines:
           - popd
           - ( cd standalone/target/dist && tar czf rowstore-`cat ../../../VERSION.txt`.tar.gz * )
           - scp -v webapp/target/*.war standalone/target/dist/*.tar.gz deploy@meta1.metasolutions.se:/var/www/entrystore.org/download/
+          - rm -rf ~/.m2/repository/org/entrystore/
