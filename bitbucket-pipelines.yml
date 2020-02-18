@@ -22,6 +22,13 @@ pipelines:
           - npm install frisby@0.8.5
           - jasmine-node .
           - popd
-          - ( cd standalone/target/dist && tar czf rowstore-`cat ../../../VERSION.txt`.tar.gz * )
-          - scp -v webapp/target/*.war standalone/target/dist/*.tar.gz deploy@meta1.metasolutions.se:/var/www/entrystore.org/download/
+          - echo $GPG_SIGN_KEY | base64 -d | gpg --import
+          - gpg --list-secret-keys
+          - export FILE_BASE="rowstore-`cat VERSION.txt`"
+          - echo $FILE_BASE
+          - ( cd standalone/target/dist/ && tar czf ${FILE_BASE}.tar.gz * && sha256sum ${FILE_BASE}.tar.gz > ${FILE_BASE}.tar.gz.sha256 && gpg --clearsign --default-key 4C12C06EE69EBA383C1A47C61010232068FF1D01 ${FILE_BASE}.tar.gz.sha256 )
+          - export FILE_BASE="rowstore-webapp-`cat VERSION.txt`"
+          - echo $FILE_BASE
+          - ( cd webapp/target/ && sha256sum ${FILE_BASE}.war > ${FILE_BASE}.war.sha256 && gpg --clearsign --default-key 4C12C06EE69EBA383C1A47C61010232068FF1D01 ${FILE_BASE}.war.sha256 )
+          - scp -v webapp/target/{*.war,*.sha256.asc} standalone/target/dist/{*.tar.gz,*.sha256.asc} deploy@meta1.metasolutions.se:/var/www/entrystore.org/download/
           - rm -rf ~/.m2/repository/org/entrystore/
