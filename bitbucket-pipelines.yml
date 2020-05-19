@@ -28,6 +28,7 @@ stepdefinitions:
         - npm install frisby@0.8.5
         - jasmine-node .
       artifacts:
+        - webapp/target/**
         - standalone/target/**
   - deploy: &deploy
       name: Deploy
