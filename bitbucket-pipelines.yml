@@ -1,4 +1,4 @@
-image: metasolutions/openjdk-node
+image: metasolutions/openjdk-11-node
 
 options:
   max-time: 10
