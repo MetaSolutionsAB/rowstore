@@ -28,6 +28,8 @@ stepdefinitions:
         - npm install -g jasmine-node
         - npm install frisby@0.8.5
         - jasmine-node .
+      services:
+        - postgres
   - deploy: &deploy
       name: Deploy
       script:
