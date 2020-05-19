@@ -72,8 +72,8 @@ pipelines:
     develop:
       - step: *build
       - step: *test
-      #- step: *deploy
-      #- step: *dockerhub
+      - step: *deploy
+      - step: *dockerhub
 
 definitions:
   services:
