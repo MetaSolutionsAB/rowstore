@@ -9,6 +9,7 @@ stepdefinitions:
       caches:
         - maven
       script:
+        - java -version
         - mvn --version
         - mvn clean install
         - rm -rf ~/.m2/repository/org/entrystore/
