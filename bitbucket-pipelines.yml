@@ -67,11 +67,11 @@ pipelines:
   branches:
     master:
       - step: *build
-      # - step: *test
+      - step: *test
       - step: *deploy
       - step: *dockerhub
     develop:
       - step: *build
-      # - step: *test
+      - step: *test
       - step: *deploy
       - step: *dockerhub
