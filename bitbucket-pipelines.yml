@@ -1,4 +1,4 @@
-image: metasolutions/openjdk-node-postgresql
+image: metasolutions/openjdk-node
 
 options:
   max-time: 10
@@ -18,9 +18,9 @@ stepdefinitions:
   - test: &test
       name: Test
       script:
-        - /etc/init.d/postgresql start
-        - sudo -u postgres sh -c 'createuser rowstoretest & createdb rowstoretest'
-        - sudo -u postgres psql -c "ALTER USER rowstoretest PASSWORD 'rowstoretestpw';"
+#        - /etc/init.d/postgresql start
+#        - sudo -u postgres sh -c 'createuser rowstoretest & createdb rowstoretest'
+#        - sudo -u postgres psql -c "ALTER USER rowstoretest PASSWORD 'rowstoretestpw';"
         - chmod +x standalone/target/dist/bin/rowstore
         - standalone/target/dist/bin/rowstore tests/rowstore_tests.json 8282 &
         - sleep 5
@@ -73,5 +73,14 @@ pipelines:
     develop:
       - step: *build
       - step: *test
-      - step: *deploy
-      - step: *dockerhub
+      #- step: *deploy
+      #- step: *dockerhub
+
+definitions:
+  services:
+    postgres:
+      image: postgres:9
+      variables:
+        POSTGRES_DB: 'rowstoretest'
+        POSTGRES_USER: 'rowstoretest'
+        POSTGRES_PASSWORD: 'rowstoretestpw'
