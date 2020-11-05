@@ -1,4 +1,4 @@
-image: metasolutions/openjdk-11-node
+image: metasolutions/openjdk11-node
 
 options:
   max-time: 10
@@ -16,11 +16,11 @@ stepdefinitions:
       artifacts:
         - standalone/target/**
         - webapp/target/**
-  - test: &test
-      name: Test
+  - testpg: &testpg
+      name: Integration Test PostgreSQL
       script:
         - chmod +x standalone/target/dist/bin/rowstore
-        - standalone/target/dist/bin/rowstore tests/rowstore_tests.json 8282 &
+        - standalone/target/dist/bin/rowstore tests/rowstore_tests_postgres.json 8282 &
         - sleep 5
         - cd tests
         - npm install -g jasmine-node
@@ -28,6 +28,18 @@ stepdefinitions:
         - jasmine-node .
       services:
         - postgres
+  - testcr: &testcr
+      name: Integration Test CockroachDB
+      script:
+        - chmod +x standalone/target/dist/bin/rowstore
+        - standalone/target/dist/bin/rowstore tests/rowstore_tests_cockroach.json 8282 &
+        - sleep 5
+        - cd tests
+        - npm install -g jasmine-node
+        - npm install frisby@0.8.5
+        - jasmine-node .
+      services:
+        - cockroach
   - deploy: &deploy
       name: Deploy
       script:
@@ -63,24 +75,32 @@ stepdefinitions:
 pipelines:
   default:
     - step: *build
-    - step: *test
+    - parallel:
+      - step: *testpg
+      #- step: *testcr
   branches:
     master:
       - step: *build
-      - step: *test
+      - parallel:
+        - step: *testpg
+        #- step: *testcr
       - step: *deploy
       - step: *dockerhub
     develop:
       - step: *build
-      - step: *test
+      - parallel:
+        - step: *testpg
+        #- step: *testcr
       - step: *deploy
       - step: *dockerhub
 
 definitions:
   services:
     postgres:
-      image: postgres:9
+      image: postgres:12
       variables:
         POSTGRES_DB: 'rowstoretest'
         POSTGRES_USER: 'rowstoretest'
         POSTGRES_PASSWORD: 'rowstoretestpw'
+    cockroach:
+      image: metasolutions/crdb-single-insecure
