@@ -349,6 +349,7 @@ public class PgDataset implements Dataset {
 				log.debug("Index with name " + indexName + " already exists, skipping creation");
 				continue;
 			}
+
 			// We cannot use prepared statements for CREATE INDEX with parametrized fields:
 			// the type to be used with setObject() is not known and setString() does not work.
 			// It should be safe to run BaseConnection.escapeString() to avoid SQL-injection
@@ -358,14 +359,19 @@ public class PgDataset implements Dataset {
 					append(dataTable).
 					append(" ((data->>'").
 					append(((BaseConnection) conn).escapeString(field)).
-					append("') text_pattern_ops)").
+					append("') ").
+					// CRDB does not support text_pattern_ops; it remains to be investigated to
+					// which extent such an index helps for queries with regular expressions
+					// append("text_pattern_ops").
+					append(")").
 					toString();
 			log.debug("Executing: " + sql);
 			conn.createStatement().execute(sql);
 		}
+
 		/*
-		The index below may be used for more advanced JSON-specific indexing
-		and querying, but currently we don't need this functionality
+		// The index below may be used for more advanced JSON-specific indexing
+		// and querying, but currently we don't need this functionality
 
 		String sql = new StringBuilder("CREATE INDEX ON ").append(table).append(" USING GIN(data jsonb_path_ops)").toString();
 		log.debug("Executing: " + sql);
