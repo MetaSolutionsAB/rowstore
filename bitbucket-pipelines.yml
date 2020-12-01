@@ -76,21 +76,21 @@ pipelines:
   default:
     - step: *build
     - parallel:
-      - step: *testpg
-      #- step: *testcr
+      #- step: *testpg
+      - step: *testcr
   branches:
     master:
       - step: *build
       - parallel:
         - step: *testpg
-        #- step: *testcr
+        - step: *testcr
       - step: *deploy
       - step: *dockerhub
     develop:
       - step: *build
       - parallel:
         - step: *testpg
-        #- step: *testcr
+        - step: *testcr
       - step: *deploy
       - step: *dockerhub
 
