@@ -280,7 +280,8 @@ public class PgDataset implements Dataset {
 				log.debug("Executing: " + stmt);
 				stmt.executeBatch();
 
-				// createIndexes(conn, new HashSet<String>(Arrays.asList(labels))); FIXME testing without index
+				// TODO testing without index
+				// createIndexes(conn, new HashSet<String>(Arrays.asList(labels)));
 
 				// we commit the transaction and free the resources of the statement
 				conn.commit();

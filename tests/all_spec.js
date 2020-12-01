@@ -15,9 +15,9 @@ var URL = 'http://localhost:8282/';
 
 // Retrying tests is important since dataset population
 // may be delayed due to its asynchronous character
-var retryCount = 2;         // How often failed tests are retried
-var retryDelay = 2500;      // Waiting time after a test has failed until next attempt
-var initialDelay = 5000;    // Time to wait after a CSV has been submitted
+var retryCount = 3;         // How often failed tests are retried
+var retryDelay = 5000;      // Waiting time after a test has failed until next attempt
+var initialDelay = 10000;    // Time to wait after a CSV has been submitted
 
 // Config for all tests
 frisby.globalSetup({
