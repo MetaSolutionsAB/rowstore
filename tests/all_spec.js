@@ -23,7 +23,8 @@ var initialDelay = 10000;    // Time to wait after a CSV has been submitted
 frisby.globalSetup({
   request: {
     headers: {'Accept': 'application/json'}
-  }
+  },
+  timeout: 10000
 });
 
 frisby.create('GET status and check structure')
