@@ -121,7 +121,9 @@ public class PgDatasets implements Datasets {
 		String dataTable = constructDataTableName(id);
 		try {
 			conn = getRowStore().getConnection();
-			conn.setAutoCommit(false);
+			// can't use transactions due to limitations of CockroachDB
+			// TODO reenable when https://github.com/cockroachdb/cockroach/issues/54477 is resolved
+			conn.setAutoCommit(true);
 
 			PreparedStatement ps = conn.prepareStatement("INSERT INTO " + DATASETS_TABLE_NAME + " (id, status, created, data_table) VALUES (?, ?, ?, ?)");
 			PGobject uuid = new PGobject();
@@ -141,15 +143,17 @@ public class PgDatasets implements Datasets {
 			ps.execute();
 			ps.close();
 
-			conn.commit();
+			// conn.commit();
 			log.info("Created dataset " + id);
 			return new PgDataset(getRowStore(), id, EtlStatus.CREATED, created, dataTable);
 		} catch (SQLException e) {
+			/*
 			try {
 				conn.rollback();
 			} catch (SQLException e1) {
 				SqlExceptionLogUtil.error(log, e1);
 			}
+			*/
 			log.error(e.getMessage());
 		} finally {
 			if (conn != null) {
