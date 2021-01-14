@@ -39,18 +39,18 @@ import org.restlet.Context;
 import org.restlet.Restlet;
 import org.restlet.Server;
 import org.restlet.data.Protocol;
+import org.restlet.engine.io.IoUtils;
 import org.restlet.routing.Router;
 import org.restlet.routing.Template;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
@@ -93,9 +93,18 @@ public class RowStoreApplication extends Application {
 			}
 		}
 
-		if (configURI != null && "file".equals(configURI.getScheme())) {
+		if (configURI != null && (
+				"file".equals(configURI.getScheme()) ||
+				"http".equals(configURI.getScheme()) ||
+				"https".equals(configURI.getScheme()))) {
 			log.info("Loading configuration from " + configURI);
-			config = new RowStoreConfig(new JSONObject(new String(Files.readAllBytes(Paths.get(configURI)))));
+
+			try (InputStream is = configURI.toURL().openStream()) {
+				config = new RowStoreConfig(new JSONObject(IoUtils.toString(is)));
+			} catch (IOException e) {
+				log.error("Error when loading configuration: " + e.getMessage());
+				System.exit(1);
+			}
 
 			setLogLevel(config.getLogLevel());
 
