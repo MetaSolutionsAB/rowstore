@@ -78,6 +78,10 @@
 
     <repositories>
         <repository>
+            <id>EntryStore</id>
+            <url>https://maven.entrystore.org</url>
+        </repository>
+        <repository>
             <id>Restlet</id>
             <url>https://maven.restlet.org</url>
         </repository>
