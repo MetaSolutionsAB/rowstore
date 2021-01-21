@@ -34,9 +34,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -219,7 +219,7 @@ public class PgDataset implements Dataset {
 			try {
 				conn = rowstore.getConnection();
 				char separator = detectSeparator(csvFile);
-				cr = new CSVReader(new InputStreamReader(new FileInputStream(csvFile), DatasetUtil.detectCharset(csvFile)), separator, '"');
+				cr = new CSVReader(new InputStreamReader(Files.newInputStream(csvFile.toPath()), DatasetUtil.detectCharset(csvFile)), separator, '"');
 				long lineCount = 0;
 				String[] labels = null;
 				String[] line;
@@ -1007,7 +1007,7 @@ public class PgDataset implements Dataset {
 		char result = ',';
 		BufferedReader br = null;
 		try {
-			br = new BufferedReader(new InputStreamReader(new FileInputStream(csvFile), DatasetUtil.detectCharset(csvFile)));
+			br = new BufferedReader(new InputStreamReader(Files.newInputStream(csvFile.toPath()), DatasetUtil.detectCharset(csvFile)));
 			String line1 = br.readLine();
 			String line2 = br.readLine();
 			int semiCount1 = StringUtils.countMatches(line1, ";");

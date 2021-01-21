@@ -25,10 +25,9 @@ import org.mozilla.universalchardet.UniversalDetector;
 import org.restlet.representation.Representation;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.UUID;
 
@@ -55,50 +54,9 @@ public class DatasetUtil {
 	public static File writeTempFile(Representation entity) throws IOException {
 		File tmpFile = File.createTempFile(RowStoreApplication.NAME, ".csv");
 		tmpFile.deleteOnExit();
-		log.info("Created temporary file " + tmpFile);
-
-		if (tmpFile != null) {
-			log.info("Writing request body to " + tmpFile);
-			DatasetUtil.writeFile(entity.getStream(), tmpFile);
-		}
+		log.info("Writing request body to temporary file at " + tmpFile);
+		Files.copy(entity.getStream(), tmpFile.toPath());
 		return tmpFile;
-	}
-
-	/**
-	 * Writes an InputStream to a File.
-	 *
-	 * @param src Data source.
-	 * @param dst Destination.
-	 * @throws IOException
-	 */
-	private static void writeFile(InputStream src, File dst) throws IOException {
-		if (src == null || dst == null) {
-			throw new IllegalArgumentException("Parameters must not be null");
-		}
-
-		byte[] buffer = new byte[4096];
-		FileOutputStream fos = null;
-		try {
-			fos = new FileOutputStream(dst);
-			for (int length = 0; (length = src.read(buffer)) > 0; ) {
-				fos.write(buffer, 0, length);
-			}
-		} finally {
-			if (src != null) {
-				try {
-					src.close();
-				} catch (IOException e) {
-					log.error(e.getMessage());
-				}
-			}
-			if (fos != null) {
-				try {
-					fos.close();
-				} catch (IOException e) {
-					log.error(e.getMessage());
-				}
-			}
-		}
 	}
 
 	/**
@@ -125,7 +83,7 @@ public class DatasetUtil {
 
 	public static String detectCharset(File f) throws IOException {
 		byte[] data;
-		try (InputStream is = new FileInputStream(f)) {
+		try (InputStream is = Files.newInputStream(f.toPath())) {
 			byte[] tmpData = new byte[16384]; // we try to read up to 16 kB
 			int byteCount = is.read(tmpData);
 			data = Arrays.copyOf(tmpData, byteCount);
