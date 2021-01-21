@@ -28,6 +28,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.UUID;
 
@@ -52,11 +54,11 @@ public class DatasetUtil {
 	}
 
 	public static File writeTempFile(Representation entity) throws IOException {
-		File tmpFile = File.createTempFile(RowStoreApplication.NAME, ".csv");
-		tmpFile.deleteOnExit();
-		log.info("Writing request body to temporary file at " + tmpFile);
-		Files.copy(entity.getStream(), tmpFile.toPath());
-		return tmpFile;
+		Path tmpPath = Files.createTempFile(RowStoreApplication.NAME, ".csv");
+		tmpPath.toFile().deleteOnExit();
+		log.info("Writing request body to temporary file at " + tmpPath);
+		Files.copy(entity.getStream(), tmpPath, StandardCopyOption.REPLACE_EXISTING);
+		return tmpPath.toFile();
 	}
 
 	/**
