@@ -40,6 +40,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -139,7 +140,7 @@ public class DatasetResource extends BaseResource {
 		int limit = 100;
 		if (parameters.containsKey("_limit")) {
 			try {
-				int paramLimit = Integer.valueOf(parameters.get("_limit"));
+				int paramLimit = Integer.parseInt(parameters.get("_limit"));
 				if (paramLimit <= maxLimit && paramLimit > 0) {
 					limit = paramLimit;
 				}
@@ -152,7 +153,7 @@ public class DatasetResource extends BaseResource {
 		int offset = 0;
 		if (parameters.containsKey("_offset")) {
 			try {
-				int paramOffset = Integer.valueOf(parameters.get("_offset"));
+				int paramOffset = Integer.parseInt(parameters.get("_offset"));
 				if (paramOffset > offset) {
 					offset = paramOffset;
 				}
@@ -288,20 +289,16 @@ public class DatasetResource extends BaseResource {
 		nextPageUrl.append("&_limit=");
 		nextPageUrl.append(qr.getLimit());
 
-		for(Map.Entry<String, String> entry : parameters.entrySet()) {
+		for (Map.Entry<String, String> entry : parameters.entrySet()) {
 			String k = entry.getKey();
 			String v = entry.getValue();
 			if ("_offset".equals(k) || "_limit".equals(k)) {
 				continue;
 			}
-			try {
-				nextPageUrl.append("&");
-				nextPageUrl.append(URLEncoder.encode(k, "UTF-8"));
-				nextPageUrl.append("=");
-				nextPageUrl.append(URLEncoder.encode(v, "UTF-8"));
-			} catch (UnsupportedEncodingException e) {
-				log.error(e.getMessage());
-			}
+			nextPageUrl.append("&");
+			nextPageUrl.append(URLEncoder.encode(k, StandardCharsets.UTF_8));
+			nextPageUrl.append("=");
+			nextPageUrl.append(URLEncoder.encode(v, StandardCharsets.UTF_8));
 		}
 
 		return nextPageUrl.toString();
