@@ -4,7 +4,6 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.entrystore.rowstore</groupId>
     <artifactId>rowstore-standalone-common</artifactId>
     <version>1.3-SNAPSHOT</version>
     <packaging>jar</packaging>
@@ -22,13 +21,22 @@
                 <directory>src/main/resources</directory>
             </resource>
         </resources>
+        <testResources>
+            <testResource>
+                <directory>src/test/resources</directory>
+                <includes>
+                    <include>**/*.xml</include>
+                    <include>**/*.properties</include>
+                </includes>
+            </testResource>
+        </testResources>
     </build>
 
     <dependencies>
         <dependency>
             <groupId>org.entrystore.rowstore</groupId>
-            <artifactId>rowstore-standalone</artifactId>
-            <version>1.3-SNAPSHOT</version>
+            <artifactId>rowstore-webapp</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>javax.servlet</groupId>

@@ -37,7 +37,7 @@ import org.slf4j.LoggerFactory;
 import java.net.URI;
 import java.net.URISyntaxException;
 
-public class RowStoreApplicationStandalone extends Application {
+public abstract class RowStoreApplicationStandalone extends Application {
 
     private final static org.slf4j.Logger log = LoggerFactory.getLogger(RowStoreApplicationStandalone.class);
 

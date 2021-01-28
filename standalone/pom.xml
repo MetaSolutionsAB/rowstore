@@ -20,12 +20,4 @@
         <module>simple</module>
     </modules>
 
-    <dependencies>
-        <dependency>
-            <groupId>org.entrystore.rowstore</groupId>
-            <artifactId>rowstore-webapp</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-    </dependencies>
-
 </project>
