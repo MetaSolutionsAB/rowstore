@@ -16,7 +16,11 @@
 
 package org.entrystore.rowstore.store.impl;
 
+import com.opencsv.CSVParser;
+import com.opencsv.CSVParserBuilder;
 import com.opencsv.CSVReader;
+import com.opencsv.CSVReaderBuilder;
+import com.opencsv.exceptions.CsvValidationException;
 import org.apache.commons.lang3.StringUtils;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
@@ -219,7 +223,14 @@ public class PgDataset implements Dataset {
 			try {
 				conn = rowstore.getConnection();
 				char separator = detectSeparator(csvFile);
-				cr = new CSVReader(new InputStreamReader(Files.newInputStream(csvFile.toPath()), DatasetUtil.detectCharset(csvFile)), separator, '"');
+				CSVParser csvParser = new CSVParserBuilder().
+						withSeparator(separator).
+						withQuoteChar('"').
+						build();
+				cr = new CSVReaderBuilder(Files.newBufferedReader(csvFile.toPath())).
+						withSkipLines(0).
+						withCSVParser(csvParser).
+						build();
 				long lineCount = 0;
 				String[] labels = null;
 				String[] line;
@@ -288,6 +299,16 @@ public class PgDataset implements Dataset {
 				setStatus(EtlStatus.AVAILABLE);
 			} catch (SQLException e) {
 				SqlExceptionLogUtil.error(log, e);
+				try {
+					log.info("Rolling back transaction");
+					conn.rollback();
+				} catch (SQLException e1) {
+					SqlExceptionLogUtil.error(log, e1);
+				}
+				setStatus(EtlStatus.ERROR);
+				return false;
+			} catch (CsvValidationException e) {
+				log.error(e.getMessage());
 				try {
 					log.info("Rolling back transaction");
 					conn.rollback();

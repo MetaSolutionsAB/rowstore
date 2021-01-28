@@ -112,7 +112,7 @@
         <dependency>
             <groupId>com.opencsv</groupId>
             <artifactId>opencsv</artifactId>
-            <version>3.9</version>
+            <version>${opencsv.version}</version>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
