@@ -20,7 +20,7 @@ stepdefinitions:
       name: Integration Test PostgreSQL
       script:
         - chmod +x standalone/jetty/target/dist/bin/rowstore
-        - standalone/jetty/target/dist/bin/rowstore tests/rowstore_tests_postgres.json --port 8282 &
+        - standalone/jetty/target/dist/bin/rowstore --config tests/rowstore_tests_postgres.json --port 8282 &
         - sleep 5
         - cd tests
         - npm install -g jasmine-node
@@ -32,7 +32,7 @@ stepdefinitions:
       name: Integration Test CockroachDB
       script:
         - chmod +x standalone/jetty/target/dist/bin/rowstore
-        - standalone/jetty/target/dist/bin/rowstore tests/rowstore_tests_cockroach.json --port 8282 &
+        - standalone/jetty/target/dist/bin/rowstore --config tests/rowstore_tests_cockroach.json --port 8282 &
         - sleep 5
         - cd tests
         - npm install -g jasmine-node
