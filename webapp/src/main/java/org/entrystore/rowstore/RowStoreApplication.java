@@ -114,7 +114,7 @@ public class RowStoreApplication extends Application {
 			rowstore = new PgRowStore(config);
 			log.info("Started RowStore " + getVersion());
 		} else {
-			log.error("No configuration found");
+			log.error("No configuration found or URL scheme not supported");
 			System.exit(1);
 		}
 	}
