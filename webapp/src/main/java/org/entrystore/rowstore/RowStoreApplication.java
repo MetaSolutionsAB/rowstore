@@ -34,11 +34,8 @@ import org.entrystore.rowstore.store.impl.PgRowStore;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.restlet.Application;
-import org.restlet.Component;
 import org.restlet.Context;
 import org.restlet.Restlet;
-import org.restlet.Server;
-import org.restlet.data.Protocol;
 import org.restlet.engine.io.IoUtils;
 import org.restlet.routing.Router;
 import org.restlet.routing.Template;
@@ -68,7 +65,7 @@ public class RowStoreApplication extends Application {
 
 	public static String NAME = "RowStore";
 
-	private static String ENV_CONFIG_URI = "ROWSTORE_CONFIG_URI";
+	protected final static String ENV_CONFIG_URI = "ROWSTORE_CONFIG_URI";
 
 	private static String VERSION = null;
 
@@ -193,52 +190,6 @@ public class RowStoreApplication extends Application {
 			}
 		}
 		return VERSION;
-	}
-
-	public static void main(String[] args) {
-		int port = 8282;
-		URI configURI = null;
-
-		if (args.length > 0) {
-			configURI = new File(args[0]).toURI();
-			if (!new File(configURI).exists()) {
-				System.err.println("Configuration file not found: " + configURI);
-				configURI = null;
-			}
-		}
-
-		if (args.length > 1) {
-			try {
-				port = Integer.valueOf(args[1]);
-			} catch (NumberFormatException nfe) {
-				System.err.println(nfe.getMessage());
-			}
-		}
-
-		if (configURI == null && System.getenv(ENV_CONFIG_URI) == null) {
-			System.out.println("RowStore - http://entrystore.org/rowstore/");
-			System.out.println("");
-			System.out.println("Usage: rowstore [path to configuration file] [listening port]");
-			System.out.println("");
-			System.out.println("Path to configuration file may be omitted only if environment variable ROWSTORE_CONFIG_URI is set to a URI. No other parameters must be provided if the configuration file is not provided as parameter.");
-			System.out.println("Default listening port is " + port + ".");
-
-			System.exit(1);
-		}
-
-		Component component = new Component();
-		Server server = component.getServers().add(Protocol.HTTP, port);
-		server.getContext().getParameters().add("useForwardedForHeader", "true");
-		component.getClients().add(Protocol.HTTP);
-		component.getClients().add(Protocol.HTTPS);
-		Context c = component.getContext().createChildContext();
-
-		try {
-			component.getDefaultHost().attach(new RowStoreApplication(c, configURI));
-			component.start();
-		} catch (Exception e) {
-			log.error(e.getMessage(), e);
-		}
 	}
 
 	private void setLogLevel(String logLevel) {
