@@ -51,7 +51,6 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -65,7 +64,7 @@ import java.util.UUID;
  */
 public class PgDataset implements Dataset {
 
-	private static Logger log = LoggerFactory.getLogger(PgDataset.class);
+	private static final Logger log = LoggerFactory.getLogger(PgDataset.class);
 
 	private String id;
 
@@ -75,11 +74,11 @@ public class PgDataset implements Dataset {
 
 	private String dataTable;
 
-	private RowStore rowstore;
+	private final RowStore rowstore;
 
-	private Map<String, Integer> columnSize = new HashMap<>();
+	private final Map<String, Integer> columnSize = new HashMap<>();
 
-	private int maxSizeForIndex = 256;
+	private final int maxSizeForIndex = 256;
 
 	protected PgDataset(RowStore rowstore, String id) {
 		if (rowstore == null) {
@@ -510,20 +509,21 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public QueryResult query(Map<String, String> tuples, int limit, int offset) {
-		Date before = new Date();
+		long totalTime = System.nanoTime();
+		long queryTime = -1;
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
 		String[] values = tuples.values().toArray(new String[tuples.size()]);
 
 		List<JSONObject> result = new ArrayList<>();
-		int resultCount = 0;
+		long resultCount = 0;
 		int regexp = rowstore.getConfig().getRegexpQuerySupport();
 		boolean optimizeRegexp = true;
 		try {
 			conn = rowstore.getQueryConnection();
 			StringBuilder queryTemplate = new StringBuilder("SELECT data, count(*) OVER() AS result_count FROM " + getDataTable());
-			if (tuples != null && tuples.size() > 0) {
+			if (tuples.size() > 0) {
 				for (int i = 0; i < tuples.size(); i++) {
 					// We check whether there is a value
 					if (values[i].equals("~")) {
@@ -557,10 +557,8 @@ public class PgDataset implements Dataset {
 			stmt = conn.prepareStatement(queryTemplate.toString());
 
 			int paramPos = 1;
-			if (tuples != null && tuples.size() > 0) {
-				Iterator<String> keys = tuples.keySet().iterator();
-				while (keys.hasNext()) {
-					String key = keys.next();
+			if (tuples.size() > 0) {
+				for (String key : tuples.keySet()) {
 					stmt.setString(paramPos, key.toLowerCase());
 					String value = tuples.get(key);
 					if (!optimizeRegexp && value.startsWith("~")) {
@@ -580,11 +578,13 @@ public class PgDataset implements Dataset {
 			if (queryTO > -1) {
 				stmt.setQueryTimeout(queryTO);
 			}
+			queryTime = System.nanoTime();
 			rs = stmt.executeQuery();
+			queryTime = System.nanoTime() - queryTime;
 			while (rs.next()) {
 				String value = rs.getString("data");
 				if (resultCount == 0) {
-					resultCount = rs.getInt("result_count");
+					resultCount = rs.getLong("result_count");
 				}
 				try {
 					result.add(new JSONObject(value));
@@ -619,10 +619,10 @@ public class PgDataset implements Dataset {
 				}
 			}
 
-			log.debug("Performing query took " + (new Date().getTime() - before.getTime()) + " ms");
+			log.debug("Performing database query took {} ns, total time was {} ns", queryTime, System.nanoTime() - totalTime);
 		}
 
-		return new QueryResult(result, limit, offset, resultCount);
+		return new QueryResult(result, limit, offset, resultCount, queryTime);
 	}
 
 	/**

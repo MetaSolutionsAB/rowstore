@@ -41,7 +41,7 @@ public class PgRowStore implements RowStore {
 
 	private static Logger log = LoggerFactory.getLogger(PgRowStore.class);
 
-	DataSource datasource;
+	final DataSource datasource;
 
 	DataSource queryDatasource;
 
