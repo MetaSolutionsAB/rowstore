@@ -27,6 +27,7 @@ import org.restlet.representation.Representation;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -83,7 +84,7 @@ public class DatasetUtil {
 		}
 	}
 
-	public static String detectCharset(File f) throws IOException {
+	public static Charset detectCharset(File f) throws IOException {
 		byte[] data;
 		try (InputStream is = Files.newInputStream(f.toPath())) {
 			byte[] tmpData = new byte[16384]; // we try to read up to 16 kB
@@ -115,7 +116,7 @@ public class DatasetUtil {
 			name = "UTF-8";
 		}
 
-		return name;
+		return Charset.forName(name);
 	}
 
 }
