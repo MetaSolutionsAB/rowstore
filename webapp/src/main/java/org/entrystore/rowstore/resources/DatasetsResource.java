@@ -16,7 +16,6 @@
 
 package org.entrystore.rowstore.resources;
 
-import org.apache.log4j.Logger;
 import org.entrystore.rowstore.etl.EtlResource;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
@@ -30,6 +29,8 @@ import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.resource.Get;
 import org.restlet.resource.Post;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -42,7 +43,7 @@ import java.util.Set;
  */
 public class DatasetsResource extends BaseResource {
 
-	static Logger log = Logger.getLogger(DatasetsResource.class);
+	static Logger log = LoggerFactory.getLogger(DatasetsResource.class);
 
 	@Get("application/json")
 	public Representation represent() {

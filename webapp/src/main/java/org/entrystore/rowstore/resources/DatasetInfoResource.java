@@ -16,7 +16,6 @@
 
 package org.entrystore.rowstore.resources;
 
-import org.apache.log4j.Logger;
 import org.entrystore.rowstore.store.Dataset;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -24,6 +23,8 @@ import org.restlet.data.Status;
 import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.resource.Get;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.text.SimpleDateFormat;
 
@@ -34,7 +35,7 @@ import java.text.SimpleDateFormat;
  */
 public class DatasetInfoResource extends BaseResource {
 
-	static Logger log = Logger.getLogger(DatasetInfoResource.class);
+	static Logger log = LoggerFactory.getLogger(DatasetInfoResource.class);
 
 	private Dataset dataset;
 

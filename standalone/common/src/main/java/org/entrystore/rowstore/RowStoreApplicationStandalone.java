@@ -24,9 +24,8 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.PatternOptionBuilder;
-import org.apache.log4j.BasicConfigurator;
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.core.config.Configurator;
 import org.restlet.Application;
 import org.restlet.Component;
 import org.restlet.Context;
@@ -44,6 +43,8 @@ public abstract class RowStoreApplicationStandalone extends Application {
     public static String ENV_CONNECTOR_PARAMS = "ROWSTORE_CONNECTOR_PARAMS";
 
     public static void main(String[] args) {
+        System.setProperty("org.restlet.engine.loggerFacadeClass", "org.restlet.ext.slf4j.Slf4jLoggerFacade");
+
         CommandLineParser parser = new DefaultParser();
         Options options = new Options();
         options.addOption(Option.builder("c").
@@ -145,6 +146,7 @@ public abstract class RowStoreApplicationStandalone extends Application {
             }
         }
 
+        component.getLogService().setResponseLogFormat("{ciua} \"{m} {rp} {rq}\" {S} {ES} {es} {hh} {cig} {fi}");
         server.getContext().getParameters().add("useForwardedForHeader", "true");
         component.getClients().add(Protocol.HTTP);
         component.getClients().add(Protocol.HTTPS);
@@ -166,13 +168,9 @@ public abstract class RowStoreApplicationStandalone extends Application {
     }
 
     private static void configureLogging(String logLevel) {
-        BasicConfigurator.configure();
-        Level l = Level.INFO;
-        if (logLevel != null) {
-            l = Level.toLevel(logLevel, Level.INFO);
-        }
-        Logger.getRootLogger().setLevel(l);
-        out("Log level set to " + l);
+        Level l = Level.toLevel(logLevel, Level.INFO);
+        Configurator.setRootLevel(l);
+        log.info("Log level set to " + l);
     }
 
     private static void out(String s) {

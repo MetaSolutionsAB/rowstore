@@ -16,8 +16,8 @@
 
 package org.entrystore.rowstore;
 
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.core.config.Configurator;
 import org.entrystore.rowstore.filters.JSCallbackFilter;
 import org.entrystore.rowstore.filters.RateLimitFilter;
 import org.entrystore.rowstore.resources.AliasResource;
@@ -39,6 +39,8 @@ import org.restlet.Restlet;
 import org.restlet.engine.io.IoUtils;
 import org.restlet.routing.Router;
 import org.restlet.routing.Template;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -59,7 +61,7 @@ import java.util.Date;
  */
 public class RowStoreApplication extends Application {
 
-	static Logger log = Logger.getLogger(RowStoreApplication.class);
+	static Logger log = LoggerFactory.getLogger(RowStoreApplication.class);
 
 	public static String KEY = RowStoreApplication.class.getCanonicalName();
 
@@ -193,13 +195,8 @@ public class RowStoreApplication extends Application {
 	}
 
 	private void setLogLevel(String logLevel) {
-		log.info("Trying to set log level to " + logLevel);
-		//BasicConfigurator.configure(); // we don't need this as long as we have a log4j.properties in the classpath
-		Level l = Level.INFO;
-		if (logLevel != null) {
-			l = Level.toLevel(logLevel, Level.INFO);
-		}
-		Logger.getRootLogger().setLevel(l);
+		Level l = Level.toLevel(logLevel, Level.INFO);
+		Configurator.setRootLevel(l);
 		log.info("Log level set to " + l);
 	}
 

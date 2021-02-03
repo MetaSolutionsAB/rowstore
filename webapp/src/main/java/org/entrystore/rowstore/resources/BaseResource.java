@@ -16,7 +16,6 @@
 
 package org.entrystore.rowstore.resources;
 
-import org.apache.log4j.Logger;
 import org.entrystore.rowstore.RowStoreApplication;
 import org.entrystore.rowstore.store.RowStore;
 import org.restlet.Context;
@@ -25,6 +24,8 @@ import org.restlet.Response;
 import org.restlet.data.MediaType;
 import org.restlet.data.ServerInfo;
 import org.restlet.resource.ServerResource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
@@ -45,7 +46,7 @@ public class BaseResource extends ServerResource {
 
 	protected HashMap<String,String> parameters;
 
-	private static Logger log = Logger.getLogger(BaseResource.class);
+	private static Logger log = LoggerFactory.getLogger(BaseResource.class);
 
 	@Override
 	public void init(Context c, Request request, Response response) {

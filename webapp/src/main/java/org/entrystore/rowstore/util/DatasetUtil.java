@@ -19,10 +19,11 @@ package org.entrystore.rowstore.util;
 import com.ibm.icu.text.CharsetDetector;
 import com.ibm.icu.text.CharsetMatch;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.log4j.Logger;
 import org.entrystore.rowstore.RowStoreApplication;
 import org.mozilla.universalchardet.UniversalDetector;
 import org.restlet.representation.Representation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -39,7 +40,7 @@ import java.util.UUID;
  */
 public class DatasetUtil {
 
-	static Logger log = Logger.getLogger(DatasetUtil.class);
+	static Logger log = LoggerFactory.getLogger(DatasetUtil.class);
 
 	public static String buildDatasetURL(String baseURL, String datasetId) {
 		if (baseURL == null || datasetId == null) {

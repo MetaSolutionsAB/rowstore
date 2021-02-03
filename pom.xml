@@ -16,6 +16,7 @@
 
     <properties>
         <slf4j.version>1.7.30</slf4j.version>
+        <log4j.version>2.14.0</log4j.version>
         <restlet.version>2.4.3</restlet.version>
         <servlet.version>3.1.0</servlet.version>
         <opencsv.version>5.3</opencsv.version>

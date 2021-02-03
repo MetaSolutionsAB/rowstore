@@ -16,13 +16,14 @@
 
 package org.entrystore.rowstore.resources;
 
-import org.apache.log4j.Logger;
 import org.entrystore.rowstore.RowStoreApplication;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.restlet.ext.json.JsonRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.resource.Get;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Returns status about the RowStore instance.
@@ -31,7 +32,7 @@ import org.restlet.resource.Get;
  */
 public class StatusResource extends BaseResource {
 
-	private static Logger log = Logger.getLogger(StatusResource.class);
+	private static Logger log = LoggerFactory.getLogger(StatusResource.class);
 
 	@Get("json")
 	public Representation getJSON() throws JSONException {
