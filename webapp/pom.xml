@@ -109,32 +109,26 @@
             <artifactId>json</artifactId>
             <version>${jsonorg.version}</version>
         </dependency>
-        <!-- use no-commons-logging -->
         <dependency>
             <groupId>commons-logging</groupId>
             <artifactId>commons-logging</artifactId>
             <version>99.0-does-not-exist</version>
         </dependency>
-        <!-- no-commons-logging-api, if you need it -->
         <dependency>
             <groupId>commons-logging</groupId>
             <artifactId>commons-logging-api</artifactId>
             <version>99.0-does-not-exist</version>
         </dependency>
-        <!-- the slf4j commons-logging replacement -->
         <dependency>
             <groupId>org.slf4j</groupId>
-            <!--<artifactId>jcl104-over-slf4j</artifactId>-->
             <artifactId>jcl-over-slf4j</artifactId>
             <version>${slf4j.version}</version>
         </dependency>
-        <!-- the other slf4j jars -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>${slf4j.version}</version>
         </dependency>
-        <!-- using log4j as backend -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-slf4j-impl</artifactId>
