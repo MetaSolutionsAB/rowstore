@@ -28,7 +28,7 @@ import org.slf4j.LoggerFactory;
  */
 public class RowStoreConfig {
 
-	private static Logger log = LoggerFactory.getLogger(RowStoreConfig.class);
+	private final static Logger log = LoggerFactory.getLogger(RowStoreConfig.class);
 
 	private String logLevel;
 
@@ -182,7 +182,9 @@ public class RowStoreConfig {
 
 		private boolean ssl;
 
-		private int maxConnections;
+		private int connectionPoolInit;
+
+		private int connectionPoolMax;
 
 		Database() {
 		}
@@ -194,8 +196,9 @@ public class RowStoreConfig {
 			setName(dbConfig.getString("database"));
 			setUser(dbConfig.getString("user"));
 			setPassword(dbConfig.getString("password"));
-			setDbMaxConnections(dbConfig.optInt("maxconnections", 30));
 			setSsl(dbConfig.optBoolean("ssl", false));
+			setConnectionPoolInit(dbConfig.optInt("connectionPoolInit", -1));
+			setConnectionPoolMax(dbConfig.optInt("connectionPoolMax", -1));
 		}
 
 		public Database setUser(String user) {
@@ -228,13 +231,18 @@ public class RowStoreConfig {
 			return this;
 		}
 
-		public Database setDbMaxConnections(int maxConnections) {
-			this.maxConnections = maxConnections;
+		public Database setSsl(boolean ssl) {
+			this.ssl = ssl;
 			return this;
 		}
 
-		public Database setSsl(boolean ssl) {
-			this.ssl = ssl;
+		public Database setConnectionPoolInit(int connectionPoolInit) {
+			this.connectionPoolInit = connectionPoolInit;
+			return this;
+		}
+
+		public Database setConnectionPoolMax(int connectionPoolMax) {
+			this.connectionPoolMax = connectionPoolMax;
 			return this;
 		}
 
@@ -262,12 +270,16 @@ public class RowStoreConfig {
 			return name;
 		}
 
-		public int getMaxConnections() {
-			return maxConnections;
-		}
-
 		public boolean getSsl() {
 			return ssl;
+		}
+
+		public int getConnectionPoolInit() {
+			return connectionPoolInit;
+		}
+
+		public int getConnectionPoolMax() {
+			return connectionPoolMax;
 		}
 
 	}

@@ -92,7 +92,16 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 - `baseurl` (String) - The base URL under which the root of RowStore can be reached. Used for generating correct URIs in API responses.
 - `regexpqueries` (String) - Determines whether the query interface should allow regular expressions to match column values. Differentiates between `disabled` (no regexp support), `simple` (support for queries starting with `^`), and `full` (support for any regexp queries).
 - `maxetlprocesses` (Integer) - Maximum number of concurrently running ETL processes (each process takes up one thread).
-- `database` (parent object) - Configures the database connection.
+- `database` - Configures the database connection.
+    - `type` - DB type, currently only `postgresql` is supported. Default: `postgresql`.
+    - `host` - Hostname.
+    - `port` - Port. Default: `5432`.
+    - `ssl` - `true` or `false`.
+    - `database` - Name of database.
+    - `user` - Username.
+    - `password` - Password.
+    - `connectionPoolInit` - Initial size of connection pool. Use positive integer to activate, also requires `connectionPoolMax`. Default: -1.
+    - `connectionPoolMax` - Maximum size of connection pool. Use positive integer to activate, see `connectionPoolInit`. Default: -1.
 - `queryDatabase` (parent object) - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica.  
 - `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
 - `querytimeout` (Integer) - Configures query timeout for dataset-queries in seconds. By default no query timeout is active (unless configured directly in the database).
