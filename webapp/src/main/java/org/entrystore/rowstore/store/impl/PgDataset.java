@@ -242,12 +242,17 @@ public class PgDataset implements Dataset {
 						// We convert all column names to lower case,
 						// otherwise all queries must be case sensitive later
 						for (int i = 0; i < line.length; i++) {
-							labels[i] = line[i].trim().toLowerCase();
+							String l = line[i].trim().toLowerCase();
+							if (l.length() > 0) {
+								labels[i] = l;
+							} else {
+								log.debug("Skipping column due to empty label in first line");
+							}
 						}
 
 						if (append) {
 							// we must compare existing column names with new ones
-							Set<String> newColumnNames = new HashSet<String>(Arrays.asList(labels));
+							Set<String> newColumnNames = new HashSet<>(Arrays.asList(labels));
 							Set<String> oldColumnNames = getColumnNames(false);
 
 							// if there are no old column names we assume this dataset is newly created
@@ -289,7 +294,7 @@ public class PgDataset implements Dataset {
 				log.debug("Executing: " + stmt);
 				stmt.executeBatch();
 
-				createIndexes(conn, new HashSet<String>(Arrays.asList(labels)));
+				createIndexes(conn, new HashSet<>(Arrays.asList(labels)));
 
 				// we commit the transaction and free the resources of the statement
 				conn.commit();
