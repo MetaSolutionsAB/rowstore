@@ -145,10 +145,12 @@ public class PgDatasets implements Datasets {
 			log.info("Created dataset " + id);
 			return new PgDataset(getRowStore(), id, EtlStatus.CREATED, created, dataTable);
 		} catch (SQLException e) {
-			try {
-				conn.rollback();
-			} catch (SQLException e1) {
-				SqlExceptionLogUtil.error(log, e1);
+			if (conn != null) {
+				try {
+					conn.rollback();
+				} catch (SQLException e1) {
+					SqlExceptionLogUtil.error(log, e1);
+				}
 			}
 			log.error(e.getMessage());
 		} finally {

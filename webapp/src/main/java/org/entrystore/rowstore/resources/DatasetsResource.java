@@ -79,6 +79,10 @@ public class DatasetsResource extends BaseResource {
 			}
 
 			Dataset newDataset = getRowStore().getDatasets().createDataset();
+			if (newDataset == null) {
+				getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
+				return;
+			}
 			newDataset.setStatus(EtlStatus.ACCEPTED_DATA);
 			EtlResource etlResource = new EtlResource(newDataset, tmpFile, MediaType.TEXT_CSV, true);
 			getRowStore().getEtlProcessor().submit(etlResource);
