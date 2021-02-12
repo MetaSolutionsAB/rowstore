@@ -20,6 +20,7 @@ import com.ibm.icu.text.CharsetDetector;
 import com.ibm.icu.text.CharsetMatch;
 import org.apache.commons.lang3.StringUtils;
 import org.entrystore.rowstore.RowStoreApplication;
+import org.entrystore.rowstore.store.impl.SqlExceptionLogUtil;
 import org.mozilla.universalchardet.UniversalDetector;
 import org.restlet.representation.Representation;
 import org.slf4j.Logger;
@@ -32,6 +33,9 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Arrays;
 import java.util.UUID;
 
@@ -118,6 +122,25 @@ public class DatasetUtil {
 		}
 
 		return Charset.forName(name);
+	}
+
+	public static void closeStatement(Statement stmt) {
+		if (stmt == null) {
+			return;
+		}
+		try {
+			/*
+			if (stmt instanceof PreparedStatement) {
+				PreparedStatement ps = (PreparedStatement) stmt;
+				ps.clearParameters();
+			}
+			stmt.clearBatch();
+			stmt.clearWarnings();
+			 */
+			stmt.close();
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
+		}
 	}
 
 }

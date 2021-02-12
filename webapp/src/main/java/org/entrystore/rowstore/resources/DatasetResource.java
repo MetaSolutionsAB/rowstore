@@ -170,7 +170,7 @@ public class DatasetResource extends BaseResource {
 		QueryResult qResult = dataset.query(tuples, limit, offset);
 
 		elapsedTime = System.currentTimeMillis() - elapsedTime;
-		log.info("Request took {} ms to process", elapsedTime);
+		log.debug("Request took {} ms to process", elapsedTime);
 
 		if (qResult.getStatus() != null) {
 			if ("57014".equals(qResult.getStatus())) {

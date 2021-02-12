@@ -19,6 +19,7 @@ package org.entrystore.rowstore.store.impl;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.Datasets;
+import org.entrystore.rowstore.util.DatasetUtil;
 import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +29,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -60,7 +60,7 @@ public class PgDatasets implements Datasets {
 	 */
 	@Override
 	public Set<Dataset> getAll() {
-		Date before = new Date();
+		long before = System.currentTimeMillis();
 		Set<Dataset> result = null;
 		Connection conn = null;
 		PreparedStatement stmt = null;
@@ -89,13 +89,7 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
-			if (stmt != null) {
-				try {
-					stmt.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
+			DatasetUtil.closeStatement(stmt);
 			if (conn != null) {
 				try {
 					conn.close();
@@ -104,7 +98,7 @@ public class PgDatasets implements Datasets {
 				}
 			}
 
-			log.debug("Fetching datasets took " + (new Date().getTime() - before.getTime()) + " ms");
+			log.debug("Fetching datasets took {} ms", System.currentTimeMillis() - before);
 		}
 
 		return result;
@@ -115,7 +109,7 @@ public class PgDatasets implements Datasets {
 	 */
 	@Override
 	public Dataset createDataset() {
-		Date before = new Date();
+		long before = System.currentTimeMillis();
 		String id = createUniqueDatasetId();
 		Connection conn = null;
 		String dataTable = constructDataTableName(id);
@@ -134,12 +128,12 @@ public class PgDatasets implements Datasets {
 			ps.setString(4, dataTable);
 			log.debug("Executing: " + ps);
 			ps.execute();
-			ps.close();
+			DatasetUtil.closeStatement(ps);
 
 			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + dataTable + " (rownr SERIAL PRIMARY KEY, data JSONB NOT NULL)");
 			log.debug("Executing: " + ps);
 			ps.execute();
-			ps.close();
+			DatasetUtil.closeStatement(ps);
 
 			conn.commit();
 			log.info("Created dataset " + id);
@@ -161,7 +155,7 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
-			log.debug("Creating dataset took " + (new Date().getTime() - before.getTime()) + " ms");
+			log.debug("Creating dataset took {} ms", System.currentTimeMillis() - before);
 		}
 
 		return null;
@@ -184,7 +178,7 @@ public class PgDatasets implements Datasets {
 			PreparedStatement ps = conn.prepareStatement("DROP TABLE " + constructDataTableName(id));
 			log.debug("Executing: " + ps);
 			ps.execute();
-			ps.close();
+			DatasetUtil.closeStatement(ps);
 
 			ps = conn.prepareStatement("DELETE FROM " + DATASETS_TABLE_NAME + " WHERE id = ?");
 			PGobject uuid = new PGobject();
@@ -193,7 +187,7 @@ public class PgDatasets implements Datasets {
 			ps.setObject(1, uuid);
 			log.debug("Executing: " + ps);
 			ps.execute();
-			ps.close();
+			DatasetUtil.closeStatement(ps);
 
 			conn.commit();
 			log.info("Purged dataset " + id);
@@ -241,7 +235,7 @@ public class PgDatasets implements Datasets {
 	 */
 	@Override
 	public boolean hasDataset(String id) {
-		Date before = new Date();
+		long before = System.currentTimeMillis();
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
@@ -271,13 +265,7 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
-			if (stmt != null) {
-				try {
-					stmt.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
+			DatasetUtil.closeStatement(stmt);
 			if (conn != null) {
 				try {
 					conn.close();
@@ -285,7 +273,7 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
-			log.debug("Checking for dataset existance took " + (new Date().getTime() - before.getTime()) + " ms");
+			log.debug("Checking for dataset existance took {} ms", System.currentTimeMillis() - before);
 		}
 
 		return false;
@@ -301,7 +289,7 @@ public class PgDatasets implements Datasets {
 			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + DATASETS_TABLE_NAME + " (id UUID PRIMARY KEY, status INT NOT NULL, created TIMESTAMP NOT NULL, data_table CHAR(" + getDataTableNameLength() + "))");
 			log.debug("Executing: " + ps);
 			ps.execute();
-			ps.close();
+			DatasetUtil.closeStatement(ps);
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 		} finally {
@@ -325,7 +313,7 @@ public class PgDatasets implements Datasets {
 			PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + ALIAS_TABLE_NAME + " (id SERIAL PRIMARY KEY, dataset_id UUID NOT NULL, alias TEXT NOT NULL)");
 			log.debug("Executing: " + ps);
 			ps.execute();
-			ps.close();
+			DatasetUtil.closeStatement(ps);
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 		} finally {
@@ -351,7 +339,7 @@ public class PgDatasets implements Datasets {
 	 */
 	@Override
 	public int amount() {
-		Date before = new Date();
+		long before = System.currentTimeMillis();
 		int result = -1;
 		Connection conn = null;
 		PreparedStatement stmt = null;
@@ -375,13 +363,7 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
-			if (stmt != null) {
-				try {
-					stmt.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
+			DatasetUtil.closeStatement(stmt);
 			if (conn != null) {
 				try {
 					conn.close();
@@ -389,7 +371,7 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
-			log.debug("Fetching amount of datasets took " + (new Date().getTime() - before.getTime()) + " ms");
+			log.debug("Fetching amount of datasets took {} ms", System.currentTimeMillis() - before);
 		}
 
 		return result;

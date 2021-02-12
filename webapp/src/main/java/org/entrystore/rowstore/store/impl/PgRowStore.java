@@ -64,19 +64,22 @@ public class PgRowStore implements RowStore {
 			log.error(e.getMessage());
 		}
 
-		if (config.getDatabase().getConnectionPoolInit() > 0 && config.getDatabase().getConnectionPoolMax() > 0) {
+		datasource = initializeDataSource(new PGSimpleDataSource(), config.getDatabase());
+		/* if (config.getDatabase().getConnectionPoolInit() > 0 && config.getDatabase().getConnectionPoolMax() > 0) {
 			datasource = initializeDataSource(new PGPoolingDataSource(), config.getDatabase());
 		} else {
 			datasource = initializeDataSource(new PGSimpleDataSource(), config.getDatabase());
-		}
+		} */
 
 		if (config.getDatabase() == config.getQueryDatabase()) {
 			queryDatasource = datasource;
 		} else {
 			if (config.getQueryDatabase().getConnectionPoolInit() > 0 && config.getQueryDatabase().getConnectionPoolMax() > 0) {
 				queryDatasource = initializeDataSource(new PGPoolingDataSource(), config.getQueryDatabase());
+				((PGPoolingDataSource) queryDatasource).setReadOnly(true);
 			} else {
 				queryDatasource = initializeDataSource(new PGSimpleDataSource(), config.getQueryDatabase());
+				((PGSimpleDataSource) queryDatasource).setReadOnly(true);
 			}
 		}
 
@@ -99,8 +102,10 @@ public class PgRowStore implements RowStore {
 			if (ds.getSsl()) {
 				ds.setSslMode("require");
 			}
+			ds.setLogUnclosedConnections(log.isDebugEnabled());
 		} else if (dataSource instanceof  PGPoolingDataSource) {
 			PGPoolingDataSource ds = (PGPoolingDataSource) dataSource;
+			ds.setPreparedStatementCacheQueries(100);
 			ds.setInitialConnections(dbConfig.getConnectionPoolInit());
 			ds.setMaxConnections(dbConfig.getConnectionPoolMax());
 			ds.setUser(dbConfig.getUser());
@@ -112,6 +117,7 @@ public class PgRowStore implements RowStore {
 			if (ds.getSsl()) {
 				ds.setSslMode("require");
 			}
+			ds.setLogUnclosedConnections(log.isDebugEnabled());
 		}
 
 		return dataSource;
