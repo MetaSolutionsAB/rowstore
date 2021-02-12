@@ -46,10 +46,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -230,7 +230,7 @@ public class PgDataset implements Dataset {
 						withCSVParser(csvParser).
 						build();
 				long lineCount = 0;
-				String[] labels = null;
+				Set<String> labels = new LinkedHashSet<>();
 				String[] line;
 
 				conn.setAutoCommit(false);
@@ -238,26 +238,24 @@ public class PgDataset implements Dataset {
 				stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (data) VALUES (?)");
 				while ((line = cr.readNext()) != null) {
 					if (lineCount == 0) {
-						labels = new String[line.length];
 						// We convert all column names to lower case,
 						// otherwise all queries must be case sensitive later
-						for (int i = 0; i < line.length; i++) {
-							String l = line[i].trim().toLowerCase();
+						for (String s : line) {
+							String l = s.trim().toLowerCase();
 							if (l.length() > 0) {
-								labels[i] = l;
+								labels.add(l);
 							} else {
-								log.debug("Skipping column due to empty label in first line");
+								log.debug("Skipping column due to empty label");
 							}
 						}
 
 						if (append) {
 							// we must compare existing column names with new ones
-							Set<String> newColumnNames = new HashSet<>(Arrays.asList(labels));
 							Set<String> oldColumnNames = getColumnNames(false);
 
 							// if there are no old column names we assume this dataset is newly created
 							if (oldColumnNames.size() > 0 &&
-									!((oldColumnNames.size() == newColumnNames.size()) && oldColumnNames.containsAll(newColumnNames))) {
+									!((oldColumnNames.size() == labels.size()) && oldColumnNames.containsAll(labels))) {
 								log.error("Column name mismatch: new tabular structure does not equal existing structure");
 								log.error("Rolling back transaction");
 								conn.rollback();
@@ -294,7 +292,7 @@ public class PgDataset implements Dataset {
 				log.debug("Executing: " + stmt);
 				stmt.executeBatch();
 
-				createIndexes(conn, new HashSet<>(Arrays.asList(labels)));
+				createIndexes(conn, labels);
 
 				// we commit the transaction and free the resources of the statement
 				conn.commit();
@@ -1003,19 +1001,20 @@ public class PgDataset implements Dataset {
 	 * @return Returns a JSON object consisting of key (labels) - value (line/cell values) pairs.
 	 * @throws JSONException
 	 */
-	private JSONObject csvLineToJsonObject(String[] line, String[] labels) throws JSONException {
-		if (line.length > labels.length) {
+	private JSONObject csvLineToJsonObject(String[] line, Set<String> labels) throws JSONException {
+		if (line.length > labels.size()) {
 			throw new IllegalArgumentException("Amount of values per row must not be higher than amount of labels in first row of CSV file");
 		}
 
 		JSONObject result = new JSONObject();
+		String[] labelArr = labels.toArray(new String[0]);
 		for (int i = 0; i < line.length; i++) {
 			// we skip empty strings as this would result in empty key names in the JSON result
-			if (labels[i].trim().length() == 0) {
+			if (labelArr[i].trim().length() == 0) {
 				continue;
 			}
-			result.put(labels[i], line[i]);
-			putAndRetainLargestValue(labels[i], line[i].length());
+			result.put(labelArr[i], line[i]);
+			putAndRetainLargestValue(labelArr[i], line[i].length());
 		}
 
 		return result;
