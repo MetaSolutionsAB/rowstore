@@ -175,7 +175,7 @@ public class PgDatasets implements Datasets {
 		if (id == null) {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
-		Date before = new Date();
+		long before = System.currentTimeMillis();
 		Connection conn = null;
 		try {
 			conn = getRowStore().getConnection();
@@ -199,10 +199,12 @@ public class PgDatasets implements Datasets {
 			log.info("Purged dataset " + id);
 			return true;
 		} catch (SQLException e) {
-			try {
-				conn.rollback();
-			} catch (SQLException e1) {
-				SqlExceptionLogUtil.error(log, e1);
+			if (conn != null) {
+				try {
+					conn.rollback();
+				} catch (SQLException e1) {
+					SqlExceptionLogUtil.error(log, e1);
+				}
 			}
 			log.error(e.getMessage());
 			return false;
@@ -214,7 +216,7 @@ public class PgDatasets implements Datasets {
 					SqlExceptionLogUtil.error(log, e);
 				}
 			}
-			log.debug("Purging dataset took " + (new Date().getTime() - before.getTime()) + " ms");
+			log.debug("Purging dataset took {} ms", System.currentTimeMillis() - before);
 		}
 	}
 
@@ -228,11 +230,8 @@ public class PgDatasets implements Datasets {
 		}
 		try {
 			return new PgDataset(rowstore, id);
-		} catch (IllegalArgumentException iae) {
-			log.info("Unable to load dataset with ID " + id);
-			return null;
-		} catch (IllegalStateException ise) {
-			log.info("Unable to load dataset with ID " + id);
+		} catch (IllegalArgumentException | IllegalStateException iae) {
+			log.error("Unable to load dataset with ID " + id);
 			return null;
 		}
 	}
@@ -259,7 +258,11 @@ public class PgDatasets implements Datasets {
 				return true;
 			}
 		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
+			if ("22P02".equals(e.getSQLState())) {
+				log.debug("Probable alias detected: {}", e.getMessage());
+			} else {
+				SqlExceptionLogUtil.error(log, e);
+			}
 		} finally {
 			if (rs != null) {
 				try {
