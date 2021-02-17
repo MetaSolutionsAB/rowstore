@@ -16,7 +16,6 @@
 
 package org.entrystore.rowstore.resources;
 
-import org.apache.log4j.Logger;
 import org.entrystore.rowstore.store.Dataset;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -25,11 +24,12 @@ import org.restlet.data.Status;
 import org.restlet.representation.Representation;
 import org.restlet.representation.StringRepresentation;
 import org.restlet.resource.Get;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
@@ -45,7 +45,7 @@ import static org.entrystore.rowstore.RowStoreApplication.getVersion;
  */
 public class SwaggerResource extends BaseResource {
 
-	static Logger log = Logger.getLogger(SwaggerResource.class);
+	static Logger log = LoggerFactory.getLogger(SwaggerResource.class);
 
 	private Dataset dataset;
 
@@ -89,7 +89,7 @@ public class SwaggerResource extends BaseResource {
 		paramLimit.put("required", false);
 		paramLimit.put("type", "integer");
 		paramLimit.put("default", 100);
-		paramLimit.put("description", "Size of the result windows, expects a value from 1 to 100");
+		paramLimit.put("description", "Size of the result windows, expects a value from 1 to " + getRowStore().getConfig().getQueryMaxLimit() + ". Default is 100.");
 		apiParams.put(paramLimit);
 
 		// _offset

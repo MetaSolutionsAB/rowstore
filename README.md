@@ -13,7 +13,7 @@ In order for RowStore to be able to properly process CSV files, some conventions
 - The first row should contain short names for each column; they are used as property names during the CSV2JSON conversion. They are also used as variable names by the query API. The column titles are trimmed and converted to lower case upon import.
 - Comma ("`,`") must be used as column delimiter. There is some basic detection for CSV-files that are using semi-colon ("`;`") as separator, but it is recommended to use comma.
 - Quotation marks ("`"`") must be used as quotation characters.
-- Double backslash ("`\\`) must be used as escape characters.
+- Double backslash ("`\\`") must be used as escape characters.
 - Line feed ("`\n`") or carriage return followed by line feed ("`\r\n`") must be used to indicate a new line (i.e., a new row).
 
 ## REST API
@@ -92,15 +92,26 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 - `baseurl` (String) - The base URL under which the root of RowStore can be reached. Used for generating correct URIs in API responses.
 - `regexpqueries` (String) - Determines whether the query interface should allow regular expressions to match column values. Differentiates between `disabled` (no regexp support), `simple` (support for queries starting with `^`), and `full` (support for any regexp queries).
 - `maxetlprocesses` (Integer) - Maximum number of concurrently running ETL processes (each process takes up one thread).
-- `database` (parent object) - Configures the database connection.
-- `queryDatabase` (parent object) - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica.  
+- `database` - Configures the database connection. Does not support connection pooling.
+    - `type` - DB type, currently only `postgresql` is supported. Default: `postgresql`.
+    - `host` - Hostname.
+    - `port` - Port. Default: `5432`.
+    - `ssl` - `true` or `false`.
+    - `database` - Name of database.
+    - `user` - Username.
+    - `password` - Password.
+- `queryDatabase` (parent object) - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica. Supports connection pooling.
+    - `connectionPoolInit` - Initial size of connection pool. Use positive integer to activate, also requires `connectionPoolMax`. Default: -1.
+    - `connectionPoolMax` - Maximum size of connection pool. Use positive integer to activate, see `connectionPoolInit`. Default: -1.
 - `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
 - `querytimeout` (Integer) - Configures query timeout for dataset-queries in seconds. By default no query timeout is active (unless configured directly in the database).
+- `querymaxlimit` (Integer) - Configures the maximum allowed size of the query response limit, i.e. the `_limit` URL parameter when querying a dataset. Default: 100.
 - `ratelimit` - Configures rate limitation.
     - `type` - `average` or `slidingwindow` (default).
     - `timerange` - The size (in seconds) of the time slot or window to be used for calculating the limitation.
     - `dataset` - Amount of permitted requests per dataset.
     - `global` - Amount of permitted requests globally for a RowStore instance.
+    - `clientip` - Amount of permitted requests per client IP. Uses the real upstream IP, i.e., if an `X-Forwarded-For` header is supplied by a reverse proxy, this IP is taken, otherwise the direct client's IP is used.
 
 ### Example
 
@@ -109,6 +120,8 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
   "baseurl": "https://domain.com/rowstore/",
   "regexpqueries": "full",
   "maxetlprocesses": 5,
+  "querytimeout": 10,
+  "querymaxlimit": 250,
   "database": {
     "type": "postgresql",
     "host": "localhost",
@@ -123,7 +136,9 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
     "database": "rowstore",
     "user": "rowstore",
     "password": "",
-    "ssl": false
+    "ssl": false,
+    "connectionPoolInit": 5,
+    "connectionPoolMax": 10
   },
   "ratelimit": {
     "type": "slidingwindow",

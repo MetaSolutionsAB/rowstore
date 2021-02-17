@@ -16,7 +16,6 @@
 
 package org.entrystore.rowstore.resources;
 
-import org.apache.log4j.Logger;
 import org.entrystore.rowstore.etl.EtlResource;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
@@ -35,12 +34,13 @@ import org.restlet.resource.Delete;
 import org.restlet.resource.Get;
 import org.restlet.resource.Post;
 import org.restlet.resource.Put;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
-import java.util.Date;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -52,7 +52,7 @@ import java.util.Set;
  */
 public class DatasetResource extends BaseResource {
 
-	static Logger log = Logger.getLogger(DatasetResource.class);
+	static Logger log = LoggerFactory.getLogger(DatasetResource.class);
 
 	private Dataset dataset;
 
@@ -135,11 +135,12 @@ public class DatasetResource extends BaseResource {
 			return null;
 		}
 
+		int maxLimit = getRowStore().getConfig().getQueryMaxLimit();
 		int limit = 100;
 		if (parameters.containsKey("_limit")) {
 			try {
-				int paramLimit = Integer.valueOf(parameters.get("_limit"));
-				if (paramLimit <= limit && paramLimit > 0) {
+				int paramLimit = Integer.parseInt(parameters.get("_limit"));
+				if (paramLimit <= maxLimit && paramLimit > 0) {
 					limit = paramLimit;
 				}
 			} catch (NumberFormatException nfe) {
@@ -151,7 +152,7 @@ public class DatasetResource extends BaseResource {
 		int offset = 0;
 		if (parameters.containsKey("_offset")) {
 			try {
-				int paramOffset = Integer.valueOf(parameters.get("_offset"));
+				int paramOffset = Integer.parseInt(parameters.get("_offset"));
 				if (paramOffset > offset) {
 					offset = paramOffset;
 				}
@@ -162,14 +163,14 @@ public class DatasetResource extends BaseResource {
 		}
 
 		JSONArray rows = new JSONArray();
-		Date before = new Date();
+		long elapsedTime = System.currentTimeMillis();
 
 		// TODO support _sort=First%20name,asc
 
 		QueryResult qResult = dataset.query(tuples, limit, offset);
 
-		long elapsedTime = new Date().getTime() - before.getTime();
-		log.info("Query took " + elapsedTime + " ms");
+		elapsedTime = System.currentTimeMillis() - elapsedTime;
+		log.debug("Request took {} ms to process", elapsedTime);
 
 		if (qResult.getStatus() != null) {
 			if ("57014".equals(qResult.getStatus())) {
@@ -191,6 +192,11 @@ public class DatasetResource extends BaseResource {
 		result.put("limit", qResult.getLimit());
 		result.put("offset", qResult.getOffset());
 		result.put("resultCount", qResult.getResultCount());
+		result.put("queryTime", qResult.getQueryTime());
+
+		if ((qResult.getOffset() - qResult.getLimit()) >= 0) {
+			result.put("prev", constructPrevPageUrl(qResult));
+		}
 
 		if (qResult.getResultCount() >= (qResult.getLimit() + qResult.getOffset())) {
 			result.put("next", constructNextPageUrl(qResult));
@@ -281,29 +287,45 @@ public class DatasetResource extends BaseResource {
 	}
 
 	private String constructNextPageUrl(QueryResult qr) {
-		StringBuilder nextPageUrl = new StringBuilder(DatasetUtil.buildDatasetURL(getRowStore().getConfig().getBaseURL(), dataset.getId()));
+		StringBuilder nextPageUrl = getDatasetBaseURL();
 		nextPageUrl.append("/json?_offset=");
 		nextPageUrl.append(qr.getOffset() + qr.getLimit());
 		nextPageUrl.append("&_limit=");
 		nextPageUrl.append(qr.getLimit());
 
-		for(Map.Entry<String, String> entry : parameters.entrySet()) {
+		appendUrlParameters(nextPageUrl);
+
+		return nextPageUrl.toString();
+	}
+
+	private String constructPrevPageUrl(QueryResult qr) {
+		StringBuilder prevPageUrl = getDatasetBaseURL();
+		prevPageUrl.append("/json?_offset=");
+		prevPageUrl.append(qr.getOffset() - qr.getLimit());
+		prevPageUrl.append("&_limit=");
+		prevPageUrl.append(qr.getLimit());
+
+		appendUrlParameters(prevPageUrl);
+
+		return prevPageUrl.toString();
+	}
+
+	private StringBuilder getDatasetBaseURL() {
+		return new StringBuilder(DatasetUtil.buildDatasetURL(getRowStore().getConfig().getBaseURL(), dataset.getId()));
+	}
+
+	private void appendUrlParameters(StringBuilder builder) {
+		for (Map.Entry<String, String> entry : parameters.entrySet()) {
 			String k = entry.getKey();
 			String v = entry.getValue();
 			if ("_offset".equals(k) || "_limit".equals(k)) {
 				continue;
 			}
-			try {
-				nextPageUrl.append("&");
-				nextPageUrl.append(URLEncoder.encode(k, "UTF-8"));
-				nextPageUrl.append("=");
-				nextPageUrl.append(URLEncoder.encode(v, "UTF-8"));
-			} catch (UnsupportedEncodingException e) {
-				log.error(e.getMessage());
-			}
+			builder.append("&");
+			builder.append(URLEncoder.encode(k, StandardCharsets.UTF_8));
+			builder.append("=");
+			builder.append(URLEncoder.encode(v, StandardCharsets.UTF_8));
 		}
-
-		return nextPageUrl.toString();
 	}
 
 }

@@ -16,8 +16,8 @@
 
 package org.entrystore.rowstore;
 
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.core.config.Configurator;
 import org.entrystore.rowstore.filters.JSCallbackFilter;
 import org.entrystore.rowstore.filters.RateLimitFilter;
 import org.entrystore.rowstore.resources.AliasResource;
@@ -34,22 +34,22 @@ import org.entrystore.rowstore.store.impl.PgRowStore;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.restlet.Application;
-import org.restlet.Component;
 import org.restlet.Context;
 import org.restlet.Restlet;
-import org.restlet.data.Protocol;
+import org.restlet.engine.io.IoUtils;
 import org.restlet.routing.Router;
 import org.restlet.routing.Template;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
@@ -61,13 +61,13 @@ import java.util.Date;
  */
 public class RowStoreApplication extends Application {
 
-	static Logger log = Logger.getLogger(RowStoreApplication.class);
+	static Logger log = LoggerFactory.getLogger(RowStoreApplication.class);
 
 	public static String KEY = RowStoreApplication.class.getCanonicalName();
 
 	public static String NAME = "RowStore";
 
-	private static String ENV_CONFIG_URI = "ROWSTORE_CONFIG_URI";
+	protected final static String ENV_CONFIG_URI = "ROWSTORE_CONFIG_URI";
 
 	private static String VERSION = null;
 
@@ -92,9 +92,18 @@ public class RowStoreApplication extends Application {
 			}
 		}
 
-		if (configURI != null && "file".equals(configURI.getScheme())) {
+		if (configURI != null && (
+				"file".equals(configURI.getScheme()) ||
+				"http".equals(configURI.getScheme()) ||
+				"https".equals(configURI.getScheme()))) {
 			log.info("Loading configuration from " + configURI);
-			config = new RowStoreConfig(new JSONObject(new String(Files.readAllBytes(Paths.get(configURI)))));
+
+			try (InputStream is = configURI.toURL().openStream()) {
+				config = new RowStoreConfig(new JSONObject(IoUtils.toString(is)));
+			} catch (IOException e) {
+				log.error("Error when loading configuration: " + e.getMessage());
+				System.exit(1);
+			}
 
 			setLogLevel(config.getLogLevel());
 
@@ -107,13 +116,15 @@ public class RowStoreApplication extends Application {
 			rowstore = new PgRowStore(config);
 			log.info("Started RowStore " + getVersion());
 		} else {
-			log.error("No configuration found");
+			log.error("No configuration found or URL scheme not supported");
 			System.exit(1);
 		}
 	}
 
 	@Override
 	public synchronized Restlet createInboundRoot() {
+		getContext().getParameters().add("useForwardedForHeader", "true");
+
 		Router router = new Router(getContext());
 		router.setDefaultMatchingMode(Template.MODE_EQUALS);
 
@@ -132,7 +143,7 @@ public class RowStoreApplication extends Application {
 		jsCallback.setNext(router);
 
 		if (config.isRateLimitEnabled()) {
-			log.info("Request limit enabled. Time range: " + config.getRateLimitTimeRange() + " seconds, limit globally: " + config.getRateLimitRequestsGlobal() + ", limit per dataset: " + config.getRateLimitRequestsDataset());
+			log.info("Request limit enabled. Time range: " + config.getRateLimitTimeRange() + " seconds. Limit globally: " + config.getRateLimitRequestsGlobal() + ", limit per dataset: " + config.getRateLimitRequestsDataset() + ", limit per client IP: " + config.getRateLimitRequestsClientIP());
 			RateLimitFilter rateLimitFilter = new RateLimitFilter(config);
 			rateLimitFilter.setNext(jsCallback);
 			return rateLimitFilter;
@@ -183,59 +194,9 @@ public class RowStoreApplication extends Application {
 		return VERSION;
 	}
 
-	public static void main(String[] args) {
-		int port = 8282;
-		URI configURI = null;
-
-		if (args.length > 0) {
-			configURI = new File(args[0]).toURI();
-			if (!new File(configURI).exists()) {
-				System.err.println("Configuration file not found: " + configURI);
-				configURI = null;
-			}
-		}
-
-		if (args.length > 1) {
-			try {
-				port = Integer.valueOf(args[0]);
-			} catch (NumberFormatException nfe) {
-				System.err.println(nfe.getMessage());
-			}
-		}
-
-		if (configURI == null && System.getenv(ENV_CONFIG_URI) == null) {
-			System.out.println("RowStore - http://entrystore.org/rowstore/");
-			System.out.println("");
-			System.out.println("Usage: rowstore [path to configuration file] [listening port]");
-			System.out.println("");
-			System.out.println("Path to configuration file may be omitted only if environment variable ROWSTORE_CONFIG_URI is set to a URI. No other parameters must be provided if the configuration file is not provided as parameter.");
-			System.out.println("Default listening port is " + port + ".");
-
-			System.exit(1);
-		}
-
-		Component component = new Component();
-		component.getServers().add(Protocol.HTTP, port);
-		component.getClients().add(Protocol.HTTP);
-		component.getClients().add(Protocol.HTTPS);
-		Context c = component.getContext().createChildContext();
-
-		try {
-			component.getDefaultHost().attach(new RowStoreApplication(c, configURI));
-			component.start();
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-	}
-
 	private void setLogLevel(String logLevel) {
-		log.info("Trying to set log level to " + logLevel);
-		//BasicConfigurator.configure(); // we don't need this as long as we have a log4j.properties in the classpath
-		Level l = Level.INFO;
-		if (logLevel != null) {
-			l = Level.toLevel(logLevel, Level.INFO);
-		}
-		Logger.getRootLogger().setLevel(l);
+		Level l = Level.toLevel(logLevel, Level.INFO);
+		Configurator.setRootLevel(l);
 		log.info("Log level set to " + l);
 	}
 

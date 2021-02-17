@@ -1,0 +1,14 @@
+{
+  "baseurl": "http://localhost:8282/",
+  "regexpqueries": true,
+  "maxetlprocesses": 5,
+  "database": {
+    "type": "postgresql",
+    "port": "26257",
+    "host": "localhost",
+    "database": "defaultdb",
+    "user": "root",
+    "password": ""
+  },
+  "loglevel": "debug"
+}

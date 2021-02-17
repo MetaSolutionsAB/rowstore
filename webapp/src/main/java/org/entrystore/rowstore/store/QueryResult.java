@@ -26,21 +26,24 @@ public class QueryResult {
 
 	private int offset;
 
-	private int resultCount;
+	private long resultCount;
 
 	private List<JSONObject> results;
 
 	private String status;
 
-	public QueryResult(List<JSONObject> results, int limit, int offset, int resultCount) {
-		this(results, limit, offset, resultCount, null);
+	private long queryTime;
+
+	public QueryResult(List<JSONObject> results, int limit, int offset, long resultCount, long queryTime) {
+		this(results, limit, offset, resultCount, queryTime, null);
 	}
 
-	public QueryResult(List<JSONObject> results, int limit, int offset, int resultCount, String status) {
+	public QueryResult(List<JSONObject> results, int limit, int offset, long resultCount, long queryTime, String status) {
 		this.limit = limit;
 		this.offset = offset;
 		this.resultCount = resultCount;
 		this.results = results;
+		this.queryTime = queryTime;
 		this.status = status;
 	}
 
@@ -52,7 +55,7 @@ public class QueryResult {
 		return offset;
 	}
 
-	public int getResultCount() {
+	public long getResultCount() {
 		return resultCount;
 	}
 
@@ -64,10 +67,14 @@ public class QueryResult {
 		return status;
 	}
 
+	public long getQueryTime() {
+		return queryTime;
+	}
+
 	public static class Error extends QueryResult {
 
 		public Error(String sqlStatus) {
-			super(null, 0, 0, 0, sqlStatus);
+			super(null, 0, 0, 0, 0, sqlStatus);
 		}
 
 	}

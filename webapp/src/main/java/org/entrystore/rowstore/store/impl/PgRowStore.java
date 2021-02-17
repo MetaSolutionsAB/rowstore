@@ -20,6 +20,7 @@ import org.entrystore.rowstore.etl.EtlProcessor;
 import org.entrystore.rowstore.store.Datasets;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStoreConfig;
+import org.postgresql.ds.PGPoolingDataSource;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,9 +40,9 @@ import java.util.Enumeration;
  */
 public class PgRowStore implements RowStore {
 
-	private static Logger log = LoggerFactory.getLogger(PgRowStore.class);
+	private final static Logger log = LoggerFactory.getLogger(PgRowStore.class);
 
-	DataSource datasource;
+	final DataSource datasource;
 
 	DataSource queryDatasource;
 
@@ -63,32 +64,62 @@ public class PgRowStore implements RowStore {
 			log.error(e.getMessage());
 		}
 
-		//datasource = new PGPoolingDataSource();
 		datasource = initializeDataSource(new PGSimpleDataSource(), config.getDatabase());
+		/* if (config.getDatabase().getConnectionPoolInit() > 0 && config.getDatabase().getConnectionPoolMax() > 0) {
+			datasource = initializeDataSource(new PGPoolingDataSource(), config.getDatabase());
+		} else {
+			datasource = initializeDataSource(new PGSimpleDataSource(), config.getDatabase());
+		} */
+
 		if (config.getDatabase() == config.getQueryDatabase()) {
 			queryDatasource = datasource;
 		} else {
-			queryDatasource = initializeDataSource(new PGSimpleDataSource(), config.getQueryDatabase());
+			if (config.getQueryDatabase().getConnectionPoolInit() > 0 && config.getQueryDatabase().getConnectionPoolMax() > 0) {
+				queryDatasource = initializeDataSource(new PGPoolingDataSource(), config.getQueryDatabase());
+				((PGPoolingDataSource) queryDatasource).setReadOnly(true);
+			} else {
+				queryDatasource = initializeDataSource(new PGSimpleDataSource(), config.getQueryDatabase());
+				((PGSimpleDataSource) queryDatasource).setReadOnly(true);
+			}
 		}
 
 		etlProcessor = new EtlProcessor(this);
 	}
 
-	private PGSimpleDataSource initializeDataSource(PGSimpleDataSource dataSource, RowStoreConfig.Database dbConfig) {
+	private DataSource initializeDataSource(DataSource dataSource, RowStoreConfig.Database dbConfig) {
 		if (dataSource == null || dbConfig == null) {
 			throw new IllegalArgumentException("Parameters must not be null");
 		}
 
-		//dataSource.setMaxConnections(dbConfig.getMaxConnections());
-		dataSource.setUser(dbConfig.getUser());
-		dataSource.setPassword(dbConfig.getPassword());
-		dataSource.setServerName(dbConfig.getHost());
-		dataSource.setDatabaseName(dbConfig.getName());
-		dataSource.setPortNumber(dbConfig.getPort());
-		dataSource.setSsl(dbConfig.getSsl());
-		if (dataSource.getSsl()) {
-			dataSource.setSslMode("require");
+		if (dataSource instanceof  PGSimpleDataSource) {
+			PGSimpleDataSource ds = (PGSimpleDataSource) dataSource;
+			ds.setUser(dbConfig.getUser());
+			ds.setPassword(dbConfig.getPassword());
+			ds.setServerName(dbConfig.getHost());
+			ds.setDatabaseName(dbConfig.getName());
+			ds.setPortNumber(dbConfig.getPort());
+			ds.setSsl(dbConfig.getSsl());
+			if (ds.getSsl()) {
+				ds.setSslMode("require");
+			}
+			ds.setLogUnclosedConnections(log.isDebugEnabled());
+		} else if (dataSource instanceof  PGPoolingDataSource) {
+			PGPoolingDataSource ds = (PGPoolingDataSource) dataSource;
+			ds.setPreparedStatementCacheQueries(100);
+			ds.setInitialConnections(dbConfig.getConnectionPoolInit());
+			ds.setMaxConnections(dbConfig.getConnectionPoolMax());
+			ds.setUser(dbConfig.getUser());
+			ds.setPassword(dbConfig.getPassword());
+			ds.setServerName(dbConfig.getHost());
+			ds.setDatabaseName(dbConfig.getName());
+			ds.setPortNumber(dbConfig.getPort());
+			ds.setSsl(dbConfig.getSsl());
+			if (ds.getSsl()) {
+				ds.setSslMode("require");
+			}
+			ds.setLogUnclosedConnections(log.isDebugEnabled());
 		}
+
 		return dataSource;
 	}
 
@@ -158,6 +189,7 @@ public class PgRowStore implements RowStore {
 				log.trace("Not deregistering JDBC driver {} as it does not belong to this webapp's ClassLoader", driver);
 			}
 		}
+		log.info("Shutdown complete");
 	}
 
 }

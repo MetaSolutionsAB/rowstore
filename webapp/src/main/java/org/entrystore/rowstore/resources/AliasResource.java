@@ -16,7 +16,6 @@
 
 package org.entrystore.rowstore.resources;
 
-import org.apache.log4j.Logger;
 import org.entrystore.rowstore.store.Dataset;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -28,6 +27,8 @@ import org.restlet.resource.Delete;
 import org.restlet.resource.Get;
 import org.restlet.resource.Post;
 import org.restlet.resource.Put;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.HashSet;
@@ -40,7 +41,7 @@ import java.util.Set;
  */
 public class AliasResource extends BaseResource {
 
-	static Logger log = Logger.getLogger(AliasResource.class);
+	static Logger log = LoggerFactory.getLogger(AliasResource.class);
 
 	private Dataset dataset;
 

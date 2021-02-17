@@ -16,13 +16,14 @@
 
 package org.entrystore.rowstore.resources;
 
-import org.apache.log4j.Logger;
 import org.entrystore.rowstore.store.Dataset;
 import org.restlet.data.MediaType;
 import org.restlet.data.Status;
 import org.restlet.representation.Representation;
 import org.restlet.representation.StringRepresentation;
 import org.restlet.resource.Get;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -38,7 +39,7 @@ import java.nio.file.Paths;
  */
 public class WebGuiResource extends BaseResource {
 
-	static Logger log = Logger.getLogger(WebGuiResource.class);
+	static Logger log = LoggerFactory.getLogger(WebGuiResource.class);
 
 	private Dataset dataset;
 

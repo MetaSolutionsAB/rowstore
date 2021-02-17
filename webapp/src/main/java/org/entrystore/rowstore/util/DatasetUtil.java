@@ -16,15 +16,27 @@
 
 package org.entrystore.rowstore.util;
 
+import com.ibm.icu.text.CharsetDetector;
+import com.ibm.icu.text.CharsetMatch;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.log4j.Logger;
 import org.entrystore.rowstore.RowStoreApplication;
+import org.entrystore.rowstore.store.impl.SqlExceptionLogUtil;
+import org.mozilla.universalchardet.UniversalDetector;
 import org.restlet.representation.Representation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.Arrays;
 import java.util.UUID;
 
 /**
@@ -32,7 +44,7 @@ import java.util.UUID;
  */
 public class DatasetUtil {
 
-	static Logger log = Logger.getLogger(DatasetUtil.class);
+	static Logger log = LoggerFactory.getLogger(DatasetUtil.class);
 
 	public static String buildDatasetURL(String baseURL, String datasetId) {
 		if (baseURL == null || datasetId == null) {
@@ -48,52 +60,11 @@ public class DatasetUtil {
 	}
 
 	public static File writeTempFile(Representation entity) throws IOException {
-		File tmpFile = File.createTempFile(RowStoreApplication.NAME, ".csv");
-		tmpFile.deleteOnExit();
-		log.info("Created temporary file " + tmpFile);
-
-		if (tmpFile != null) {
-			log.info("Writing request body to " + tmpFile);
-			DatasetUtil.writeFile(entity.getStream(), tmpFile);
-		}
-		return tmpFile;
-	}
-
-	/**
-	 * Writes an InputStream to a File.
-	 *
-	 * @param src Data source.
-	 * @param dst Destination.
-	 * @throws IOException
-	 */
-	private static void writeFile(InputStream src, File dst) throws IOException {
-		if (src == null || dst == null) {
-			throw new IllegalArgumentException("Parameters must not be null");
-		}
-
-		byte[] buffer = new byte[4096];
-		FileOutputStream fos = null;
-		try {
-			fos = new FileOutputStream(dst);
-			for (int length = 0; (length = src.read(buffer)) > 0; ) {
-				fos.write(buffer, 0, length);
-			}
-		} finally {
-			if (src != null) {
-				try {
-					src.close();
-				} catch (IOException e) {
-					log.error(e.getMessage());
-				}
-			}
-			if (fos != null) {
-				try {
-					fos.close();
-				} catch (IOException e) {
-					log.error(e.getMessage());
-				}
-			}
-		}
+		Path tmpPath = Files.createTempFile(RowStoreApplication.NAME, ".csv");
+		tmpPath.toFile().deleteOnExit();
+		log.info("Writing request body to temporary file at " + tmpPath);
+		Files.copy(entity.getStream(), tmpPath, StandardCopyOption.REPLACE_EXISTING);
+		return tmpPath.toFile();
 	}
 
 	/**
@@ -115,6 +86,60 @@ public class DatasetUtil {
 			return true;
 		} catch (Exception ex) {
 			return false;
+		}
+	}
+
+	public static Charset detectCharset(File f) throws IOException {
+		byte[] data;
+		try (InputStream is = Files.newInputStream(f.toPath())) {
+			byte[] tmpData = new byte[16384]; // we try to read up to 16 kB
+			int byteCount = is.read(tmpData);
+			data = Arrays.copyOf(tmpData, byteCount);
+			log.debug("Read " + byteCount + " bytes from " + f.getAbsolutePath() + " to detect charset");
+		}
+
+		UniversalDetector detector = new UniversalDetector(null);
+		detector.handleData(data, 0, data.length);
+		detector.dataEnd();
+		String name = detector.getDetectedCharset();
+		detector.reset();
+
+		if (name != null) {
+			log.debug("Detected charset " + name + " for file " + f.getAbsolutePath() + " using juniversalchardet");
+		} else {
+			CharsetDetector icuDetector = new CharsetDetector();
+			icuDetector.setText(data);
+			CharsetMatch match = icuDetector.detect();
+			if (match != null) {
+				name = match.getName();
+				log.debug("Detected charset " + name + " for file " + f.getAbsolutePath() + " using ICU");
+			}
+		}
+
+		if (name == null) {
+			log.debug("Unable to detect charset for " + f.getAbsolutePath() + ", falling back to UTF-8");
+			name = "UTF-8";
+		}
+
+		return Charset.forName(name);
+	}
+
+	public static void closeStatement(Statement stmt) {
+		if (stmt == null) {
+			return;
+		}
+		try {
+			/*
+			if (stmt instanceof PreparedStatement) {
+				PreparedStatement ps = (PreparedStatement) stmt;
+				ps.clearParameters();
+			}
+			stmt.clearBatch();
+			stmt.clearWarnings();
+			 */
+			stmt.close();
+		} catch (SQLException e) {
+			SqlExceptionLogUtil.error(log, e);
 		}
 	}
 
