@@ -16,6 +16,7 @@
 
 package org.entrystore.rowstore.resources;
 
+import org.entrystore.rowstore.RowStoreApplication;
 import org.entrystore.rowstore.store.Dataset;
 import org.restlet.data.MediaType;
 import org.restlet.data.Status;
@@ -26,11 +27,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * Returns a basic search GUI.
@@ -49,10 +45,10 @@ public class WebGuiResource extends BaseResource {
 
 	static {
 		try {
-			htmlEmbed = new String(Files.readAllBytes(getHtmlPath("webgui_header.html")));
+			htmlEmbed = RowStoreApplication.readStringFromUrl(RowStoreApplication.getConfigurationURI("webgui_header.html").toURL());
 			htmlFull = htmlEmbed;
-			htmlEmbed += new String(Files.readAllBytes(getHtmlPath("webgui_body_embed.html")));
-			htmlFull += new String(Files.readAllBytes(getHtmlPath("webgui_body_full.html")));
+			htmlEmbed += RowStoreApplication.readStringFromUrl(RowStoreApplication.getConfigurationURI("webgui_body_embed.html").toURL());
+			htmlFull += RowStoreApplication.readStringFromUrl(RowStoreApplication.getConfigurationURI("webgui_body_full.html").toURL());
 		} catch (IOException e) {
 			log.error(e.getMessage());
 		}
@@ -83,19 +79,6 @@ public class WebGuiResource extends BaseResource {
 		}
 
 		return new StringRepresentation(htmlFull, MediaType.TEXT_HTML);
-	}
-
-	static Path getHtmlPath(String fileName) {
-		URL resURL = Thread.currentThread().getContextClassLoader().getResource(fileName);
-		if (resURL != null) {
-			try {
-				return Paths.get(resURL.toURI());
-			} catch (URISyntaxException e) {
-				log.error(e.getMessage());
-			}
-		}
-		log.error("Unable to find " + fileName + " in classpath");
-		return null;
 	}
 
 }

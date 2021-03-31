@@ -50,6 +50,7 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
@@ -217,6 +218,18 @@ public class RowStoreApplication extends Application {
 			}
 		}
 		return null;
+	}
+
+	public static String readStringFromUrl(URL inputUrl) {
+		if (inputUrl == null) {
+			throw new IllegalArgumentException("Parameter must not be null");
+		}
+		try (InputStream in = inputUrl.openStream()) {
+			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+		} catch (IOException ioe) {
+			log.error(ioe.getMessage());
+			return null;
+		}
 	}
 
 	@Override
