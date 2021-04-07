@@ -16,24 +16,21 @@
 
 package org.entrystore.rowstore.resources;
 
+import org.entrystore.rowstore.RowStoreApplication;
 import org.entrystore.rowstore.store.Dataset;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.restlet.data.MediaType;
 import org.restlet.data.Status;
+import org.restlet.representation.EmptyRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.representation.StringRepresentation;
 import org.restlet.resource.Get;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URI;
-import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 import static org.entrystore.rowstore.RowStoreApplication.getConfigurationURI;
 import static org.entrystore.rowstore.RowStoreApplication.getVersion;
@@ -48,6 +45,16 @@ public class SwaggerResource extends BaseResource {
 	static Logger log = LoggerFactory.getLogger(SwaggerResource.class);
 
 	private Dataset dataset;
+
+	static String swaggerTemplate;
+
+	static {
+		try {
+			swaggerTemplate = RowStoreApplication.readStringFromUrl(getConfigurationURI("swagger.json_template").toURL());
+		} catch (MalformedURLException e) {
+			log.error(e.getMessage());
+		}
+	}
 
 	@Override
 	public void doInit() {
@@ -64,8 +71,10 @@ public class SwaggerResource extends BaseResource {
 			return null;
 		}
 
-		URI swaggerURI = getConfigurationURI("swagger.json_template");
-		String swaggerTemplate = readFile(new File(swaggerURI).toPath(), Charset.defaultCharset());
+		if (swaggerTemplate == null) {
+			getResponse().setStatus(Status.SERVER_ERROR_INTERNAL);
+			return new EmptyRepresentation();
+		}
 
 		JSONArray apiParams = new JSONArray();
 		for (String p : dataset.getColumnNames()) {
@@ -121,20 +130,6 @@ public class SwaggerResource extends BaseResource {
 				replaceAll("__DATASET_PARAMETERS__", apiParams.toString());
 
 		return new StringRepresentation(result, MediaType.APPLICATION_JSON);
-	}
-
-	private static String readFile(Path path, Charset encoding) {
-		if (path == null || !path.toFile().exists()) {
-			return null;
-		}
-		byte[] encoded;
-		try {
-			encoded = Files.readAllBytes(path);
-		} catch (IOException e) {
-			log.error(e.getMessage());
-			return null;
-		}
-		return encoding.decode(ByteBuffer.wrap(encoded)).toString();
 	}
 
 }
