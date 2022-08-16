@@ -15,15 +15,15 @@
     </prerequisites>
 
     <properties>
-        <slf4j.version>1.7.30</slf4j.version>
-        <log4j.version>2.17.1</log4j.version>
+        <slf4j.version>1.7.36</slf4j.version>
+        <log4j.version>2.18.0</log4j.version>
         <restlet.version>2.4.3</restlet.version>
-        <jetty.version>9.4.44.v20210927</jetty.version>
+        <jetty.version>9.4.48.v20220622</jetty.version>
         <servlet.version>3.1.0</servlet.version>
         <opencsv.version>5.3</opencsv.version>
-        <postgresql.version>42.3.3</postgresql.version>
+        <postgresql.version>42.4.1</postgresql.version>
         <jsonorg.version>20220320</jsonorg.version>
-        <guava.version>30.1-jre</guava.version>
+        <guava.version>31.1-jre</guava.version>
         <license.licenseName>apache_v2</license.licenseName>
         <maven.compiler.release>11</maven.compiler.release>
     </properties>
