@@ -92,7 +92,7 @@ public class DatasetUtil {
 	public static Charset detectCharset(File f) throws IOException {
 		byte[] data;
 		try (InputStream is = Files.newInputStream(f.toPath())) {
-			byte[] tmpData = new byte[16384]; // we try to read up to 16 kB
+			byte[] tmpData = new byte[524288]; // we try to read up to 512 kB
 			int byteCount = is.read(tmpData);
 			data = Arrays.copyOf(tmpData, byteCount);
 			log.debug("Read " + byteCount + " bytes from " + f.getAbsolutePath() + " to detect charset");
