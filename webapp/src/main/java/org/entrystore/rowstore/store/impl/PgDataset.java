@@ -493,12 +493,11 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public QueryResult query(Map<String, String> tuples, int limit, int offset) {
-		long totalTime = System.nanoTime();
+		long totalTime = System.currentTimeMillis();
 		long queryTime = -1;
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
-		String[] values = tuples.values().toArray(new String[tuples.size()]);
 
 		List<JSONObject> result = new ArrayList<>();
 		long resultCount = 0;
@@ -507,7 +506,8 @@ public class PgDataset implements Dataset {
 		try {
 			conn = rowstore.getQueryConnection();
 			StringBuilder queryTemplate = new StringBuilder("SELECT data, count(*) OVER() AS result_count FROM " + getDataTable());
-			if (tuples.size() > 0) {
+			if (!tuples.isEmpty()) {
+				String[] values = tuples.values().toArray(new String[tuples.size()]);
 				for (int i = 0; i < tuples.size(); i++) {
 					// We check whether there is a value
 					if (values[i].equals("~")) {
@@ -541,7 +541,7 @@ public class PgDataset implements Dataset {
 			stmt = conn.prepareStatement(queryTemplate.toString());
 
 			int paramPos = 1;
-			if (tuples.size() > 0) {
+			if (!tuples.isEmpty()) {
 				for (String key : tuples.keySet()) {
 					stmt.setString(paramPos, key.toLowerCase());
 					String value = tuples.get(key);
@@ -562,9 +562,9 @@ public class PgDataset implements Dataset {
 			if (queryTO > -1) {
 				stmt.setQueryTimeout(queryTO);
 			}
-			queryTime = System.nanoTime();
+			queryTime = System.currentTimeMillis();
 			rs = stmt.executeQuery();
-			queryTime = System.nanoTime() - queryTime;
+			queryTime = System.currentTimeMillis() - queryTime;
 			while (rs.next()) {
 				String value = rs.getString("data");
 				if (resultCount == 0) {
@@ -597,7 +597,7 @@ public class PgDataset implements Dataset {
 				}
 			}
 
-			log.debug("Performing database query took {} ns, total time was {} ns", queryTime, System.nanoTime() - totalTime);
+			log.debug("Performing database query took {} ms, total time was {} ms", queryTime, System.currentTimeMillis() - totalTime);
 		}
 
 		return new QueryResult(result, limit, offset, resultCount, queryTime);
