@@ -18,6 +18,7 @@ package org.entrystore.rowstore.store;
 
 import java.io.File;
 import java.io.IOException;
+import java.sql.ResultSet;
 import java.util.Date;
 import java.util.Map;
 import java.util.Set;
@@ -67,6 +68,11 @@ public interface Dataset {
 	 * @return Returns a list of matching JSON objects.
 	 */
 	QueryResult query(Map<String, String> tuples, int limit, int offset);
+
+	/**
+	 * @return Returns a ResultSet containing all data of the dataset's table. ResultSet and the underlying Statement and Connection need to be closed manually after the ResultSet is consumed.
+	 */
+	ResultSet streamAll();
 
 	/**
 	 * @return Returns the dataset's column names.

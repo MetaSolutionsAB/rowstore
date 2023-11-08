@@ -19,7 +19,6 @@ package org.entrystore.rowstore.resources;
 import com.opencsv.CSVWriter;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
-import org.entrystore.rowstore.store.QueryResult;
 import org.json.JSONObject;
 import org.restlet.data.Disposition;
 import org.restlet.data.MediaType;
@@ -30,12 +29,17 @@ import org.restlet.resource.Get;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.LinkedHashSet;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -64,6 +68,63 @@ public class ExportResource extends BaseResource {
 		}
 	}
 
+	@Get("json")
+	public Representation representJSON() {
+		if (dataset == null) {
+			getResponse().setStatus(Status.CLIENT_ERROR_NOT_FOUND);
+			return null;
+		}
+
+		if (dataset.getStatus() == EtlStatus.CREATED) {
+			getResponse().setStatus(Status.CLIENT_ERROR_FAILED_DEPENDENCY);
+			return null;
+		}
+
+		StreamRepresentation result = new StreamRepresentation(MediaType.APPLICATION_JSON) {
+
+			@Override
+			public InputStream getStream() {
+				// not needed
+				return null;
+			}
+
+			@Override
+			public void write(OutputStream outputStream) {
+				try (Writer writer = new BufferedWriter(new OutputStreamWriter(outputStream), 131072)) {
+					writer.write("[");
+					ResultSet rs = dataset.streamAll();
+					try {
+						while (rs.next()) {
+							writer.write(rs.getString("data"));
+							if (!rs.isLast()) {
+								writer.write(",\n");
+							}
+							// we flush manually because we want to detect aborted connections early
+							if ((rs.getRow() % 10000) == 0) {
+								writer.flush();
+							}
+						}
+					} catch (SQLException e) {
+						log.error(e.getMessage());
+					} finally {
+						cleanup(rs);
+					}
+
+					writer.write("]");
+				} catch (IOException ioe) {
+					log.error(ioe.getMessage());
+				}
+			}
+
+		};
+
+		Disposition disp = new Disposition();
+		disp.setFilename(datasetId + ".json");
+		result.setDisposition(disp);
+
+		return result;
+	}
+
 	@Get("csv")
 	public Representation representCSV() {
 		if (dataset == null) {
@@ -77,6 +138,7 @@ public class ExportResource extends BaseResource {
 		}
 
 		StreamRepresentation result = new StreamRepresentation(MediaType.TEXT_CSV) {
+
 			@Override
 			public InputStream getStream() {
 				// not needed
@@ -84,36 +146,33 @@ public class ExportResource extends BaseResource {
 			}
 
 			@Override
-			public void write(OutputStream outputStream) throws IOException {
-                Set<String> columnNames = new LinkedHashSet<>(dataset.getColumnNames());
-                int pageSize = getRowStore().getConfig().getExportPageSize();
-                CSVWriter csvWriter = new CSVWriter(new OutputStreamWriter(outputStream));
-                csvWriter.writeNext(columnNames.toArray(new String[0]), false);
-
-                for (int page = 0; ; page++) {
-					log.debug("Fetching dataset {}: offset {}, page size {}", datasetId, page * pageSize, pageSize);
-                    QueryResult queryResult = dataset.query(Map.of(), pageSize, page * pageSize);
-                    if (queryResult.getResultCount() > 0) {
-                        for (JSONObject result : queryResult.getResults()) {
-                            csvWriter.writeNext(jsonObjectToStringArray(result, columnNames), false);
-							// We flush manually because we want to detect aborted connections.
-							// Without flush() it seems we are forced to continue indefinitely.
-							csvWriter.flush();
-                        }
-                    } else {
-						log.debug("No more results for dataset {}, breaking", datasetId);
-                        break;
-                    }
-                }
-
-                csvWriter.close();
-            }
+			public void write(OutputStream outputStream) {
+				Set<String> columnNames = new LinkedHashSet<>(dataset.getColumnNames());
+				try (CSVWriter csvWriter = new CSVWriter(new BufferedWriter(new OutputStreamWriter(outputStream), 131072))) {
+					csvWriter.writeNext(columnNames.toArray(new String[0]), false);
+					ResultSet rs = dataset.streamAll();
+					try {
+						while (rs.next()) {
+							csvWriter.writeNext(jsonObjectToStringArray(new JSONObject(rs.getString("data")), columnNames), false);
+							// we flush manually because we want to detect aborted connections early
+							if ((rs.getRow() % 10000) == 0) {
+								csvWriter.flush();
+							}
+						}
+					} catch (SQLException e) {
+						log.error(e.getMessage());
+					} finally {
+						cleanup(rs);
+					}
+				} catch (IOException ioe) {
+					log.error(ioe.getMessage());
+				}
+			}
 
 		};
 
 		Disposition disp = new Disposition();
 		disp.setFilename(datasetId + ".csv");
-		disp.setType(Disposition.TYPE_ATTACHMENT);
 		result.setDisposition(disp);
 
 		return result;
@@ -124,7 +183,51 @@ public class ExportResource extends BaseResource {
 		for (String key : keys) {
 			result.add(json.getString(key));
 		}
-		return result.toArray(new String[keys.size()]);
+		return result.toArray(new String[0]);
+	}
+
+	private void cleanup(ResultSet rs) {
+		if (rs == null) {
+			throw new IllegalArgumentException("ResultSet must not be null");
+		}
+
+		Statement statement = null;
+		try {
+			statement = rs.getStatement();
+		} catch (SQLException e) {
+			log.error(e.getMessage());
+		}
+
+		Connection connection = null;
+		try {
+			if (statement != null) {
+				connection = statement.getConnection();
+			}
+		} catch (SQLException e) {
+			log.error(e.getMessage());
+		}
+
+		try {
+			rs.close();
+		} catch (SQLException e) {
+			log.error(e.getMessage());
+		}
+
+		try {
+			if (statement != null) {
+				statement.close();
+			}
+		} catch (SQLException e) {
+			log.error(e.getMessage());
+		}
+
+		try {
+			if (connection != null) {
+				connection.close();
+			}
+		} catch (SQLException e) {
+			log.error(e.getMessage());
+		}
 	}
 
 }

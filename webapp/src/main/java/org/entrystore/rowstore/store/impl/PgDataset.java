@@ -603,6 +603,20 @@ public class PgDataset implements Dataset {
 		return new QueryResult(result, limit, offset, resultCount, queryTime);
 	}
 
+	public ResultSet streamAll() {
+		Connection conn = null;
+		try {
+			conn = rowstore.getQueryConnection();
+			conn.setAutoCommit(false);
+			PreparedStatement stmnt = conn.prepareStatement("SELECT data FROM " + getDataTable(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+			stmnt.setFetchSize(1000);
+			return stmnt.executeQuery();
+		} catch (SQLException e) {
+			log.warn(e.getMessage());
+			return null;
+		}
+	}
+
 	/**
 	 * @see Dataset#getColumnNames()
 	 */
@@ -956,7 +970,7 @@ public class PgDataset implements Dataset {
 		String[] labelArr = labels.toArray(new String[0]);
 		for (int i = 0; i < line.length; i++) {
 			// we skip empty strings as this would result in empty key names in the JSON result
-			if (labelArr[i].trim().length() == 0) {
+			if (labelArr[i].trim().isEmpty()) {
 				continue;
 			}
 			result.put(labelArr[i], line[i]);
