@@ -190,6 +190,8 @@ public class ExportResource extends BaseResource {
 						writingThreads.add(Executors.callable(csvWritingRunnable));
 					}
 
+					log.debug("Using {} threads for generating export", Runtime.getRuntime().availableProcessors());
+
 					es.invokeAll(writingThreads);
 					es.shutdown();
 					cleanup(rs);
