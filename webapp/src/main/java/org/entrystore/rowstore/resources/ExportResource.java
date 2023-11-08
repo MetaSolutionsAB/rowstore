@@ -39,11 +39,20 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Resource for dataset export/download.
+ *
+ * <p>The JSON (from the DB) and CSV handling (for serialization) required for the CSV export takes some time, that's why we use
+ * multiple threads to saturate the output stream as much as possible. This is not needed for the JSON export since we can
+ * write the data we get from the DB pretty much without changes.</p>
  *
  * @author Hannes Ebner
  */
@@ -151,23 +160,43 @@ public class ExportResource extends BaseResource {
 				try (CSVWriter csvWriter = new CSVWriter(new BufferedWriter(new OutputStreamWriter(outputStream), 131072))) {
 					csvWriter.writeNext(columnNames.toArray(new String[0]), false);
 					ResultSet rs = dataset.streamAll();
-					try {
-						while (rs.next()) {
-							csvWriter.writeNext(jsonObjectToStringArray(new JSONObject(rs.getString("data")), columnNames), false);
-							// we flush manually because we want to detect aborted connections early
-							if ((rs.getRow() % 10000) == 0) {
-								csvWriter.flush();
+
+					ExecutorService es = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+
+					Runnable csvWritingRunnable = () -> {
+						try {
+							while (true) {
+								String data = null;
+								synchronized (rs) {
+									if (rs.next()) {
+										data = rs.getString("data");
+									} else {
+										break;
+									}
+								}
+								csvWriter.writeNext(jsonObjectToStringArray(new JSONObject(data), columnNames), false);
+								// we flush manually because we want to detect aborted connections early
+								if ((rs.getRow() % 10000) == 0) {
+									csvWriter.flush();
+								}
 							}
+						} catch (SQLException | IOException e) {
+							log.error(e.getMessage());
 						}
-					} catch (SQLException e) {
-						log.error(e.getMessage());
-					} finally {
-						cleanup(rs);
+                    };
+
+					List<Callable<Object>> writingThreads = new ArrayList<>();
+					for (int i = 0; i < Runtime.getRuntime().availableProcessors(); i++) {
+						writingThreads.add(Executors.callable(csvWritingRunnable));
 					}
-				} catch (IOException ioe) {
-					log.error(ioe.getMessage());
+
+					es.invokeAll(writingThreads);
+					es.shutdown();
+					cleanup(rs);
+				} catch (IOException | InterruptedException e) {
+					log.error(e.getMessage());
 				}
-			}
+            }
 
 		};
 
