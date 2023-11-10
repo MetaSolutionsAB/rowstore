@@ -262,6 +262,7 @@ public class PgDataset implements Dataset {
 							jsonLine = csvLineToJsonObject(line, labels);
 						} catch (Exception e) {
 							log.error(e.getMessage());
+							log.error("Error occured when processing line {} of CSV: {}", lineCount, line);
 							log.info("Rolling back transaction");
 							conn.rollback();
 							setStatus(EtlStatus.ERROR);
