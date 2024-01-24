@@ -16,8 +16,8 @@
         <restlet.version>2.4.3</restlet.version>
         <jetty.version>9.4.53.v20231009</jetty.version>
         <servlet.version>3.1.0</servlet.version>
-        <opencsv.version>5.8</opencsv.version>
-        <postgresql.version>42.6.0</postgresql.version>
+        <opencsv.version>5.9</opencsv.version>
+        <postgresql.version>42.7.1</postgresql.version>
         <jsonorg.version>20231013</jsonorg.version>
         <guava.version>33.0.0-jre</guava.version>
         <license.licenseName>apache_v2</license.licenseName>
