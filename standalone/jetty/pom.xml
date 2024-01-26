@@ -44,7 +44,7 @@
                     <programs>
                         <program>
                             <mainClass>org.entrystore.rowstore.RowStoreApplicationStandaloneJetty</mainClass>
-                            <name>rowstore</name>
+                            <id>rowstore</id>
                         </program>
                     </programs>
                     <repositoryLayout>flat</repositoryLayout>
