@@ -54,6 +54,8 @@ public class RowStoreConfig {
 
 	private int queryMaxLimit = -1;
 
+	private int exportPageSize = -1;
+
 	private Database database;
 
 	private Database queryDatabase;
@@ -105,6 +107,9 @@ public class RowStoreConfig {
 
 			// Maximum size of reponse size limit (i.e. "_limit" in the URL parameters)
 			queryMaxLimit = config.optInt("querymaxlimit", 100);
+
+			// Page size for queries when exporting
+			exportPageSize = config.optInt("exportpagesize", 100000);
 		} catch (JSONException e) {
 			log.error(e.getMessage());
 		}
@@ -156,6 +161,10 @@ public class RowStoreConfig {
 
 	public int getQueryMaxLimit() {
 		return queryMaxLimit;
+	}
+
+	public int getExportPageSize() {
+		return exportPageSize;
 	}
 
 	public Database getDatabase() {

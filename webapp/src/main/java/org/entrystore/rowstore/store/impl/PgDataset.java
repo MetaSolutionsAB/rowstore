@@ -262,6 +262,7 @@ public class PgDataset implements Dataset {
 							jsonLine = csvLineToJsonObject(line, labels);
 						} catch (Exception e) {
 							log.error(e.getMessage());
+							log.error("Error occured when processing line {} of CSV: {}", lineCount, line);
 							log.info("Rolling back transaction");
 							conn.rollback();
 							setStatus(EtlStatus.ERROR);
@@ -493,12 +494,11 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public QueryResult query(Map<String, String> tuples, int limit, int offset) {
-		long totalTime = System.nanoTime();
+		long totalTime = System.currentTimeMillis();
 		long queryTime = -1;
 		Connection conn = null;
 		PreparedStatement stmt = null;
 		ResultSet rs = null;
-		String[] values = tuples.values().toArray(new String[tuples.size()]);
 
 		List<JSONObject> result = new ArrayList<>();
 		long resultCount = 0;
@@ -507,7 +507,8 @@ public class PgDataset implements Dataset {
 		try {
 			conn = rowstore.getQueryConnection();
 			StringBuilder queryTemplate = new StringBuilder("SELECT data, count(*) OVER() AS result_count FROM " + getDataTable());
-			if (tuples.size() > 0) {
+			if (!tuples.isEmpty()) {
+				String[] values = tuples.values().toArray(new String[tuples.size()]);
 				for (int i = 0; i < tuples.size(); i++) {
 					// We check whether there is a value
 					if (values[i].equals("~")) {
@@ -541,7 +542,7 @@ public class PgDataset implements Dataset {
 			stmt = conn.prepareStatement(queryTemplate.toString());
 
 			int paramPos = 1;
-			if (tuples.size() > 0) {
+			if (!tuples.isEmpty()) {
 				for (String key : tuples.keySet()) {
 					stmt.setString(paramPos, key.toLowerCase());
 					String value = tuples.get(key);
@@ -562,9 +563,9 @@ public class PgDataset implements Dataset {
 			if (queryTO > -1) {
 				stmt.setQueryTimeout(queryTO);
 			}
-			queryTime = System.nanoTime();
+			queryTime = System.currentTimeMillis();
 			rs = stmt.executeQuery();
-			queryTime = System.nanoTime() - queryTime;
+			queryTime = System.currentTimeMillis() - queryTime;
 			while (rs.next()) {
 				String value = rs.getString("data");
 				if (resultCount == 0) {
@@ -597,10 +598,24 @@ public class PgDataset implements Dataset {
 				}
 			}
 
-			log.debug("Performing database query took {} ns, total time was {} ns", queryTime, System.nanoTime() - totalTime);
+			log.debug("Performing database query took {} ms, total time was {} ms", queryTime, System.currentTimeMillis() - totalTime);
 		}
 
 		return new QueryResult(result, limit, offset, resultCount, queryTime);
+	}
+
+	public ResultSet streamAll() {
+		Connection conn = null;
+		try {
+			conn = rowstore.getQueryConnection();
+			conn.setAutoCommit(false);
+			PreparedStatement stmnt = conn.prepareStatement("SELECT data FROM " + getDataTable(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+			stmnt.setFetchSize(1000);
+			return stmnt.executeQuery();
+		} catch (SQLException e) {
+			log.warn(e.getMessage());
+			return null;
+		}
 	}
 
 	/**
@@ -956,7 +971,7 @@ public class PgDataset implements Dataset {
 		String[] labelArr = labels.toArray(new String[0]);
 		for (int i = 0; i < line.length; i++) {
 			// we skip empty strings as this would result in empty key names in the JSON result
-			if (labelArr[i].trim().length() == 0) {
+			if (labelArr[i].trim().isEmpty()) {
 				continue;
 			}
 			result.put(labelArr[i], line[i]);

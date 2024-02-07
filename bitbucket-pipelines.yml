@@ -1,4 +1,4 @@
-image: metasolutions/jdk17-node
+image: metasolutions/jdk-node
 
 options:
   max-time: 10
