@@ -17,7 +17,7 @@
         <jetty.version>9.4.54.v20240208</jetty.version>
         <servlet.version>3.1.0</servlet.version>
         <opencsv.version>5.9</opencsv.version>
-        <postgresql.version>42.7.1</postgresql.version>
+        <postgresql.version>42.7.2</postgresql.version>
         <jsonorg.version>20231013</jsonorg.version>
         <guava.version>33.0.0-jre</guava.version>
         <license.licenseName>apache_v2</license.licenseName>
