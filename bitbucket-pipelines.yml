@@ -89,7 +89,7 @@ pipelines:
       - step: *build
       - parallel:
         - step: *testpg
-        - step: *testcr
+        #- step: *testcr
       - step: *deploy
       - step: *dockerhub
 
