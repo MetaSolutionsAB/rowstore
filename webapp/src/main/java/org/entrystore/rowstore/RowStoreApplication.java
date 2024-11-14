@@ -42,6 +42,7 @@ import org.restlet.routing.Router;
 import org.restlet.routing.Template;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.bridge.SLF4JBridgeHandler;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -197,10 +198,22 @@ public class RowStoreApplication extends Application {
 		return VERSION;
 	}
 
-	private void setLogLevel(String logLevel) {
+	public void setLogLevel(String logLevel) {
 		Level l = Level.toLevel(logLevel, Level.INFO);
 		Configurator.setRootLevel(l);
-		log.info("Log level set to " + l);
+		log.info("SLF4J/Log4j log level set to {}", l);
+
+		// The following two lines are required for the PostgreSQL client logger
+		// (and possibly other libs that use java.util.Logging) to work
+		SLF4JBridgeHandler.install();
+		java.util.logging.Level julLevel;
+		if ("debug".equalsIgnoreCase(logLevel)) {
+			julLevel = java.util.logging.Level.FINEST;
+		} else {
+			julLevel = java.util.logging.Level.parse(logLevel);
+		}
+		java.util.logging.Logger.getLogger("").setLevel(julLevel);
+		log.info("java.util.logging log level set to {}", julLevel.getName());
 	}
 
 	private static String readFirstLine(URL url) {
