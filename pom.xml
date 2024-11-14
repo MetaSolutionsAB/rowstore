@@ -17,9 +17,9 @@
         <jetty.version>9.4.56.v20240826</jetty.version>
         <servlet.version>3.1.0</servlet.version>
         <opencsv.version>5.9</opencsv.version>
-        <postgresql.version>42.7.2</postgresql.version>
+        <postgresql.version>42.7.4</postgresql.version>
         <jsonorg.version>20240303</jsonorg.version>
-        <guava.version>33.0.0-jre</guava.version>
+        <guava.version>33.3.1-jre</guava.version>
         <license.licenseName>apache_v2</license.licenseName>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
