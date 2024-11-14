@@ -16,10 +16,11 @@
 
 package org.entrystore.rowstore.store.impl;
 
-import com.opencsv.CSVParser;
 import com.opencsv.CSVParserBuilder;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
+import com.opencsv.ICSVParser;
+import com.opencsv.RFC4180ParserBuilder;
 import com.opencsv.exceptions.CsvValidationException;
 import org.apache.commons.lang3.StringUtils;
 import org.entrystore.rowstore.etl.EtlStatus;
@@ -215,10 +216,19 @@ public class PgDataset implements Dataset {
 			try {
 				conn = rowstore.getConnection();
 				char separator = detectSeparator(csvFile);
-				CSVParser csvParser = new CSVParserBuilder().
-						withSeparator(separator).
-						withQuoteChar('"').
-						build();
+
+				ICSVParser csvParser;
+				if (rowstore.getConfig().isLegacyParserEnabled()) {
+					csvParser = new CSVParserBuilder().
+							withSeparator(separator).
+							withQuoteChar('"').
+							build();
+				} else {
+					csvParser = new RFC4180ParserBuilder().
+							withSeparator(separator).
+							withQuoteChar('"').
+							build();
+				}
 				cr = new CSVReaderBuilder(Files.newBufferedReader(csvFile.toPath(), DatasetUtil.detectCharset(csvFile))).
 						withSkipLines(0).
 						withCSVParser(csvParser).
@@ -297,8 +307,10 @@ public class PgDataset implements Dataset {
 				SqlExceptionLogUtil.error(log, e);
 				try {
 					log.info("Rolling back transaction");
-					conn.rollback();
-				} catch (SQLException e1) {
+                    if (conn != null) {
+                        conn.rollback();
+                    }
+                } catch (SQLException e1) {
 					SqlExceptionLogUtil.error(log, e1);
 				}
 				setStatus(EtlStatus.ERROR);
@@ -416,8 +428,10 @@ public class PgDataset implements Dataset {
 			SqlExceptionLogUtil.error(log, e);
 			try {
 				log.info("Rolling back transaction");
-				conn.rollback();
-			} catch (SQLException e1) {
+                if (conn != null) {
+                    conn.rollback();
+                }
+            } catch (SQLException e1) {
 				SqlExceptionLogUtil.error(log, e1);
 			}
 			return false;

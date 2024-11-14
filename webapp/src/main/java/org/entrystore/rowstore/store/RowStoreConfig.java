@@ -40,6 +40,8 @@ public class RowStoreConfig {
 
 	private String rateLimitType;
 
+	private boolean legacyParserEnabled;
+
 	private int rateLimitTimeRange = -1;
 
 	private int rateLimitRequestsGlobal = -1;
@@ -81,6 +83,9 @@ public class RowStoreConfig {
 			// Logging
 			logLevel = config.optString("loglevel", "info");
 
+			// Parser
+			legacyParserEnabled = config.optBoolean("legacyparser", false);
+
 			// Database
 			database = new Database(config.getJSONObject("database"));
 			if (config.has("queryDatabase")) {
@@ -118,6 +123,8 @@ public class RowStoreConfig {
 	public String getLogLevel() {
 		return logLevel;
 	}
+
+	public boolean isLegacyParserEnabled() { return legacyParserEnabled; }
 
 	public String getBaseURL() {
 		return baseURL;
