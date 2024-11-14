@@ -34,17 +34,17 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 public class EtlProcessor {
 
-	private static Logger log = LoggerFactory.getLogger(EtlProcessor.class);
+	private static final Logger log = LoggerFactory.getLogger(EtlProcessor.class);
 
 	private int concurrentConversions = 5;
 
 	private int runningConversions = 0;
 
-	private Object mutex = new Object();
+	private final Object mutex = new Object();
 
-	private Thread datasetSubmitter;
+	private final Thread datasetSubmitter;
 
-	private RowStore rowstore;
+	private final RowStore rowstore;
 
 	private final ConcurrentLinkedQueue<EtlResource> postQueue = new ConcurrentLinkedQueue<>();
 
@@ -73,7 +73,7 @@ public class EtlProcessor {
 
 	public class DatasetLoader extends Thread {
 
-		private EtlResource etlResource;
+		private final EtlResource etlResource;
 
 		DatasetLoader(EtlResource etlResource) {
 			this.etlResource = etlResource;
@@ -95,11 +95,11 @@ public class EtlProcessor {
 						return;
 					}
 				}
-				log.info("Populating dataset " + dataset.getId() + " with data from file " + fileToLoad);
+				log.info("Populating dataset {} with data from file {}", dataset.getId(), fileToLoad);
 				if (dataset.populate(fileToLoad, etlResource.isAppending())) {
-					log.info("Dataset " + dataset.getId() + " successfully populated");
+					log.info("Dataset {} successfully populated", dataset.getId());
 				} else {
-					log.info("An error occured while populating dataset " + dataset.getId());
+					log.error("An error occured while populating dataset {}", dataset.getId());
 				}
 			} catch (IOException e) {
 				log.error(e.getMessage());
