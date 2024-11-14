@@ -32,9 +32,11 @@ import org.restlet.Context;
 import org.restlet.Server;
 import org.restlet.data.Protocol;
 import org.slf4j.LoggerFactory;
+import org.slf4j.bridge.SLF4JBridgeHandler;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.logging.Logger;
 
 public abstract class RowStoreApplicationStandalone extends Application {
 
@@ -170,11 +172,13 @@ public abstract class RowStoreApplicationStandalone extends Application {
     private static void configureLogging(String logLevel) {
         Level l = Level.toLevel(logLevel, Level.INFO);
         Configurator.setRootLevel(l);
-        log.info("Log level set to " + l);
-    }
 
-    private static void out(String s) {
-        System.out.println(s);
+        // The following two lines are required for the PostgreSQL client logger
+        // (and possibly other libs that use java.util.Logging) to work
+        SLF4JBridgeHandler.install();
+        Logger.getLogger("").setLevel(java.util.logging.Level.parse(logLevel));
+
+        log.info("Log level set to {}", l);
     }
 
 }
