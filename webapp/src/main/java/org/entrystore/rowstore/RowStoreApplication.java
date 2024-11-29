@@ -210,7 +210,12 @@ public class RowStoreApplication extends Application {
 		if ("debug".equalsIgnoreCase(logLevel)) {
 			julLevel = java.util.logging.Level.FINEST;
 		} else {
-			julLevel = java.util.logging.Level.parse(logLevel);
+			try {
+				julLevel = java.util.logging.Level.parse(logLevel.toUpperCase());
+			} catch (IllegalArgumentException e) {
+				log.warn("Unable to parse log level for java.util.Logging: {}", e.getMessage());
+				julLevel = java.util.logging.Level.INFO;
+			}
 		}
 		java.util.logging.Logger.getLogger("").setLevel(julLevel);
 		log.info("java.util.logging log level set to {}", julLevel.getName());
