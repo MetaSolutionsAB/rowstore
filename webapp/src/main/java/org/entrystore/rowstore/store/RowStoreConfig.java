@@ -40,6 +40,8 @@ public class RowStoreConfig {
 
 	private String rateLimitType;
 
+	private boolean legacyParserEnabled;
+
 	private int rateLimitTimeRange = -1;
 
 	private int rateLimitRequestsGlobal = -1;
@@ -81,6 +83,9 @@ public class RowStoreConfig {
 			// Logging
 			logLevel = config.optString("loglevel", "info");
 
+			// Parser
+			legacyParserEnabled = config.optBoolean("legacyparser", false);
+
 			// Database
 			database = new Database(config.getJSONObject("database"));
 			if (config.has("queryDatabase")) {
@@ -118,6 +123,8 @@ public class RowStoreConfig {
 	public String getLogLevel() {
 		return logLevel;
 	}
+
+	public boolean isLegacyParserEnabled() { return legacyParserEnabled; }
 
 	public String getBaseURL() {
 		return baseURL;
@@ -195,6 +202,12 @@ public class RowStoreConfig {
 
 		private int connectionPoolMax;
 
+		private int socketTimeout;
+
+		private int connectTimeout;
+
+		private int loginTimeout;
+
 		Database() {
 		}
 
@@ -208,6 +221,9 @@ public class RowStoreConfig {
 			setSsl(dbConfig.optBoolean("ssl", false));
 			setConnectionPoolInit(dbConfig.optInt("connectionPoolInit", -1));
 			setConnectionPoolMax(dbConfig.optInt("connectionPoolMax", -1));
+			setSocketTimeout(dbConfig.optInt("socketTimeout", 0));		// seconds, PG default 0
+			setConnectTimeout(dbConfig.optInt("connectTimeout", 5));	// seconds, PG default 10
+			setLoginTimeout(dbConfig.optInt("loginTimeout", 5));		// seconds, PG default 0
 		}
 
 		public Database setUser(String user) {
@@ -255,6 +271,21 @@ public class RowStoreConfig {
 			return this;
 		}
 
+		public Database setSocketTimeout(int socketTimeout) {
+			this.socketTimeout = socketTimeout;
+			return this;
+		}
+
+		public Database setConnectTimeout(int connectTimeout) {
+			this.connectTimeout = connectTimeout;
+			return this;
+		}
+
+		public Database setLoginTimeout(int loginTimeout) {
+			this.loginTimeout = loginTimeout;
+			return this;
+		}
+
 		public String getUser() {
 			return user;
 		}
@@ -289,6 +320,18 @@ public class RowStoreConfig {
 
 		public int getConnectionPoolMax() {
 			return connectionPoolMax;
+		}
+
+		public int getSocketTimeout() {
+			return socketTimeout;
+		}
+
+		public int getConnectTimeout() {
+			return connectTimeout;
+		}
+
+		public int getLoginTimeout() {
+			return loginTimeout;
 		}
 
 	}

@@ -77,9 +77,11 @@ public class PgRowStore implements RowStore {
 			if (config.getQueryDatabase().getConnectionPoolInit() > 0 && config.getQueryDatabase().getConnectionPoolMax() > 0) {
 				queryDatasource = initializeDataSource(new PGPoolingDataSource(), config.getQueryDatabase());
 				((PGPoolingDataSource) queryDatasource).setReadOnly(true);
+				((PGPoolingDataSource) queryDatasource).setReadOnlyMode("always");
 			} else {
 				queryDatasource = initializeDataSource(new PGSimpleDataSource(), config.getQueryDatabase());
 				((PGSimpleDataSource) queryDatasource).setReadOnly(true);
+				((PGSimpleDataSource) queryDatasource).setReadOnlyMode("always");
 			}
 		}
 
@@ -91,21 +93,22 @@ public class PgRowStore implements RowStore {
 			throw new IllegalArgumentException("Parameters must not be null");
 		}
 
-		if (dataSource instanceof  PGSimpleDataSource) {
-			PGSimpleDataSource ds = (PGSimpleDataSource) dataSource;
-			ds.setUser(dbConfig.getUser());
+		if (dataSource instanceof PGSimpleDataSource ds) {
+            ds.setUser(dbConfig.getUser());
 			ds.setPassword(dbConfig.getPassword());
 			ds.setServerName(dbConfig.getHost());
 			ds.setDatabaseName(dbConfig.getName());
-			ds.setPortNumber(dbConfig.getPort());
+			ds.setPortNumbers(new int[]{dbConfig.getPort()});
 			ds.setSsl(dbConfig.getSsl());
 			if (ds.getSsl()) {
 				ds.setSslMode("require");
 			}
 			ds.setLogUnclosedConnections(log.isDebugEnabled());
-		} else if (dataSource instanceof  PGPoolingDataSource) {
-			PGPoolingDataSource ds = (PGPoolingDataSource) dataSource;
-			ds.setPreparedStatementCacheQueries(100);
+			ds.setConnectTimeout(dbConfig.getConnectTimeout());
+			ds.setLoginTimeout(dbConfig.getLoginTimeout());
+			ds.setSocketTimeout(dbConfig.getSocketTimeout());
+		} else if (dataSource instanceof PGPoolingDataSource ds) {
+            ds.setPreparedStatementCacheQueries(100);
 			ds.setInitialConnections(dbConfig.getConnectionPoolInit());
 			ds.setMaxConnections(dbConfig.getConnectionPoolMax());
 			ds.setUser(dbConfig.getUser());
@@ -118,6 +121,9 @@ public class PgRowStore implements RowStore {
 				ds.setSslMode("require");
 			}
 			ds.setLogUnclosedConnections(log.isDebugEnabled());
+			ds.setConnectTimeout(dbConfig.getConnectTimeout());
+			ds.setLoginTimeout(dbConfig.getLoginTimeout());
+			ds.setSocketTimeout(dbConfig.getSocketTimeout());
 		}
 
 		return dataSource;

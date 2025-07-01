@@ -24,8 +24,6 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.PatternOptionBuilder;
-import org.apache.logging.log4j.Level;
-import org.apache.logging.log4j.core.config.Configurator;
 import org.restlet.Application;
 import org.restlet.Component;
 import org.restlet.Context;
@@ -120,8 +118,6 @@ public abstract class RowStoreApplicationStandalone extends Application {
             System.exit(1);
         }
 
-        configureLogging(cl.getOptionValue("log-level", "INFO"));
-
         Component component = new Component();
         Server server = component.getServers().add(Protocol.HTTP, port);
 
@@ -133,7 +129,7 @@ public abstract class RowStoreApplicationStandalone extends Application {
         }
         if (conParams != null) {
             for (String param : conParams.split(",")) {
-                if (param.length() > 0) {
+                if (!param.isEmpty()) {
                     String[] kv = param.split("=");
                     if (kv.length == 2) {
                         log.debug("Adding connector parameter: {}={}", kv[0], kv[1]);
@@ -153,7 +149,11 @@ public abstract class RowStoreApplicationStandalone extends Application {
         Context c = component.getContext().createChildContext();
 
         try {
-            component.getDefaultHost().attach(new RowStoreApplication(c, config));
+            RowStoreApplication rowStoreApplication = new RowStoreApplication(c, config);
+            if (cl.hasOption("log-level")) {
+                rowStoreApplication.setLogLevel(cl.getOptionValue("log-level", "INFO"));
+            }
+            component.getDefaultHost().attach(rowStoreApplication);
             component.start();
         } catch (Exception e) {
             log.error(e.getMessage(), e);
@@ -165,16 +165,6 @@ public abstract class RowStoreApplicationStandalone extends Application {
         formatter.setWidth(100);
         formatter.setLeftPadding(2);
         formatter.printHelp("rowstore", options,true);
-    }
-
-    private static void configureLogging(String logLevel) {
-        Level l = Level.toLevel(logLevel, Level.INFO);
-        Configurator.setRootLevel(l);
-        log.info("Log level set to " + l);
-    }
-
-    private static void out(String s) {
-        System.out.println(s);
     }
 
 }
