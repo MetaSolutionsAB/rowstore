@@ -12,6 +12,8 @@
 
 [ROWS-98](https://metasolutions.atlassian.net/browse/ROWS-98) Bump dependencies to newer versions
 
+[ROWS-99](https://metasolutions.atlassian.net/browse/ROWS-99) Remove support for Simple backend
+
 ## 1.6 (2024-02-07)
 
 ### New Feature
