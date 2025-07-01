@@ -11,15 +11,15 @@
     <packaging>pom</packaging>
 
     <properties>
-        <slf4j.version>2.0.12</slf4j.version>
-        <log4j.version>2.23.0</log4j.version>
-        <restlet.version>2.4.3</restlet.version>
-        <jetty.version>9.4.56.v20240826</jetty.version>
+        <slf4j.version>2.0.17</slf4j.version>
+        <log4j.version>2.25.0</log4j.version>
+        <restlet.version>2.5.1</restlet.version>
+        <jetty.version>9.4.57.v20241219</jetty.version>
         <servlet.version>3.1.0</servlet.version>
-        <opencsv.version>5.9</opencsv.version>
-        <postgresql.version>42.7.4</postgresql.version>
-        <jsonorg.version>20240303</jsonorg.version>
-        <guava.version>33.3.1-jre</guava.version>
+        <opencsv.version>5.11.2</opencsv.version>
+        <postgresql.version>42.7.7</postgresql.version>
+        <jsonorg.version>20250517</jsonorg.version>
+        <guava.version>33.4.8-jre</guava.version>
         <license.licenseName>apache_v2</license.licenseName>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

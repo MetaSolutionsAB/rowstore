@@ -71,7 +71,7 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.restlet.jse</groupId>
+            <groupId>org.restlet</groupId>
             <artifactId>org.restlet.ext.jetty</artifactId>
             <version>${restlet.version}</version>
         </dependency>
