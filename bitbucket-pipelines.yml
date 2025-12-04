@@ -11,32 +11,34 @@ stepdefinitions:
       script:
         - java -version
         - mvn --version
-        - mvn clean install
+        - mvn clean install -DskipITs
         - rm -rf ~/.m2/repository/org/entrystore/
       artifacts:
         - standalone/jetty/target/**
+        - webapp/target/*.jar
+        - webapp/target/*.war
   - testpg: &testpg
       name: Integration Test PostgreSQL
+      caches:
+        - maven
+        - docker
       script:
-        - chmod +x standalone/jetty/target/dist/bin/rowstore
-        - standalone/jetty/target/dist/bin/rowstore --config file://$PWD/tests/rowstore_tests_postgres.json --port 8282 &
-        - sleep 5
-        - cd tests
-        - npm install -g jasmine-node
-        - npm install frisby@0.8.5
-        - jasmine-node .
+        - java -version
+        - mvn --version
+        - cd webapp
+        - mvn verify -Dsurefire.skip=true
       services:
-        - postgres
+        - docker
   - testcr: &testcr
       name: Integration Test CockroachDB
+      caches:
+        - maven
       script:
         - chmod +x standalone/jetty/target/dist/bin/rowstore
         - standalone/jetty/target/dist/bin/rowstore --config tests/rowstore_tests_cockroach.json --port 8282 &
         - sleep 5
-        - cd tests
-        - npm install -g jasmine-node
-        - npm install frisby@0.8.5
-        - jasmine-node .
+        - cd webapp
+        - mvn verify -Dsurefire.skip=true -Drowstore.baseUrl=http://localhost:8282
       services:
         - cockroach
   - deploy: &deploy
@@ -95,11 +97,5 @@ pipelines:
 
 definitions:
   services:
-    postgres:
-      image: postgres:12
-      variables:
-        POSTGRES_DB: 'rowstoretest'
-        POSTGRES_USER: 'rowstoretest'
-        POSTGRES_PASSWORD: 'rowstoretestpw'
     cockroach:
       image: metasolutions/crdb-single-insecure
