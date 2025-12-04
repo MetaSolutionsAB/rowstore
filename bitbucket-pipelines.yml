@@ -25,6 +25,7 @@ stepdefinitions:
       script:
         - java -version
         - mvn --version
+        - export TESTCONTAINERS_RYUK_DISABLED=true
         - cd webapp
         - mvn verify -Dsurefire.skip=true
       services:
