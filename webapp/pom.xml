@@ -15,6 +15,15 @@
         <version>1.8-SNAPSHOT</version>
     </parent>
 
+    <properties>
+        <junit.version>5.10.2</junit.version>
+        <rest-assured.version>5.4.0</rest-assured.version>
+        <assertj.version>3.25.3</assertj.version>
+        <awaitility.version>4.2.0</awaitility.version>
+        <testcontainers.version>1.20.4</testcontainers.version>
+        <docker-java.version>3.5.1</docker-java.version>
+    </properties>
+
     <build>
         <resources>
             <resource>
@@ -27,6 +36,7 @@
                 <includes>
                     <include>**/*.xml</include>
                     <include>**/*.properties</include>
+                    <include>**/*.csv</include>
                 </includes>
             </testResource>
         </testResources>
@@ -66,6 +76,42 @@
                             <version>${project.version}</version>
                             <file>${project.build.directory}/${project.artifactId}-${project.version}.jar</file>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <environmentVariables>
+                        <DOCKER_API_VERSION>1.44</DOCKER_API_VERSION>
+                    </environmentVariables>
+                    <argLine>-Dapi.version=1.44</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <includes>
+                        <include>**/*IT.java</include>
+                    </includes>
+                    <systemPropertyVariables>
+                        <rowstore.baseUrl>${rowstore.test.baseUrl}</rowstore.baseUrl>
+                    </systemPropertyVariables>
+                    <environmentVariables>
+                        <DOCKER_API_VERSION>1.44</DOCKER_API_VERSION>
+                    </environmentVariables>
+                    <argLine>-Dapi.version=1.44</argLine>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>
@@ -168,6 +214,69 @@
             <groupId>com.github.albfernandez</groupId>
             <artifactId>juniversalchardet</artifactId>
             <version>2.5.0</version>
+        </dependency>
+
+        <!-- Test dependencies -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <version>${rest-assured.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>${assertj.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>${awaitility.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.restlet</groupId>
+            <artifactId>org.restlet.ext.jetty</artifactId>
+            <version>${restlet.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Force newer docker-java for Docker 29+ compatibility -->
+        <dependency>
+            <groupId>com.github.docker-java</groupId>
+            <artifactId>docker-java-api</artifactId>
+            <version>${docker-java.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.docker-java</groupId>
+            <artifactId>docker-java-transport-zerodep</artifactId>
+            <version>${docker-java.version}</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

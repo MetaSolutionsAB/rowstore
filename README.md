@@ -171,6 +171,59 @@ standalone/target/dist/bin/rowstore <path-to-configuration.json> [port-number]
 
 The port number is optional, by default port 8282 is used.
 
+## Testing
+
+### Java Integration Tests (Recommended)
+
+Integration tests use Testcontainers to automatically start a disposable PostgreSQL database and an embedded RowStore server. **Requires Docker to be running.**
+
+```
+cd webapp
+mvn verify
+```
+
+Run a single test class:
+
+```
+mvn verify -Dit.test=StatusIT
+```
+
+To run tests against an external RowStore instance (skips automatic setup):
+
+```
+mvn verify -Drowstore.baseUrl=http://localhost:8282
+```
+
+### JavaScript Tests (Frisby/Jasmine)
+
+The legacy JavaScript tests require manual setup:
+
+1. Create a PostgreSQL database:
+
+```sql
+CREATE DATABASE rowstoretest;
+CREATE USER rowstoretest WITH PASSWORD 'rowstoretestpw';
+GRANT ALL PRIVILEGES ON DATABASE rowstoretest TO rowstoretest;
+```
+
+2. Start RowStore:
+
+```
+standalone/jetty/target/dist/bin/rowstore --config tests/rowstore_tests_postgres.json --port 8282 &
+```
+
+3. Run tests:
+
+```
+cd tests
+npm install frisby@0.8.5
+jasmine-node .
+```
+
+### Test Specifications
+
+Framework-agnostic test specifications are available in `tests/specs/`. These can be used to implement tests in other languages or frameworks.
+
 ## Security
 
 RowStore provides a private REST API (for data management) as well as a public REST API (for data retrieval). Currently RowStore does not provide any own security mechanism and it is recommended that the private API is protected by a web server/reverse proxy with authentication features such as Apache HTTPD.
