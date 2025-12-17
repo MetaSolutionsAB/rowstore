@@ -100,13 +100,14 @@ public class PgRowStore implements RowStore {
 			ds.setDatabaseName(dbConfig.getName());
 			ds.setPortNumbers(new int[]{dbConfig.getPort()});
 			ds.setSsl(dbConfig.getSsl());
-			if (ds.getSsl()) {
-				ds.setSslMode("require");
-			}
+			ds.setSslMode(dbConfig.getSsl() ? "require" : "disable");
 			ds.setLogUnclosedConnections(log.isDebugEnabled());
 			ds.setConnectTimeout(dbConfig.getConnectTimeout());
 			ds.setLoginTimeout(dbConfig.getLoginTimeout());
 			ds.setSocketTimeout(dbConfig.getSocketTimeout());
+			log.debug("Configured PGSimpleDataSource: host={}, port={}, database={}, ssl={}, sslMode={}, connectTimeout={}",
+					dbConfig.getHost(), dbConfig.getPort(), dbConfig.getName(), dbConfig.getSsl(),
+					ds.getSslMode(), dbConfig.getConnectTimeout());
 		} else if (dataSource instanceof PGPoolingDataSource ds) {
             ds.setPreparedStatementCacheQueries(100);
 			ds.setInitialConnections(dbConfig.getConnectionPoolInit());
@@ -117,9 +118,7 @@ public class PgRowStore implements RowStore {
 			ds.setDatabaseName(dbConfig.getName());
 			ds.setPortNumber(dbConfig.getPort());
 			ds.setSsl(dbConfig.getSsl());
-			if (ds.getSsl()) {
-				ds.setSslMode("require");
-			}
+			ds.setSslMode(dbConfig.getSsl() ? "require" : "disable");
 			ds.setLogUnclosedConnections(log.isDebugEnabled());
 			ds.setConnectTimeout(dbConfig.getConnectTimeout());
 			ds.setLoginTimeout(dbConfig.getLoginTimeout());
