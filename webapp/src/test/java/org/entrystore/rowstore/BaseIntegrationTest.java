@@ -26,9 +26,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.equalTo;
 
@@ -176,7 +179,7 @@ public abstract class BaseIntegrationTest {
     }
 
     /**
-     * Deletes a dataset.
+     * Deletes a dataset and verifies it returns 204 status.
      *
      * @param datasetUrl the dataset URL
      */
@@ -185,6 +188,141 @@ public abstract class BaseIntegrationTest {
                 .delete(datasetUrl)
                 .then()
                 .statusCode(204);
+    }
+
+    /**
+     * Deletes a dataset, verifying both the 204 status and that the dataset
+     * is no longer accessible (returns 404).
+     *
+     * @param datasetUrl the dataset URL
+     */
+    protected void deleteDatasetAndVerify(String datasetUrl) {
+        // Delete and verify 204
+        given()
+                .delete(datasetUrl)
+                .then()
+                .statusCode(204);
+
+        // Verify dataset no longer exists
+        given()
+                .spec(jsonSpec)
+                .get(datasetUrl + "/info")
+                .then()
+                .statusCode(404);
+    }
+
+    /**
+     * Creates a new dataset from a CSV file and waits for it to become available.
+     *
+     * @param csvData the CSV data as bytes
+     * @return a DatasetUrls object containing the dataset and info URLs
+     */
+    protected DatasetUrls createDatasetAndWait(byte[] csvData) {
+        Response response = createDataset(csvData);
+
+        response.then()
+                .statusCode(202)
+                .contentType(ContentType.JSON);
+
+        String datasetUrl = getDatasetUrl(response);
+        String infoUrl = getInfoUrl(response);
+        String datasetId = response.jsonPath().getString("id");
+
+        waitForDatasetAvailable(infoUrl);
+
+        return new DatasetUrls(datasetUrl, infoUrl, datasetId);
+    }
+
+    /**
+     * Waits for a dataset to reach a specific status.
+     *
+     * @param infoUrl the URL to the dataset's info endpoint
+     * @param expectedStatus the expected ETL status code
+     */
+    protected void waitForStatus(String infoUrl, int expectedStatus) {
+        await()
+                .atMost(MAX_WAIT)
+                .pollInterval(POLL_INTERVAL)
+                .untilAsserted(() ->
+                        given()
+                                .spec(jsonSpec)
+                                .get(infoUrl)
+                                .then()
+                                .body("status", equalTo(expectedStatus))
+                );
+    }
+
+    /**
+     * Loads a test data file from the classpath and returns it as a String.
+     *
+     * @param filename the name of the file in the data directory
+     * @return the file contents as a String
+     */
+    protected String loadTestDataAsString(String filename) {
+        return new String(loadTestData(filename), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Verifies that a JSON response contains expected fields.
+     *
+     * @param response the response to verify
+     * @param expectedFields the field names that should be present
+     */
+    protected void assertJsonContainsFields(Response response, String... expectedFields) {
+        for (String field : expectedFields) {
+            Object value = response.jsonPath().get(field);
+            assertThat(value)
+                    .as("Response should contain field: " + field)
+                    .isNotNull();
+        }
+    }
+
+    /**
+     * Gets the current dataset count from the status endpoint.
+     *
+     * @return the number of datasets
+     */
+    protected int getDatasetCount() {
+        return given()
+                .spec(jsonSpec)
+                .get("/status")
+                .then()
+                .statusCode(200)
+                .extract()
+                .jsonPath()
+                .getInt("datasets");
+    }
+
+    /**
+     * Gets the list of all datasets.
+     *
+     * @return the list of dataset URLs
+     */
+    @SuppressWarnings("unchecked")
+    protected List<String> getDatasetsList() {
+        return given()
+                .spec(jsonSpec)
+                .get("/datasets")
+                .then()
+                .statusCode(200)
+                .extract()
+                .jsonPath()
+                .getList("");
+    }
+
+    /**
+     * Container class for dataset URLs returned after creation.
+     */
+    protected static class DatasetUrls {
+        public final String datasetUrl;
+        public final String infoUrl;
+        public final String datasetId;
+
+        public DatasetUrls(String datasetUrl, String infoUrl, String datasetId) {
+            this.datasetUrl = datasetUrl;
+            this.infoUrl = infoUrl;
+            this.datasetId = datasetId;
+        }
     }
 
 }

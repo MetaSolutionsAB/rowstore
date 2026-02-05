@@ -17,10 +17,14 @@
 package org.entrystore.rowstore;
 
 import io.restassured.http.ContentType;
+import io.restassured.response.Response;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.instanceOf;
 
 /**
@@ -31,19 +35,27 @@ import static org.hamcrest.Matchers.instanceOf;
 class StatusIT extends BaseIntegrationTest {
 
     @Test
-    @DisplayName("TC-STATUS-001: GET status returns valid structure")
+    @DisplayName("TC-STATUS-001: GET status returns valid structure with correct values")
     void getStatus_returnsValidStructure() {
-        given()
+        Response response = given()
                 .spec(jsonSpec)
         .when()
                 .get("/status")
         .then()
                 .statusCode(200)
                 .contentType(ContentType.JSON)
-                .body("service", instanceOf(String.class))
+                .body("service", equalTo("RowStore"))
                 .body("datasets", instanceOf(Integer.class))
+                .body("datasets", greaterThanOrEqualTo(0))
                 .body("activeEtlProcesses", instanceOf(Integer.class))
-                .body("version", instanceOf(String.class));
+                .body("activeEtlProcesses", greaterThanOrEqualTo(0))
+                .body("version", instanceOf(String.class))
+                .extract()
+                .response();
+
+        // Additional AssertJ validations for complex assertions
+        String version = response.jsonPath().getString("version");
+        assertThat(version).isNotEmpty();
     }
 
 }

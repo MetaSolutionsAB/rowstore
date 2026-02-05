@@ -16,6 +16,7 @@
 
 package org.entrystore.rowstore;
 
+import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -27,7 +28,10 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
 
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.notNullValue;
 
 /**
@@ -59,30 +63,60 @@ class DatasetCorruptIT extends BaseIntegrationTest {
 
         datasetUrl = getDatasetUrl(response);
         infoUrl = getInfoUrl(response);
+
+        // Wait for error status before running tests
+        waitForDatasetError(infoUrl);
     }
 
     @AfterAll
     void cleanup() {
         if (datasetUrl != null) {
-            // Attempt cleanup - may fail if dataset is in error state
-            given().delete(datasetUrl);
+            // Delete dataset in error state - should still return 204
+            given().delete(datasetUrl)
+                    .then()
+                    .statusCode(204);
         }
     }
 
     @Test
     @Order(1)
-    @DisplayName("TC-DATASET4-001: Corrupt CSV is accepted for processing")
-    void corruptCsvAccepted() {
-        // Verified in @BeforeAll - creation returned 202
-        // The file is accepted initially; error occurs during async ETL processing
+    @DisplayName("TC-DATASET4-001: Corrupt CSV is accepted for processing (async error model)")
+    void corruptCsvAccepted_asyncErrorModel() {
+        // Test that corrupt CSV is initially accepted with 202
+        // This demonstrates the async error model: files are accepted for processing,
+        // errors are detected during ETL and reflected in status
+
+        byte[] csvData = loadTestData(TEST_FILE);
+        Response response = given()
+                .spec(csvSpec)
+                .body(csvData)
+        .when()
+                .post("/datasets");
+
+        // Verify 202 Accepted - corrupt file is accepted for processing
+        response.then()
+                .statusCode(202)
+                .contentType(ContentType.JSON)
+                .body("id", notNullValue())
+                .body("url", notNullValue())
+                .body("url", containsString("/dataset/"))
+                .body("info", notNullValue())
+                .body("status", instanceOf(Integer.class));
+
+        // Verify Location header is present
+        assertThat(response.getHeader("Location")).isNotNull();
+
+        // Wait for error and cleanup
+        String testUrl = response.jsonPath().getString("url");
+        String testInfoUrl = response.jsonPath().getString("info");
+        waitForDatasetError(testInfoUrl);
+        given().delete(testUrl).then().statusCode(204);
     }
 
     @Test
     @Order(2)
     @DisplayName("TC-DATASET4-002: Dataset status shows ERROR after processing")
     void datasetStatus_showsError() {
-        waitForDatasetError(infoUrl);
-
         given()
                 .spec(jsonSpec)
         .when()
@@ -90,6 +124,55 @@ class DatasetCorruptIT extends BaseIntegrationTest {
         .then()
                 .statusCode(200)
                 .body("status", equalTo(ETL_STATUS_ERROR));
+    }
+
+    @Test
+    @Order(3)
+    @DisplayName("TC-DATASET4-003: Query dataset in ERROR state (behavior check)")
+    void queryErrorDataset_behaviorCheck() {
+        // Note: The application intentionally allows queries on ERROR status datasets
+        // because an error might occur during an update while the dataset still has
+        // valid data from before the failed operation. This is documented behavior.
+        // We verify the response is either 200 (data available) or 424 (no data)
+        int statusCode = given()
+                .spec(jsonSpec)
+        .when()
+                .get(datasetUrl)
+        .then()
+                .extract()
+                .statusCode();
+
+        // Either the dataset has no data (returns 200 with empty results)
+        // or it may return data from a previous successful load
+        assertThat(statusCode).isIn(200, 424);
+    }
+
+    @Test
+    @Order(4)
+    @DisplayName("TC-DATASET4-004: Delete dataset in ERROR state succeeds")
+    void deleteErrorDataset_succeeds() {
+        // Create another corrupt dataset specifically for delete test
+        byte[] csvData = loadTestData(TEST_FILE);
+        Response response = createDataset(csvData);
+
+        String deleteUrl = response.jsonPath().getString("url");
+        String deleteInfoUrl = response.jsonPath().getString("info");
+
+        // Wait for error status
+        waitForDatasetError(deleteInfoUrl);
+
+        // Delete should succeed with 204
+        given()
+                .delete(deleteUrl)
+        .then()
+                .statusCode(204);
+
+        // Verify dataset no longer exists
+        given()
+                .spec(jsonSpec)
+                .get(deleteInfoUrl)
+        .then()
+                .statusCode(404);
     }
 
 }

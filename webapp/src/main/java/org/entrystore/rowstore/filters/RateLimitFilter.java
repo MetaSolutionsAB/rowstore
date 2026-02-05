@@ -121,33 +121,40 @@ public class RateLimitFilter extends Filter {
 		try {
 			if (rateLimitTypeSlidingWindow) {
 				// Checking for global rate limit
-				Cache<Date, Object> globalWindow = slidingWindows.get("global", loader);
-				globalWindow.cleanUp();
-				if (globalWindow.size() >= config.getRateLimitRequestsGlobal()) {
-					log.debug("Request rate limit reached globally");
-					return calculateRetryAfter(globalWindow);
+				// Only check if limit is configured (> 0), otherwise skip
+				if (config.getRateLimitRequestsGlobal() > 0) {
+					Cache<Date, Object> globalWindow = slidingWindows.get("global", loader);
+					globalWindow.cleanUp();
+					if (globalWindow.size() >= config.getRateLimitRequestsGlobal()) {
+						log.debug("Request rate limit reached globally");
+						return calculateRetryAfter(globalWindow);
+					}
+					globalWindow.put(new Date(), dummy);
 				}
 
 				// Checking for per-dataset rate limit
-				Cache<Date, Object> datasetWindow = slidingWindows.get(dataset, loader);
-				datasetWindow.cleanUp();
-				if (datasetWindow.size() >= config.getRateLimitRequestsDataset()) {
-					log.debug("Request rate limit reached for " + dataset);
-					return calculateRetryAfter(datasetWindow);
+				// Only check if limit is configured (> 0), otherwise skip
+				if (config.getRateLimitRequestsDataset() > 0) {
+					Cache<Date, Object> datasetWindow = slidingWindows.get(dataset, loader);
+					datasetWindow.cleanUp();
+					if (datasetWindow.size() >= config.getRateLimitRequestsDataset()) {
+						log.debug("Request rate limit reached for " + dataset);
+						return calculateRetryAfter(datasetWindow);
+					}
+					datasetWindow.put(new Date(), dummy);
 				}
 
 				// Checking for per-client IP rate limit
-				Cache<Date, Object> clientIPWindow = slidingWindows.get(clientIP, loader);
-				clientIPWindow.cleanUp();
-				if (clientIPWindow.size() >= config.getRateLimitRequestsClientIP()) {
-					log.debug("Request rate limit reached for client IP " + clientIP);
-					return calculateRetryAfter(clientIPWindow);
+				// Only check if limit is configured (> 0), otherwise skip
+				if (config.getRateLimitRequestsClientIP() > 0) {
+					Cache<Date, Object> clientIPWindow = slidingWindows.get(clientIP, loader);
+					clientIPWindow.cleanUp();
+					if (clientIPWindow.size() >= config.getRateLimitRequestsClientIP()) {
+						log.debug("Request rate limit reached for client IP " + clientIP);
+						return calculateRetryAfter(clientIPWindow);
+					}
+					clientIPWindow.put(new Date(), dummy);
 				}
-
-				Date now = new Date();
-				globalWindow.put(now, dummy);
-				datasetWindow.put(now, dummy);
-				clientIPWindow.put(now, dummy);
 			} else {
 				// Checking for global rate limit
 				if (config.getRateLimitRequestsGlobal() > 0 &&

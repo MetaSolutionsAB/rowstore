@@ -30,6 +30,8 @@ import org.junit.jupiter.api.TestMethodOrder;
 import java.util.List;
 
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.notNullValue;
@@ -72,16 +74,45 @@ class DatasetSemicolonIT extends BaseIntegrationTest {
     @AfterAll
     void cleanup() {
         if (datasetUrl != null) {
-            given().delete(datasetUrl);
+            given().delete(datasetUrl)
+                    .then()
+                    .statusCode(204);
         }
     }
 
     @Test
     @Order(1)
-    @DisplayName("TC-DATASET2-001: Dataset created from semicolon CSV")
+    @DisplayName("TC-DATASET2-001: Dataset created from semicolon CSV with proper response")
     void datasetCreated() {
-        // Verified in @BeforeAll - creation returned 202
-        // This test confirms the dataset is available
+        // Verify creation assertions for semicolon delimiter detection
+        // Create a fresh dataset to test creation response
+        byte[] csvData = loadTestData(TEST_FILE);
+        Response response = given()
+                .spec(csvSpec)
+                .body(csvData)
+        .when()
+                .post("/datasets");
+
+        // Verify 202 response structure per spec
+        response.then()
+                .statusCode(202)
+                .contentType(ContentType.JSON)
+                .body("id", notNullValue())
+                .body("url", notNullValue())
+                .body("url", containsString("/dataset/"))
+                .body("info", notNullValue())
+                .body("status", instanceOf(Integer.class));
+
+        // Verify Location header
+        assertThat(response.getHeader("Location")).isNotNull();
+
+        // Clean up test dataset
+        String testUrl = response.jsonPath().getString("url");
+        String testInfoUrl = response.jsonPath().getString("info");
+        waitForDatasetAvailable(testInfoUrl);
+        deleteDataset(testUrl);
+
+        // Also verify main dataset is available (from @BeforeAll)
         given()
                 .spec(jsonSpec)
         .when()
@@ -93,9 +124,9 @@ class DatasetSemicolonIT extends BaseIntegrationTest {
 
     @Test
     @Order(2)
-    @DisplayName("TC-DATASET2-002: GET dataset info shows correct row count")
-    void getDatasetInfo_correctRowCount() {
-        given()
+    @DisplayName("TC-DATASET2-002: GET dataset info shows correct columns parsed from semicolon CSV")
+    void getDatasetInfo_correctColumnsAndRowCount() {
+        Response response = given()
                 .spec(jsonSpec)
         .when()
                 .get(infoUrl)
@@ -104,7 +135,13 @@ class DatasetSemicolonIT extends BaseIntegrationTest {
                 .contentType(ContentType.JSON)
                 .body("rowcount", equalTo(5))
                 .body("status", equalTo(ETL_STATUS_AVAILABLE))
-                .body("columnnames", instanceOf(List.class));
+                .body("columnnames", instanceOf(List.class))
+                .extract()
+                .response();
+
+        // Verify columns were parsed correctly from semicolon-delimited CSV
+        List<String> columnNames = response.jsonPath().getList("columnnames");
+        assertThat(columnNames).containsExactlyInAnyOrder("name", "telephone", "some other column", "comment");
     }
 
     @Test

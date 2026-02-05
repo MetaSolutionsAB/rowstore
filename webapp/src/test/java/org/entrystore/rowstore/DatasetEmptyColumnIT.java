@@ -28,8 +28,11 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
 
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.notNullValue;
 
 /**
@@ -68,14 +71,44 @@ class DatasetEmptyColumnIT extends BaseIntegrationTest {
     @AfterAll
     void cleanup() {
         if (datasetUrl != null) {
-            given().delete(datasetUrl);
+            given().delete(datasetUrl)
+                    .then()
+                    .statusCode(204);
         }
     }
 
     @Test
     @Order(1)
-    @DisplayName("TC-DATASET5-001: Dataset created from CSV with empty column labels")
-    void datasetCreated() {
+    @DisplayName("TC-DATASET5-001: Dataset created from CSV with empty column labels (edge case handling)")
+    void datasetCreated_edgeCaseHandling() {
+        // Test creation assertions for edge case handling
+        byte[] csvData = loadTestData(TEST_FILE);
+        Response response = given()
+                .spec(csvSpec)
+                .body(csvData)
+        .when()
+                .post("/datasets");
+
+        // Verify 202 response structure per spec
+        response.then()
+                .statusCode(202)
+                .contentType(ContentType.JSON)
+                .body("id", notNullValue())
+                .body("url", notNullValue())
+                .body("url", containsString("/dataset/"))
+                .body("info", notNullValue())
+                .body("status", instanceOf(Integer.class));
+
+        // Verify Location header
+        assertThat(response.getHeader("Location")).isNotNull();
+
+        // Clean up test dataset
+        String testUrl = response.jsonPath().getString("url");
+        String testInfoUrl = response.jsonPath().getString("info");
+        waitForDatasetAvailable(testInfoUrl);
+        deleteDataset(testUrl);
+
+        // Also verify main dataset is available
         given()
                 .spec(jsonSpec)
         .when()
@@ -99,6 +132,23 @@ class DatasetEmptyColumnIT extends BaseIntegrationTest {
                 .statusCode(200)
                 .contentType(ContentType.JSON)
                 .body("columnnames", hasSize(4));
+    }
+
+    @Test
+    @Order(3)
+    @DisplayName("TC-DATASET5-003: Dataset with empty column labels is queryable")
+    void datasetWithEmptyColumns_isQueryable() {
+        // Verify the dataset is queryable despite having empty column labels
+        Response response = given()
+                .spec(jsonSpec)
+        .when()
+                .get(datasetUrl);
+
+        response.then()
+                .statusCode(200)
+                .contentType(ContentType.JSON)
+                .body("results", notNullValue())
+                .body("resultCount", equalTo(5));
     }
 
 }
