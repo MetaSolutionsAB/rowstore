@@ -101,6 +101,18 @@ Queries support regex matching (configurable: disabled/simple/full). Simple mode
 
 Set via `rowstore.json` or `ROWSTORE_CONFIG_URI` environment variable. Key settings: `baseurl`, `regexpqueries`, `maxetlprocesses`, `querytimeout`, `querymaxlimit`, `database`, `queryDatabase` (read replica), `ratelimit`.
 
+## Specification Requirement IDs
+
+Spec files in `specs/` use permanent requirement IDs in the format `{PREFIX}-{section}.{number}`
+(e.g., API-3.02, SEC-4.01). These IDs are referenced from code comments, issues, and other docs.
+
+Rules:
+- Existing IDs must NEVER be changed — new requirements always use the next available number
+- New requirements within a section: use next number (e.g., after SEC-4.06, add SEC-4.07)
+- New sections: use next section number (e.g., after ARCH-6, add ARCH-7)
+- Removed requirements keep their ID with [REMOVED] marker — never reassign
+- See specs/README.md for the full ID registry and prefix table
+
 ## Git Commits
 
 Do not include any AI or agentic involvement information in commits. Specifically:
