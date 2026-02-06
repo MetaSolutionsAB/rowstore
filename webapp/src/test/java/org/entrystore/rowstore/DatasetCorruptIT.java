@@ -142,9 +142,8 @@ class DatasetCorruptIT extends BaseIntegrationTest {
                 .extract()
                 .statusCode();
 
-        // Either the dataset has no data (returns 200 with empty results)
-        // or it may return data from a previous successful load
-        assertThat(statusCode).isIn(200, 424);
+        // Dataset in ERROR state returns 200 (may have partial or no data)
+        assertThat(statusCode).isEqualTo(200);
     }
 
     @Test

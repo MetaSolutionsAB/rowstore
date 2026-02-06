@@ -96,7 +96,10 @@ public class RegexDisabledExtension implements BeforeAllCallback, ExecutionCondi
         if (externalUrl != null && !externalUrl.isEmpty()) {
             return externalUrl;
         }
-        return environment != null ? environment.getBaseUrl() : null;
+        if (environment == null) {
+            throw new IllegalStateException("RegexDisabledExtension has not been initialized");
+        }
+        return environment.getBaseUrl();
     }
 
     private boolean isDockerAvailable() {

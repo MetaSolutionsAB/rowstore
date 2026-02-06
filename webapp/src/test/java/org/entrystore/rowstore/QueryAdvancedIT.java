@@ -97,13 +97,8 @@ class QueryAdvancedIT extends BaseIntegrationTest {
         .when()
                 .get(datasetUrl);
 
-        // Empty filter may return 400 (invalid) or 200 (valid)
-        assertThat(response.getStatusCode()).isIn(200, 400);
-
-        if (response.getStatusCode() == 200) {
-            int resultCount = response.jsonPath().getInt("resultCount");
-            assertThat(resultCount).isGreaterThanOrEqualTo(0);
-        }
+        // Empty filter value is rejected as invalid
+        assertThat(response.getStatusCode()).isEqualTo(400);
     }
 
     @Test
@@ -160,36 +155,31 @@ class QueryAdvancedIT extends BaseIntegrationTest {
                 .body("results", hasSize(0))
                 .body("offset", equalTo(1000));
 
-        // resultCount may show 0 (count of current page) or 5 (total matching)
-        // depending on implementation
+        // resultCount shows 0 when offset is beyond all results
         int resultCount = response.jsonPath().getInt("resultCount");
-        assertThat(resultCount).isIn(0, 5);
+        assertThat(resultCount).isEqualTo(0);
     }
 
     @Test
-    @Order(5)
+    @Order(6)
     @DisplayName("TC-QUERY-006: Zero limit behavior")
     void zeroLimit_behavior() {
-        // Zero limit should be treated as invalid or use default
+        // Zero limit is accepted and treated as default limit
         Response response = given()
                 .spec(jsonSpec)
                 .queryParam("_limit", 0)
         .when()
                 .get(datasetUrl);
 
-        // Should either return 400 (invalid) or use default limit
-        int status = response.getStatusCode();
-        assertThat(status).isIn(200, 400);
+        assertThat(response.getStatusCode()).isEqualTo(200);
 
-        if (status == 200) {
-            // If accepted, should return all results (using default limit)
-            int resultCount = response.jsonPath().getInt("results.size()");
-            assertThat(resultCount).isGreaterThan(0);
-        }
+        // Should return all results (using default limit)
+        int resultCount = response.jsonPath().getInt("results.size()");
+        assertThat(resultCount).isGreaterThan(0);
     }
 
     @Test
-    @Order(6)
+    @Order(7)
     @DisplayName("TC-QUERY-007: Negative limit behavior")
     void negativeLimit_behavior() {
         Response response = given()
@@ -198,12 +188,12 @@ class QueryAdvancedIT extends BaseIntegrationTest {
         .when()
                 .get(datasetUrl);
 
-        // Negative limit may be treated as invalid (400) or as default (200)
-        assertThat(response.getStatusCode()).isIn(200, 400);
+        // Negative limit is accepted and treated as default limit
+        assertThat(response.getStatusCode()).isEqualTo(200);
     }
 
     @Test
-    @Order(7)
+    @Order(8)
     @DisplayName("TC-QUERY-008: Negative offset behavior")
     void negativeOffset_behavior() {
         Response response = given()
@@ -212,18 +202,14 @@ class QueryAdvancedIT extends BaseIntegrationTest {
         .when()
                 .get(datasetUrl);
 
-        // Negative offset may be treated as invalid (400) or as 0 (200)
-        assertThat(response.getStatusCode()).isIn(200, 400);
-
-        if (response.getStatusCode() == 200) {
-            // If accepted, should be treated as offset=0
-            int offset = response.jsonPath().getInt("offset");
-            assertThat(offset).isIn(0, -5);  // Either corrected to 0 or echoed back
-        }
+        // Negative offset is accepted and corrected to 0
+        assertThat(response.getStatusCode()).isEqualTo(200);
+        int offset = response.jsonPath().getInt("offset");
+        assertThat(offset).isEqualTo(0);
     }
 
     @Test
-    @Order(8)
+    @Order(9)
     @DisplayName("TC-QUERY-009: Non-numeric limit returns 400")
     void nonNumericLimit_returns400() {
         given()
@@ -236,7 +222,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
     }
 
     @Test
-    @Order(9)
+    @Order(10)
     @DisplayName("TC-QUERY-010: Prev/next links generation")
     void prevNextLinks_generation() {
         // First page - should have next but no prev
@@ -256,7 +242,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
     }
 
     @Test
-    @Order(10)
+    @Order(11)
     @DisplayName("TC-QUERY-011: Prev link absent on first page")
     void prevLinkAbsent_onFirstPage() {
         Response response = given()
@@ -273,7 +259,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
     }
 
     @Test
-    @Order(11)
+    @Order(12)
     @DisplayName("TC-QUERY-012: Next link absent on last page")
     void nextLinkAbsent_onLastPage() {
         // Go to last page
@@ -292,7 +278,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
     }
 
     @Test
-    @Order(12)
+    @Order(13)
     @DisplayName("TC-QUERY-013: Format parameter content negotiation")
     void formatParameter_contentNegotiation() {
         // Using Accept header for content negotiation (more standard)
@@ -306,7 +292,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
     }
 
     @Test
-    @Order(13)
+    @Order(14)
     @DisplayName("TC-QUERY-014: queryTime field present and valid")
     void queryTime_presentAndValid() {
         given()
@@ -320,7 +306,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
     }
 
     @Test
-    @Order(14)
+    @Order(15)
     @DisplayName("TC-QUERY-015: Default query returns all rows")
     void defaultQuery_returnsAllRows() {
         given()
@@ -335,7 +321,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
     }
 
     @Test
-    @Order(15)
+    @Order(16)
     @DisplayName("TC-QUERY-016: Response includes standard fields")
     void response_includesStandardFields() {
         given()
@@ -349,5 +335,33 @@ class QueryAdvancedIT extends BaseIntegrationTest {
                 .body("offset", notNullValue())
                 .body("limit", notNullValue())
                 .body("queryTime", notNullValue());
+    }
+
+    @Test
+    @Order(17)
+    @DisplayName("TC-QUERY-017: Middle page has both prev and next links")
+    void middlePage_hasBothPrevAndNextLinks() {
+        // Page 2 of 3 (5 rows, limit=2, offset=2) should have both prev and next
+        Response response = given()
+                .spec(jsonSpec)
+                .queryParam("_limit", 2)
+                .queryParam("_offset", 2)
+        .when()
+                .get(datasetUrl);
+
+        response.then()
+                .statusCode(200)
+                .body("results", hasSize(2))
+                .body("offset", equalTo(2))
+                .body("limit", equalTo(2));
+
+        String prev = response.jsonPath().getString("prev");
+        String next = response.jsonPath().getString("next");
+
+        assertThat(prev).as("Middle page should have prev link").isNotNull();
+        assertThat(prev).contains("_offset=0");
+
+        assertThat(next).as("Middle page should have next link").isNotNull();
+        assertThat(next).contains("_offset=4");
     }
 }

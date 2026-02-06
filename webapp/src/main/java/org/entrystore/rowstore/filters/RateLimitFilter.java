@@ -64,8 +64,8 @@ public class RateLimitFilter extends Filter {
 		}
 
 		this.config = config;
-		if (config.getRateLimitTimeRange() != -1 &&
-				(config.getRateLimitRequestsGlobal() != -1 || config.getRateLimitRequestsDataset() != -1)) {
+		if (config.getRateLimitTimeRange() > 0 &&
+				(config.getRateLimitRequestsGlobal() > 0 || config.getRateLimitRequestsDataset() > 0)) {
 			rateLimitFilterEnabled = true;
 			rateLimitTypeSlidingWindow = !"average".equalsIgnoreCase(config.getRateLimitType());
 			if (rateLimitTypeSlidingWindow) {
@@ -75,6 +75,16 @@ public class RateLimitFilter extends Filter {
 			} else {
 				log.info("Rate limiting using averaging");
 				rateLimiters = CacheBuilder.newBuilder().maximumSize(32768).build();
+			}
+		} else {
+			if (config.getRateLimitTimeRange() != -1 && config.getRateLimitTimeRange() <= 0) {
+				log.warn("Rate limit time range configured but not positive: {}", config.getRateLimitTimeRange());
+			}
+			if (config.getRateLimitRequestsGlobal() != -1 && config.getRateLimitRequestsGlobal() <= 0) {
+				log.warn("Rate limit global requests configured but not positive: {}", config.getRateLimitRequestsGlobal());
+			}
+			if (config.getRateLimitRequestsDataset() != -1 && config.getRateLimitRequestsDataset() <= 0) {
+				log.warn("Rate limit dataset requests configured but not positive: {}", config.getRateLimitRequestsDataset());
 			}
 		}
 	}

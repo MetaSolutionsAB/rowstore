@@ -42,9 +42,9 @@ import static org.hamcrest.Matchers.equalTo;
  * Specification: 09-rate-limiting.md
  *
  * Uses a separate test environment with rate limiting enabled:
- * - Global limit: 5 requests per time range
- * - Per-dataset limit: 3 requests per time range
- * - Time range: 60 seconds
+ * - Global limit: {@value RateLimitExtension#GLOBAL_LIMIT} requests per time range
+ * - Per-dataset limit: {@value RateLimitExtension#DATASET_LIMIT} requests per time range
+ * - Time range: {@value RateLimitExtension#TIME_RANGE_SECONDS} seconds
  *
  * Note: These tests require a separate server instance with rate limiting enabled.
  */
@@ -156,10 +156,11 @@ class RateLimitIT extends ConfigurableTestBase {
         // We should have hit the rate limit by now
         assertThat(rateLimitedResponse).as("Should have received a 429 response").isNotNull();
 
-        // Check for Retry-After header (optional but good practice)
+        // Sliding window rate limiter provides Retry-After header
         String retryAfter = rateLimitedResponse.getHeader("Retry-After");
         log.info("Rate limit response Retry-After header: {}", retryAfter);
-        // Retry-After may or may not be present depending on implementation
+        assertThat(retryAfter).as("Sliding window rate limiter should return Retry-After header")
+                .isNotNull().isNotEmpty();
     }
 
     @Test
@@ -230,15 +231,12 @@ class RateLimitIT extends ConfigurableTestBase {
         // Verify we hit the limit
         assertThat(rateLimitedCount).as("Should have hit rate limit").isGreaterThanOrEqualTo(1);
 
-        // Wait for a portion of the time window to expire
-        // The sliding window should allow some requests through after partial time passes
-        // Note: With a 60-second window and 3 request limit, after ~20 seconds
-        // some of the earlier requests should have expired from the window
-        log.info("Waiting for rate limit window to partially expire...");
-        Thread.sleep(25000);  // Wait 25 seconds
+        // Wait for the time window to expire (just beyond the configured time range)
+        log.info("Waiting for rate limit window to expire ({} seconds)...", RateLimitExtension.TIME_RANGE_SECONDS);
+        Thread.sleep((RateLimitExtension.TIME_RANGE_SECONDS + 1) * 1000L);
 
         // After waiting, we should be able to make at least one successful request
-        // as the oldest requests should have expired from the sliding window
+        // as the entries should have expired from the sliding window
         boolean foundSuccess = false;
         for (int i = 0; i < 3; i++) {
             Response response = given()
@@ -251,11 +249,63 @@ class RateLimitIT extends ConfigurableTestBase {
                 break;
             }
             // Small delay between retries
-            Thread.sleep(5000);
+            Thread.sleep(2000);
         }
 
         assertThat(foundSuccess)
-                .as("Should be able to make requests after rate limit window partially expires")
+                .as("Should be able to make requests after rate limit window expires")
                 .isTrue();
+    }
+
+    @Test
+    @Order(6)
+    @DisplayName("TC-RATE-007: Global rate limit enforced across datasets")
+    void globalRateLimit_enforcedAcrossDatasets() throws InterruptedException {
+        // Wait for rate limit window to reset from previous tests
+        Thread.sleep((RateLimitExtension.TIME_RANGE_SECONDS + 1) * 1000L);
+
+        // Create a second dataset to alternate requests between
+        byte[] csvData = loadTestData(TEST_FILE);
+        Response response = createDataset(csvData);
+        response.then().statusCode(202);
+
+        String dataset2Url = getDatasetUrl(response);
+        String dataset2InfoUrl = getInfoUrl(response);
+
+        await()
+                .atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofSeconds(5))
+                .untilAsserted(() -> {
+                    Response infoResponse = given().spec(jsonSpec).get(dataset2InfoUrl);
+                    if (infoResponse.getStatusCode() == 429) {
+                        throw new AssertionError("Rate limited, retry");
+                    }
+                    infoResponse.then().body("status", equalTo(ETL_STATUS_AVAILABLE));
+                });
+
+        try {
+            // Alternate requests across two datasets to exceed global limit
+            int successCount = 0;
+            int rateLimitedCount = 0;
+            int requestCount = RateLimitExtension.GLOBAL_LIMIT + 10;
+
+            for (int i = 0; i < requestCount; i++) {
+                String url = (i % 2 == 0) ? datasetUrl : dataset2Url;
+                Response resp = given().spec(jsonSpec).when().get(url);
+                if (resp.getStatusCode() == 200) {
+                    successCount++;
+                } else if (resp.getStatusCode() == 429) {
+                    rateLimitedCount++;
+                }
+            }
+
+            log.info("Global rate limit test: {} successful, {} rate-limited out of {} requests",
+                    successCount, rateLimitedCount, requestCount);
+
+            assertThat(successCount).as("Should have some successful requests").isGreaterThan(0);
+            assertThat(rateLimitedCount).as("Should hit global rate limit").isGreaterThanOrEqualTo(1);
+        } finally {
+            given().delete(dataset2Url);
+        }
     }
 }

@@ -102,14 +102,27 @@ public class ConfigurableTestEnvironment {
         // Start or reuse shared PostgreSQL container
         startSharedPostgres();
 
-        // Find an available port
-        serverPort = findAvailablePort();
+        try {
+            // Find an available port
+            serverPort = findAvailablePort();
 
-        // Create configuration file
-        createConfig();
+            // Create configuration file
+            createConfig();
 
-        // Start RowStore server
-        startRowStore();
+            // Start RowStore server
+            startRowStore();
+        } catch (Exception e) {
+            // Clean up on failure: delete temp config and release postgres
+            if (tempConfigFile != null) {
+                try {
+                    Files.deleteIfExists(tempConfigFile);
+                } catch (IOException cleanupEx) {
+                    log.warn("Failed to clean up temp config file on startup failure", cleanupEx);
+                }
+            }
+            releaseSharedPostgres();
+            throw e;
+        }
 
         started = true;
         log.info("Configurable test environment started at {}", getBaseUrl());
@@ -217,6 +230,7 @@ public class ConfigurableTestEnvironment {
                 rateLimit.put("timerange", config.rateLimitTimeRange);
                 rateLimit.put("global", config.rateLimitRequestsGlobal);
                 rateLimit.put("dataset", config.rateLimitRequestsDataset);
+                rateLimit.put("type", config.rateLimitType);
                 // clientip is not set, so per-client-IP rate limiting is disabled (default -1)
                 jsonConfig.put("ratelimit", rateLimit);
             }
@@ -289,6 +303,7 @@ public class ConfigurableTestEnvironment {
         private final int rateLimitTimeRange;
         private final int rateLimitRequestsGlobal;
         private final int rateLimitRequestsDataset;
+        private final String rateLimitType;
 
         private Configuration(Builder builder) {
             this.regexpQueries = builder.regexpQueries;
@@ -299,6 +314,7 @@ public class ConfigurableTestEnvironment {
             this.rateLimitTimeRange = builder.rateLimitTimeRange;
             this.rateLimitRequestsGlobal = builder.rateLimitRequestsGlobal;
             this.rateLimitRequestsDataset = builder.rateLimitRequestsDataset;
+            this.rateLimitType = builder.rateLimitType;
         }
 
         public String getRegexpQueries() {
@@ -313,9 +329,9 @@ public class ConfigurableTestEnvironment {
          * Returns a unique key for caching environments with this configuration.
          */
         public String getCacheKey() {
-            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d",
+            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,type=%s",
                     regexpQueries, rateLimitEnabled, rateLimitTimeRange,
-                    rateLimitRequestsGlobal, rateLimitRequestsDataset);
+                    rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitType);
         }
 
         @Override
@@ -336,6 +352,7 @@ public class ConfigurableTestEnvironment {
         private int rateLimitTimeRange = 60;
         private int rateLimitRequestsGlobal = 100;
         private int rateLimitRequestsDataset = 20;
+        private String rateLimitType = "slidingwindow";
 
         public Builder regexpQueries(String regexpQueries) {
             this.regexpQueries = regexpQueries;
@@ -374,6 +391,11 @@ public class ConfigurableTestEnvironment {
 
         public Builder rateLimitRequestsDataset(int requestsDataset) {
             this.rateLimitRequestsDataset = requestsDataset;
+            return this;
+        }
+
+        public Builder rateLimitType(String rateLimitType) {
+            this.rateLimitType = rateLimitType;
             return this;
         }
 

@@ -234,6 +234,23 @@ class DatasetUtf8LifecycleIT extends BaseIntegrationTest {
 
         @Test
         @Order(5)
+        @DisplayName("TC-DATASET1-022: Query with tilde regex prefix")
+        void query_tildeRegexPrefix() {
+            // In full regex mode, ~ prefix forces regex interpretation
+            given()
+                    .spec(jsonSpec)
+                    .queryParam("Name", "~Åke.*")
+            .when()
+                    .get(datasetUrl)
+            .then()
+                    .statusCode(200)
+                    .contentType(ContentType.JSON)
+                    .body("results", hasSize(1))
+                    .body("results[0].name", equalTo("Åkesson"));
+        }
+
+        @Test
+        @Order(6)
         @DisplayName("TC-DATASET1-007: Query with non-existing column returns 400")
         void query_nonExistingColumn_returns400() {
             given()

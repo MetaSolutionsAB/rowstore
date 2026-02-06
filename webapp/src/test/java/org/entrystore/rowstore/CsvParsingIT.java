@@ -96,7 +96,7 @@ class CsvParsingIT extends BaseIntegrationTest {
                 // Check column names - duplicates might be renamed or last wins
                 assertThat(infoResponse.jsonPath().getInt("rowcount")).isEqualTo(2);
             }
-        } catch (Exception e) {
+        } catch (org.awaitility.core.ConditionTimeoutException e) {
             // Duplicate columns might cause an error, which is also acceptable behavior
             waitForDatasetError(infoUrl);
         } finally {
@@ -199,8 +199,8 @@ class CsvParsingIT extends BaseIntegrationTest {
             .when()
                     .get(urls.datasetUrl);
 
-            // Either works (trimmed) or doesn't (not trimmed) - check behavior
-            assertThat(queryResponse.getStatusCode()).isIn(200, 400);
+            // Headers are trimmed, so query with trimmed name works
+            assertThat(queryResponse.getStatusCode()).isEqualTo(200);
         } finally {
             deleteDataset(urls.datasetUrl);
         }
@@ -293,14 +293,8 @@ class CsvParsingIT extends BaseIntegrationTest {
             .when()
                     .get(urls.datasetUrl);
 
-            // Empty filter may be treated as 400 (invalid) or 200 (match empty)
-            assertThat(queryResponse.getStatusCode()).isIn(200, 400);
-
-            if (queryResponse.getStatusCode() == 200) {
-                // Should return rows where empty_field is empty (all 5 rows)
-                int count = queryResponse.jsonPath().getInt("resultCount");
-                assertThat(count).isGreaterThanOrEqualTo(0);
-            }
+            // Empty filter value is rejected as invalid
+            assertThat(queryResponse.getStatusCode()).isEqualTo(400);
         } finally {
             deleteDataset(urls.datasetUrl);
         }

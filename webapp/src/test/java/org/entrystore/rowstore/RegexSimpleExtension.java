@@ -98,7 +98,10 @@ public class RegexSimpleExtension implements BeforeAllCallback, ExecutionConditi
         if (externalUrl != null && !externalUrl.isEmpty()) {
             return externalUrl;
         }
-        return environment != null ? environment.getBaseUrl() : null;
+        if (environment == null) {
+            throw new IllegalStateException("RegexSimpleExtension has not been initialized");
+        }
+        return environment.getBaseUrl();
     }
 
     private boolean isDockerAvailable() {

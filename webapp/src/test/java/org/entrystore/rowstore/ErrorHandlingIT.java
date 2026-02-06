@@ -128,8 +128,8 @@ class ErrorHandlingIT extends BaseIntegrationTest {
         .when()
                 .post("/datasets");
 
-        // Should be 400 (bad request) for empty body
-        assertThat(response.getStatusCode()).isIn(400, 500);
+        // Empty body is rejected as bad request
+        assertThat(response.getStatusCode()).isEqualTo(400);
     }
 
     @Test
@@ -142,8 +142,8 @@ class ErrorHandlingIT extends BaseIntegrationTest {
         .when()
                 .post("/datasets");
 
-        // Should reject non-CSV content or fail during processing
-        assertThat(response.getStatusCode()).isIn(400, 415, 202);
+        // Non-CSV content type is rejected with 415 Unsupported Media Type
+        assertThat(response.getStatusCode()).isEqualTo(415);
     }
 
     @Test
@@ -171,8 +171,8 @@ class ErrorHandlingIT extends BaseIntegrationTest {
         .when()
                 .put(datasetUrl + "/aliases");
 
-        // Either 204 (accepted) or 400 (invalid)
-        assertThat(response.getStatusCode()).isIn(204, 400);
+        // Exclamation point in aliases is rejected
+        assertThat(response.getStatusCode()).isEqualTo(400);
     }
 
     @Test
@@ -187,20 +187,8 @@ class ErrorHandlingIT extends BaseIntegrationTest {
         .when()
                 .put(datasetUrl + "/aliases");
 
-        // UUID-like aliases might be allowed or rejected to prevent confusion
-        // Check the behavior
-        assertThat(response.getStatusCode()).isIn(204, 400);
-
-        // Clean up if it was accepted
-        if (response.getStatusCode() == 204) {
-            given()
-                    .contentType(ContentType.JSON)
-                    .body("[]")
-            .when()
-                    .put(datasetUrl + "/aliases")
-            .then()
-                    .statusCode(204);
-        }
+        // UUID-like aliases are rejected to prevent confusion with dataset IDs
+        assertThat(response.getStatusCode()).isEqualTo(400);
     }
 
     @Test
@@ -257,7 +245,7 @@ class ErrorHandlingIT extends BaseIntegrationTest {
             .when()
                     .delete(newDatasetUrl);
 
-            // Could be 423 (still processing), 204 (processed and deleted), or 404
+            // Race condition: delete may arrive while processing, after success, or after cleanup
             assertThat(deleteResponse.getStatusCode())
                     .as("Delete during/after processing should return 423, 204, or 404")
                     .isIn(204, 404, 423);
@@ -266,7 +254,7 @@ class ErrorHandlingIT extends BaseIntegrationTest {
                 waitForDatasetAvailable(newInfoUrl);
                 deleteDataset(newDatasetUrl);
             }
-        } catch (Exception e) {
+        } finally {
             cleanupDatasetSafely(newDatasetUrl, newInfoUrl);
         }
     }

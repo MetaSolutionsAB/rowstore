@@ -25,33 +25,21 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 
 /**
- * JUnit 5 extension that starts a RowStore test environment with rate limiting enabled.
+ * JUnit 5 extension that starts a RowStore test environment with partial rate limit config.
  *
  * Configuration:
- * - Global rate limit: {@value #GLOBAL_LIMIT} requests per time range
+ * - Global rate limit: -1 (disabled)
  * - Per-dataset rate limit: {@value #DATASET_LIMIT} requests per time range
  * - Time range: {@value #TIME_RANGE_SECONDS} seconds
  *
- * This is intentionally set low to make rate limiting easily testable.
- *
- * Usage:
- * <pre>
- * {@code
- * @ExtendWith(RateLimitExtension.class)
- * @Tag("ratelimit")
- * class MyRateLimitTest {
- *     // tests...
- * }
- * }
- * </pre>
+ * This tests the scenario where global is disabled but dataset limit is active,
+ * which exposed a bug when the constructor guard used {@code != -1} instead of {@code > 0}.
  */
-public class RateLimitExtension implements BeforeAllCallback, ExecutionCondition {
+public class PartialRateLimitExtension implements BeforeAllCallback, ExecutionCondition {
 
-    private static final Logger log = LoggerFactory.getLogger(RateLimitExtension.class);
+    private static final Logger log = LoggerFactory.getLogger(PartialRateLimitExtension.class);
 
-    // Limits set high enough to allow setup but low enough to test quickly
-    // Setup needs ~6-10 requests for await polling + initial checks
-    public static final int GLOBAL_LIMIT = 20;
+    public static final int GLOBAL_LIMIT = -1;
     public static final int DATASET_LIMIT = 10;
     public static final int TIME_RANGE_SECONDS = 10;
 
@@ -60,17 +48,15 @@ public class RateLimitExtension implements BeforeAllCallback, ExecutionCondition
 
     @Override
     public ConditionEvaluationResult evaluateExecutionCondition(ExtensionContext context) {
-        // If external URL is provided, skip rate limit tests (can't control external server config)
         String externalUrl = System.getProperty("rowstore.baseUrl");
         if (externalUrl != null && !externalUrl.isEmpty()) {
             return ConditionEvaluationResult.disabled(
-                    "Rate limit tests require managed test environment (cannot use external server)");
+                    "Partial rate limit tests require managed test environment");
         }
 
-        // Check if Docker is available
         if (!isDockerAvailable()) {
             return ConditionEvaluationResult.disabled(
-                    "Docker is not available. RateLimitExtension tests require Docker.");
+                    "Docker is not available. PartialRateLimitExtension tests require Docker.");
         }
 
         return ConditionEvaluationResult.enabled("Docker is available");
@@ -88,7 +74,6 @@ public class RateLimitExtension implements BeforeAllCallback, ExecutionCondition
                         .buildEnvironment();
                 environment.start();
 
-                // Register shutdown hook
                 Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                     if (environment != null) {
                         environment.stop();
@@ -98,12 +83,9 @@ public class RateLimitExtension implements BeforeAllCallback, ExecutionCondition
         }
     }
 
-    /**
-     * Returns the base URL of the test environment.
-     */
     public static String getBaseUrl() {
         if (environment == null) {
-            throw new IllegalStateException("RateLimitExtension has not been initialized");
+            throw new IllegalStateException("PartialRateLimitExtension has not been initialized");
         }
         return environment.getBaseUrl();
     }
