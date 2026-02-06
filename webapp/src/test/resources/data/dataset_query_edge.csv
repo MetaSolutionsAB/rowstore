@@ -1,0 +1,6 @@
+name,value,empty_field,special
+Test1,100,,normal
+Test2,200,,with spaces
+Test3,0,,empty value test
+O'Brien,500,,sql chars
+Test5,999,,last row

@@ -17,10 +17,14 @@
 package org.entrystore.rowstore;
 
 import io.restassured.http.ContentType;
+import io.restassured.response.Response;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.instanceOf;
 
 /**
@@ -45,6 +49,31 @@ class DatasetsListIT extends BaseIntegrationTest {
                 .statusCode(200)
                 .contentType(ContentType.JSON)
                 .body("", instanceOf(java.util.List.class));
+    }
+
+    @Test
+    @DisplayName("TC-DATASETS-002: List grows after creating a dataset")
+    void getDatasets_listGrowsAfterCreation() {
+        // Get initial count
+        List<String> initialList = getDatasetsList();
+        int initialCount = initialList.size();
+
+        // Create a new dataset
+        byte[] csvData = loadTestData("dataset1_utf8.csv");
+        DatasetUrls urls = createDatasetAndWait(csvData);
+
+        try {
+            // Get updated count
+            List<String> updatedList = getDatasetsList();
+            assertThat(updatedList.size()).isEqualTo(initialCount + 1);
+
+            // Verify the new dataset ID is in the list
+            // Note: The API returns dataset IDs, not full URLs
+            assertThat(updatedList).contains(urls.datasetId);
+        } finally {
+            // Cleanup
+            deleteDataset(urls.datasetUrl);
+        }
     }
 
 }

@@ -1,0 +1,3 @@
+name,description
+Test,"This is a very long field value that exceeds 256 characters in length to test how the system handles large text fields. It contains multiple sentences and should be properly stored and retrieved from the database without any truncation or corruption. The system should handle this gracefully and store the entire value intact in the JSONB column."
+Short,"Brief description"

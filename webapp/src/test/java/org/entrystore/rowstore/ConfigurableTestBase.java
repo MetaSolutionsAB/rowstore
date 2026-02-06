@@ -22,26 +22,19 @@ import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.TestInstance;
 
 import java.time.Duration;
-import java.util.List;
 
 /**
- * Base class for RowStore integration tests.
- * Provides shared configuration and utility methods.
+ * Base class for integration tests that use a configurable test environment
+ * (e.g., regex-disabled, regex-simple, rate-limiting modes).
  *
- * Tests extending this class will automatically start a PostgreSQL container
- * and RowStore server via the {@link RowStoreExtension}.
- *
- * To run tests against an external RowStore instance instead of starting
- * a new one, set the system property {@code rowstore.baseUrl}:
- * <pre>
- * mvn verify -Drowstore.baseUrl=http://localhost:8282
- * </pre>
+ * Provides shared utilities similar to {@link BaseIntegrationTest} but allows
+ * subclasses to specify their own extension's base URL.
  */
-@ExtendWith(RowStoreExtension.class)
-public abstract class BaseIntegrationTest {
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+public abstract class ConfigurableTestBase {
 
     protected static final int ETL_STATUS_CREATED = TestUtils.ETL_STATUS_CREATED;
     protected static final int ETL_STATUS_ACCEPTED_DATA = TestUtils.ETL_STATUS_ACCEPTED_DATA;
@@ -52,12 +45,17 @@ public abstract class BaseIntegrationTest {
     protected static final Duration POLL_INTERVAL = TestUtils.POLL_INTERVAL;
     protected static final Duration MAX_WAIT = TestUtils.MAX_WAIT;
 
-    protected static RequestSpecification jsonSpec;
-    protected static RequestSpecification csvSpec;
+    protected RequestSpecification jsonSpec;
+    protected RequestSpecification csvSpec;
+
+    /**
+     * Subclasses must implement this to return the base URL from their extension.
+     */
+    protected abstract String getExtensionBaseUrl();
 
     @BeforeAll
-    static void setupRestAssured() {
-        String baseUrl = getBaseUrl();
+    void setupRestAssured() {
+        String baseUrl = getExtensionBaseUrl();
         RestAssured.baseURI = baseUrl;
 
         jsonSpec = new RequestSpecBuilder()
@@ -72,20 +70,20 @@ public abstract class BaseIntegrationTest {
                 .build();
     }
 
-    protected static String getBaseUrl() {
-        String externalUrl = System.getProperty("rowstore.baseUrl");
-        if (externalUrl != null && !externalUrl.isEmpty()) {
-            return externalUrl;
-        }
-        return RowStoreTestEnvironment.getInstance().getBaseUrl();
-    }
-
     protected byte[] loadTestData(String filename) {
         return TestUtils.loadTestData(filename, getClass());
     }
 
     protected Response createDataset(byte[] csvData) {
         return TestUtils.createDataset(csvData, csvSpec);
+    }
+
+    protected String getDatasetUrl(Response response) {
+        return TestUtils.getDatasetUrl(response);
+    }
+
+    protected String getInfoUrl(Response response) {
+        return TestUtils.getInfoUrl(response);
     }
 
     protected void waitForDatasetAvailable(String infoUrl) {
@@ -96,12 +94,8 @@ public abstract class BaseIntegrationTest {
         TestUtils.waitForDatasetError(infoUrl, jsonSpec);
     }
 
-    protected String getDatasetUrl(Response response) {
-        return TestUtils.getDatasetUrl(response);
-    }
-
-    protected String getInfoUrl(Response response) {
-        return TestUtils.getInfoUrl(response);
+    protected void waitForStatus(String infoUrl, int expectedStatus) {
+        TestUtils.waitForStatus(infoUrl, expectedStatus, jsonSpec);
     }
 
     protected void deleteDataset(String datasetUrl) {
@@ -117,30 +111,9 @@ public abstract class BaseIntegrationTest {
         return new DatasetUrls(urls.datasetUrl, urls.infoUrl, urls.datasetId);
     }
 
-    protected void waitForStatus(String infoUrl, int expectedStatus) {
-        TestUtils.waitForStatus(infoUrl, expectedStatus, jsonSpec);
-    }
-
-    protected String loadTestDataAsString(String filename) {
-        return TestUtils.loadTestDataAsString(filename, getClass());
-    }
-
-    protected void assertJsonContainsFields(Response response, String... expectedFields) {
-        TestUtils.assertJsonContainsFields(response, expectedFields);
-    }
-
-    protected int getDatasetCount() {
-        return TestUtils.getDatasetCount(jsonSpec);
-    }
-
-    protected List<String> getDatasetsList() {
-        return TestUtils.getDatasetsList(jsonSpec);
-    }
-
     protected static class DatasetUrls extends TestUtils.DatasetUrls {
         public DatasetUrls(String datasetUrl, String infoUrl, String datasetId) {
             super(datasetUrl, infoUrl, datasetId);
         }
     }
-
 }

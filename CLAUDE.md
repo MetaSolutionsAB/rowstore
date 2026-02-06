@@ -114,3 +114,10 @@ Queries support regex matching (configurable: disabled/simple/full). Simple mode
 ### Configuration
 
 Set via `rowstore.json` or `ROWSTORE_CONFIG_URI` environment variable. Key settings: `baseurl`, `regexpqueries`, `maxetlprocesses`, `querytimeout`, `querymaxlimit`, `database`, `queryDatabase` (read replica), `ratelimit`.
+
+## Git Commits
+
+Do not include any AI or agentic involvement information in commits. Specifically:
+- Do not add `Co-Authored-By` lines mentioning Claude, AI assistants, or similar
+- Do not mention AI assistance in commit messages
+- Write commit messages as if authored solely by the human developer

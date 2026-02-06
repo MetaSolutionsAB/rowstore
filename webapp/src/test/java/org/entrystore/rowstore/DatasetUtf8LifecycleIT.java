@@ -34,7 +34,9 @@ import java.util.List;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.notNullValue;
@@ -81,9 +83,13 @@ class DatasetUtf8LifecycleIT extends BaseIntegrationTest {
     void cleanup() {
         if (datasetUrl != null) {
             // Remove aliases first to ensure clean delete
-            given().delete(datasetUrl + "/aliases");
-            // Delete the dataset
-            given().delete(datasetUrl);
+            given().delete(datasetUrl + "/aliases")
+                    .then()
+                    .statusCode(204);
+            // Delete the dataset and verify 204 status
+            given().delete(datasetUrl)
+                    .then()
+                    .statusCode(204);
         }
     }
 
@@ -95,6 +101,41 @@ class DatasetUtf8LifecycleIT extends BaseIntegrationTest {
 
         @Test
         @Order(1)
+        @DisplayName("TC-DATASET1-001: Dataset creation returns 202 with Location header")
+        void createDataset_returns202WithLocationHeader() {
+            // Create another dataset to test creation assertions (main dataset created in @BeforeAll)
+            byte[] csvData = loadTestData(TEST_FILE);
+            Response response = given()
+                    .spec(csvSpec)
+                    .body(csvData)
+            .when()
+                    .post("/datasets");
+
+            // Verify 202 Accepted response
+            response.then()
+                    .statusCode(202)
+                    .contentType(ContentType.JSON)
+                    .body("id", notNullValue())
+                    .body("url", notNullValue())
+                    .body("url", containsString("/dataset/"))
+                    .body("info", notNullValue())
+                    .body("info", containsString("/info"))
+                    .body("status", instanceOf(Integer.class));
+
+            // Verify Location header is present
+            String locationHeader = response.getHeader("Location");
+            assertThat(locationHeader).isNotNull();
+            assertThat(locationHeader).contains("/dataset/");
+
+            // Clean up the test dataset
+            String testDatasetUrl = response.jsonPath().getString("url");
+            String testInfoUrl = response.jsonPath().getString("info");
+            waitForDatasetAvailable(testInfoUrl);
+            deleteDataset(testDatasetUrl);
+        }
+
+        @Test
+        @Order(2)
         @DisplayName("TC-DATASET1-002: GET dataset info returns valid structure")
         void getDatasetInfo_returnsValidStructure() {
             given()
@@ -133,6 +174,8 @@ class DatasetUtf8LifecycleIT extends BaseIntegrationTest {
             .then()
                     .statusCode(200)
                     .contentType(ContentType.JSON)
+                    .body("queryTime", notNullValue())
+                    .body("queryTime", greaterThanOrEqualTo(0))
                     .body("results", hasSize(1))
                     .body("results[0].name", equalTo("Åkesson"))
                     .body("results[0].comment", equalTo("Another comment with äöå"));
@@ -165,6 +208,8 @@ class DatasetUtf8LifecycleIT extends BaseIntegrationTest {
             .then()
                     .statusCode(200)
                     .contentType(ContentType.JSON)
+                    .body("queryTime", notNullValue())
+                    .body("queryTime", greaterThanOrEqualTo(0))
                     .body("results[0].name", equalTo("McLoud"))
                     .body("results[0].telephone", equalTo("0987654321"))
                     .body("results[0].'some other column'", equalTo("x"))
@@ -189,6 +234,23 @@ class DatasetUtf8LifecycleIT extends BaseIntegrationTest {
 
         @Test
         @Order(5)
+        @DisplayName("TC-DATASET1-022: Query with tilde regex prefix")
+        void query_tildeRegexPrefix() {
+            // In full regex mode, ~ prefix forces regex interpretation
+            given()
+                    .spec(jsonSpec)
+                    .queryParam("Name", "~Åke.*")
+            .when()
+                    .get(datasetUrl)
+            .then()
+                    .statusCode(200)
+                    .contentType(ContentType.JSON)
+                    .body("results", hasSize(1))
+                    .body("results[0].name", equalTo("Åkesson"));
+        }
+
+        @Test
+        @Order(6)
         @DisplayName("TC-DATASET1-007: Query with non-existing column returns 400")
         void query_nonExistingColumn_returns400() {
             given()
@@ -287,14 +349,20 @@ class DatasetUtf8LifecycleIT extends BaseIntegrationTest {
         @Order(3)
         @DisplayName("TC-DATASET1-012: Verify alias was set")
         void verifyAliasSet() {
-            given()
+            Response response = given()
                     .spec(jsonSpec)
             .when()
                     .get(datasetUrl + "/aliases")
             .then()
                     .statusCode(200)
                     .contentType(ContentType.JSON)
-                    .body("", hasSize(1));
+                    .body("", hasSize(1))
+                    .extract()
+                    .response();
+
+            // Verify the actual alias content
+            List<String> aliases = response.jsonPath().getList("");
+            assertThat(aliases).containsExactly("dataset1");
         }
 
         @Test
