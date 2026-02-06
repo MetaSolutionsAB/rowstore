@@ -83,24 +83,25 @@ class CsvParsingIT extends BaseIntegrationTest {
         String infoUrl = getInfoUrl(createResponse);
 
         try {
-            // Wait for processing (may succeed or fail depending on implementation)
-            waitForStatus(infoUrl, ETL_STATUS_AVAILABLE);
+            // Poll for either AVAILABLE or ERROR (both are valid for duplicate columns)
+            await().atMost(MAX_WAIT).pollInterval(POLL_INTERVAL)
+                    .until(() -> {
+                        int s = given().spec(jsonSpec).get(infoUrl).jsonPath().getInt("status");
+                        return s == ETL_STATUS_AVAILABLE || s == ETL_STATUS_ERROR;
+                    });
 
-            // If it succeeded, check how duplicates were handled
-            Response infoResponse = given()
-                    .spec(jsonSpec)
-            .when()
-                    .get(infoUrl);
-
-            if (infoResponse.jsonPath().getInt("status") == ETL_STATUS_AVAILABLE) {
-                // Check column names - duplicates might be renamed or last wins
+            int finalStatus = given().spec(jsonSpec).get(infoUrl).jsonPath().getInt("status");
+            if (finalStatus == ETL_STATUS_AVAILABLE) {
+                // If it succeeded, check how duplicates were handled
+                Response infoResponse = given()
+                        .spec(jsonSpec)
+                .when()
+                        .get(infoUrl);
                 assertThat(infoResponse.jsonPath().getInt("rowcount")).isEqualTo(2);
             }
-        } catch (org.awaitility.core.ConditionTimeoutException e) {
-            // Duplicate columns might cause an error, which is also acceptable behavior
-            waitForDatasetError(infoUrl);
+            // Error status is also acceptable for duplicate columns
         } finally {
-            given().delete(datasetUrl);
+            deleteDataset(datasetUrl);
         }
     }
 

@@ -88,7 +88,10 @@ class RateLimitAverageIT extends ConfigurableTestBase {
     @AfterAll
     void cleanup() {
         if (datasetUrl != null) {
-            given().delete(datasetUrl);
+            int status = given().delete(datasetUrl).getStatusCode();
+            if (status != 204) {
+                log.warn("Cleanup delete returned {} for {}", status, datasetUrl);
+            }
         }
     }
 

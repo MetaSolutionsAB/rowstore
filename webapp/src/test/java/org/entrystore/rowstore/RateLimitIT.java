@@ -94,7 +94,10 @@ class RateLimitIT extends ConfigurableTestBase {
     @AfterAll
     void cleanup() {
         if (datasetUrl != null) {
-            given().delete(datasetUrl);
+            int status = given().delete(datasetUrl).getStatusCode();
+            if (status != 204) {
+                log.warn("Cleanup delete returned {} for {}", status, datasetUrl);
+            }
         }
     }
 
@@ -201,14 +204,19 @@ class RateLimitIT extends ConfigurableTestBase {
             await()
                     .atMost(Duration.ofSeconds(15))
                     .pollInterval(Duration.ofMillis(1000))
-                    .untilAsserted(() ->
-                            given()
-                                    .spec(jsonSpec)
-                                    .get(newInfoUrl)
-                                    .then()
-                                    .body("status", equalTo(ETL_STATUS_AVAILABLE))
-                    );
-            given().delete(newUrl);
+                    .untilAsserted(() -> {
+                        Response infoResponse = given()
+                                .spec(jsonSpec)
+                                .get(newInfoUrl);
+                        if (infoResponse.getStatusCode() == 429) {
+                            throw new AssertionError("Rate limited, retry");
+                        }
+                        infoResponse.then().body("status", equalTo(ETL_STATUS_AVAILABLE));
+                    });
+            int deleteStatus = given().delete(newUrl).getStatusCode();
+            if (deleteStatus != 204) {
+                log.warn("Cleanup delete returned {} for {}", deleteStatus, newUrl);
+            }
         }
     }
 
@@ -305,7 +313,41 @@ class RateLimitIT extends ConfigurableTestBase {
             assertThat(successCount).as("Should have some successful requests").isGreaterThan(0);
             assertThat(rateLimitedCount).as("Should hit global rate limit").isGreaterThanOrEqualTo(1);
         } finally {
-            given().delete(dataset2Url);
+            int deleteStatus = given().delete(dataset2Url).getStatusCode();
+            if (deleteStatus != 204) {
+                log.warn("Cleanup delete returned {} for {}", deleteStatus, dataset2Url);
+            }
         }
+    }
+
+    @Test
+    @Order(7)
+    @DisplayName("TC-RATE-008: HEAD requests are rate-limited")
+    void headRequestsAreRateLimited() throws InterruptedException {
+        // Wait for rate limit window to reset from previous tests
+        Thread.sleep((RateLimitExtension.TIME_RANGE_SECONDS + 1) * 1000L);
+
+        int successCount = 0;
+        int rateLimitedCount = 0;
+
+        int requestCount = RateLimitExtension.DATASET_LIMIT + 15;
+        for (int i = 0; i < requestCount; i++) {
+            Response response = given()
+                    .spec(jsonSpec)
+            .when()
+                    .head(datasetUrl);
+
+            if (response.getStatusCode() == 200) {
+                successCount++;
+            } else if (response.getStatusCode() == 429) {
+                rateLimitedCount++;
+            }
+        }
+
+        log.info("HEAD rate limit test: {} successful, {} rate-limited out of {} requests",
+                successCount, rateLimitedCount, requestCount);
+
+        assertThat(successCount).as("Should have some successful HEAD requests").isGreaterThan(0);
+        assertThat(rateLimitedCount).as("HEAD requests should be rate-limited").isGreaterThanOrEqualTo(1);
     }
 }

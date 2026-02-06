@@ -77,6 +77,7 @@ public class RateLimitFilter extends Filter {
 				rateLimiters = CacheBuilder.newBuilder().maximumSize(32768).build();
 			}
 		} else {
+			log.info("Rate limiting is disabled");
 			if (config.getRateLimitTimeRange() != -1 && config.getRateLimitTimeRange() <= 0) {
 				log.warn("Rate limit time range configured but not positive: {}", config.getRateLimitTimeRange());
 			}
@@ -200,9 +201,9 @@ public class RateLimitFilter extends Filter {
 			// Defaulting to permitting the request
 			return 0;
 		} catch (ExecutionException e) {
-			log.error(e.getMessage());
+			log.error("Rate limit check failed, permitting request", e);
 		}
-		return -1;
+		return 0;
 	}
 
 	private boolean isRateLimitedMethod(Method method) {
@@ -221,9 +222,8 @@ public class RateLimitFilter extends Filter {
 			// we fetch the oldest entry and add the time range in order to get the time for the next possible request
 			// we also add 1 ms in order to avoid corner cases with inclusive vs exclusive boundaries
 			return Collections.min(cache.asMap().keySet()).getTime() + (config.getRateLimitTimeRange() * 1000L) + 1L;
-		} catch (NoSuchElementException ignored) {
-			// it could be the case that the collection is emptied
-			// while be are in this function (which leads to an exception)
+		} catch (NoSuchElementException e) {
+			log.debug("Sliding window emptied during retry-after calculation", e);
 		}
 		return new Date().getTime();
 	}

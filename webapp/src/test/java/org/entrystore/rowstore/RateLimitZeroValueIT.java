@@ -30,36 +30,30 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
-
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
-import static org.hamcrest.Matchers.equalTo;
 
 /**
- * Integration tests for partial rate limit configuration.
+ * Integration tests for zero-value rate limit configuration.
  *
- * Tests the scenario where global rate limit is disabled (-1) but per-dataset
- * rate limit is active. This covers the bug fixed by changing the constructor
- * guard from {@code != -1} to {@code > 0}.
+ * Tests the boundary case where global=0 and dataset=0 with the {@code > 0} guard.
+ * Zero values should mean rate limiting is disabled (not "block all requests").
  */
-@DisplayName("Rate Limiting - Partial Config Tests")
+@DisplayName("Rate Limiting - Zero Value Config Tests")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-@ExtendWith(PartialRateLimitExtension.class)
+@ExtendWith(ZeroValueRateLimitExtension.class)
 @Tag("ratelimit")
-class RateLimitPartialConfigIT extends ConfigurableTestBase {
+class RateLimitZeroValueIT extends ConfigurableTestBase {
 
-    private static final Logger log = LoggerFactory.getLogger(RateLimitPartialConfigIT.class);
+    private static final Logger log = LoggerFactory.getLogger(RateLimitZeroValueIT.class);
     private static final String TEST_FILE = "dataset1_utf8.csv";
 
     private String datasetUrl;
-    private String infoUrl;
 
     @Override
     protected String getExtensionBaseUrl() {
-        return PartialRateLimitExtension.getBaseUrl();
+        return ZeroValueRateLimitExtension.getBaseUrl();
     }
 
     @BeforeAll
@@ -69,20 +63,9 @@ class RateLimitPartialConfigIT extends ConfigurableTestBase {
 
         response.then().statusCode(202);
         datasetUrl = getDatasetUrl(response);
-        infoUrl = getInfoUrl(response);
+        String infoUrl = getInfoUrl(response);
 
-        await()
-                .atMost(Duration.ofSeconds(30))
-                .pollInterval(Duration.ofSeconds(5))
-                .untilAsserted(() -> {
-                    Response infoResponse = given()
-                            .spec(jsonSpec)
-                            .get(infoUrl);
-                    if (infoResponse.getStatusCode() == 429) {
-                        throw new AssertionError("Rate limited, retry");
-                    }
-                    infoResponse.then().body("status", equalTo(ETL_STATUS_AVAILABLE));
-                });
+        waitForDatasetAvailable(infoUrl);
     }
 
     @AfterAll
@@ -97,10 +80,8 @@ class RateLimitPartialConfigIT extends ConfigurableTestBase {
 
     @Test
     @Order(1)
-    @DisplayName("TC-RATE-PARTIAL-001: Server starts with global=-1 (disabled) and dataset limit active")
-    void serverStartsWithPartialConfig() {
-        // If we get here, the server started without error, which means the
-        // constructor guard (> 0) correctly handles global=-1
+    @DisplayName("TC-RATE-ZERO-001: Server starts normally with zero-value config")
+    void serverStartsWithZeroValues() {
         given()
                 .spec(jsonSpec)
         .when()
@@ -111,12 +92,13 @@ class RateLimitPartialConfigIT extends ConfigurableTestBase {
 
     @Test
     @Order(2)
-    @DisplayName("TC-RATE-PARTIAL-002: Per-dataset rate limit works with global disabled")
-    void perDatasetLimit_worksWithGlobalDisabled() {
+    @DisplayName("TC-RATE-ZERO-002: No requests are rate-limited with zero config")
+    void noRequestsRateLimited() {
         int successCount = 0;
         int rateLimitedCount = 0;
 
-        int requestCount = PartialRateLimitExtension.DATASET_LIMIT + 10;
+        // Make many rapid requests - none should be rate-limited
+        int requestCount = 30;
         for (int i = 0; i < requestCount; i++) {
             Response response = given()
                     .spec(jsonSpec)
@@ -130,24 +112,14 @@ class RateLimitPartialConfigIT extends ConfigurableTestBase {
             }
         }
 
-        log.info("Partial config rate limit test: {} successful, {} rate-limited out of {} requests",
+        log.info("Zero-value rate limit test: {} successful, {} rate-limited out of {} requests",
                 successCount, rateLimitedCount, requestCount);
 
-        assertThat(successCount).as("Should have some successful requests").isGreaterThan(0);
-        assertThat(rateLimitedCount).as("Should hit dataset rate limit").isGreaterThanOrEqualTo(1);
-    }
-
-    @Test
-    @Order(3)
-    @DisplayName("TC-RATE-PARTIAL-003: Status endpoint remains exempt")
-    void statusEndpoint_exemptFromRateLimit() {
-        for (int i = 0; i < 15; i++) {
-            given()
-                    .spec(jsonSpec)
-            .when()
-                    .get("/status")
-            .then()
-                    .statusCode(200);
-        }
+        assertThat(rateLimitedCount)
+                .as("No requests should be rate-limited with zero config values")
+                .isEqualTo(0);
+        assertThat(successCount)
+                .as("All requests should succeed")
+                .isEqualTo(requestCount);
     }
 }

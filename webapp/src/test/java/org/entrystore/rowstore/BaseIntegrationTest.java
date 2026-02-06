@@ -61,10 +61,12 @@ public abstract class BaseIntegrationTest {
         RestAssured.baseURI = baseUrl;
 
         jsonSpec = new RequestSpecBuilder()
+                .setBaseUri(baseUrl)
                 .setAccept(ContentType.JSON)
                 .build();
 
         csvSpec = new RequestSpecBuilder()
+                .setBaseUri(baseUrl)
                 .setContentType("text/csv")
                 .setAccept(ContentType.JSON)
                 .build();

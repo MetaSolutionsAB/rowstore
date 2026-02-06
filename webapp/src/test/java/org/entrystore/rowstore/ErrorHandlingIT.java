@@ -28,6 +28,8 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.UUID;
 
@@ -45,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ErrorHandlingIT extends BaseIntegrationTest {
 
+    private static final Logger log = LoggerFactory.getLogger(ErrorHandlingIT.class);
     private static final String TEST_FILE = "dataset1_utf8.csv";
 
     private String datasetUrl;
@@ -263,8 +266,8 @@ class ErrorHandlingIT extends BaseIntegrationTest {
         try {
             waitForDatasetAvailable(infoUrl);
             deleteDataset(datasetUrl);
-        } catch (Exception ignored) {
-            // Best effort cleanup
+        } catch (Exception e) {
+            log.debug("Best-effort cleanup failed for {}", datasetUrl, e);
         }
     }
 }

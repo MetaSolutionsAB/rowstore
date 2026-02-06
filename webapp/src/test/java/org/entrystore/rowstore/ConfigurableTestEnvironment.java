@@ -64,7 +64,6 @@ public class ConfigurableTestEnvironment {
 
     private final Configuration config;
     private Component restletComponent;
-    private RowStoreApplication rowStoreApplication;
     private int serverPort;
     private Path tempConfigFile;
     private boolean started = false;
@@ -231,7 +230,9 @@ public class ConfigurableTestEnvironment {
                 rateLimit.put("global", config.rateLimitRequestsGlobal);
                 rateLimit.put("dataset", config.rateLimitRequestsDataset);
                 rateLimit.put("type", config.rateLimitType);
-                // clientip is not set, so per-client-IP rate limiting is disabled (default -1)
+                if (config.rateLimitRequestsClientIp != -1) {
+                    rateLimit.put("clientip", config.rateLimitRequestsClientIp);
+                }
                 jsonConfig.put("ratelimit", rateLimit);
             }
 
@@ -272,7 +273,7 @@ public class ConfigurableTestEnvironment {
             Context context = restletComponent.getContext().createChildContext();
             URI configUri = tempConfigFile.toUri();
 
-            rowStoreApplication = new RowStoreApplication(context, configUri);
+            RowStoreApplication rowStoreApplication = new RowStoreApplication(context, configUri);
             restletComponent.getDefaultHost().attach(rowStoreApplication);
             restletComponent.start();
 
@@ -303,6 +304,7 @@ public class ConfigurableTestEnvironment {
         private final int rateLimitTimeRange;
         private final int rateLimitRequestsGlobal;
         private final int rateLimitRequestsDataset;
+        private final int rateLimitRequestsClientIp;
         private final String rateLimitType;
 
         private Configuration(Builder builder) {
@@ -314,6 +316,7 @@ public class ConfigurableTestEnvironment {
             this.rateLimitTimeRange = builder.rateLimitTimeRange;
             this.rateLimitRequestsGlobal = builder.rateLimitRequestsGlobal;
             this.rateLimitRequestsDataset = builder.rateLimitRequestsDataset;
+            this.rateLimitRequestsClientIp = builder.rateLimitRequestsClientIp;
             this.rateLimitType = builder.rateLimitType;
         }
 
@@ -329,9 +332,9 @@ public class ConfigurableTestEnvironment {
          * Returns a unique key for caching environments with this configuration.
          */
         public String getCacheKey() {
-            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,type=%s",
+            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s",
                     regexpQueries, rateLimitEnabled, rateLimitTimeRange,
-                    rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitType);
+                    rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitRequestsClientIp, rateLimitType);
         }
 
         @Override
@@ -352,6 +355,7 @@ public class ConfigurableTestEnvironment {
         private int rateLimitTimeRange = 60;
         private int rateLimitRequestsGlobal = 100;
         private int rateLimitRequestsDataset = 20;
+        private int rateLimitRequestsClientIp = -1;
         private String rateLimitType = "slidingwindow";
 
         public Builder regexpQueries(String regexpQueries) {
@@ -391,6 +395,11 @@ public class ConfigurableTestEnvironment {
 
         public Builder rateLimitRequestsDataset(int requestsDataset) {
             this.rateLimitRequestsDataset = requestsDataset;
+            return this;
+        }
+
+        public Builder rateLimitRequestsClientIp(int requestsClientIp) {
+            this.rateLimitRequestsClientIp = requestsClientIp;
             return this;
         }
 
