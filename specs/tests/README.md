@@ -19,7 +19,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 ## Prerequisites
 
 - Running RowStore instance (default: `http://localhost:8282/`)
-- Test data files in `tests/data/`
+- Test data files in `webapp/src/test/resources/data/`
 - Docker (for Testcontainers-based tests)
 - For rate limiting tests: instance with rate limiting configured
 

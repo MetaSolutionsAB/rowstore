@@ -30,18 +30,6 @@ stepdefinitions:
         - mvn verify -Dsurefire.skip=true
       services:
         - docker
-  - testcr: &testcr
-      name: Integration Test CockroachDB
-      caches:
-        - maven
-      script:
-        - chmod +x standalone/jetty/target/dist/bin/rowstore
-        - standalone/jetty/target/dist/bin/rowstore --config tests/rowstore_tests_cockroach.json --port 8282 &
-        - sleep 5
-        - cd webapp
-        - mvn verify -Dsurefire.skip=true -Drowstore.baseUrl=http://localhost:8282
-      services:
-        - cockroach
   - deploy: &deploy
       name: Deploy
       script:
@@ -79,24 +67,16 @@ pipelines:
     - step: *build
     - parallel:
       - step: *testpg
-      #- step: *testcr
   branches:
     master:
       - step: *build
       - parallel:
         - step: *testpg
-        #- step: *testcr
       - step: *deploy
       - step: *dockerhub
     develop:
       - step: *build
       - parallel:
         - step: *testpg
-        #- step: *testcr
       - step: *deploy
       - step: *dockerhub
-
-definitions:
-  services:
-    cockroach:
-      image: metasolutions/crdb-single-insecure

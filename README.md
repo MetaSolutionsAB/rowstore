@@ -194,35 +194,9 @@ To run tests against an external RowStore instance (skips automatic setup):
 mvn verify -Drowstore.baseUrl=http://localhost:8282
 ```
 
-### JavaScript Tests (Frisby/Jasmine)
-
-The legacy JavaScript tests require manual setup:
-
-1. Create a PostgreSQL database:
-
-```sql
-CREATE DATABASE rowstoretest;
-CREATE USER rowstoretest WITH PASSWORD 'rowstoretestpw';
-GRANT ALL PRIVILEGES ON DATABASE rowstoretest TO rowstoretest;
-```
-
-2. Start RowStore:
-
-```
-standalone/jetty/target/dist/bin/rowstore --config tests/rowstore_tests_postgres.json --port 8282 &
-```
-
-3. Run tests:
-
-```
-cd tests
-npm install frisby@0.8.5
-jasmine-node .
-```
-
 ### Test Specifications
 
-Framework-agnostic test specifications are available in `tests/specs/`. These can be used to implement tests in other languages or frameworks.
+Framework-agnostic test specifications are available in `specs/tests/`. These can be used to implement tests in other languages or frameworks.
 
 ## Security
 

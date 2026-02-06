@@ -47,23 +47,9 @@ mvn verify -Drowstore.baseUrl=http://localhost:8282
 
 Test classes follow the `*IT.java` naming convention (Maven Failsafe).
 
-### Legacy JavaScript Tests (Frisby/Jasmine)
-
-Requires manual setup of PostgreSQL and RowStore:
-
-```bash
-# Start RowStore manually
-standalone/jetty/target/dist/bin/rowstore --config tests/rowstore_tests_postgres.json --port 8282 &
-
-# Run tests
-cd tests
-npm install frisby@0.8.5
-jasmine-node .
-```
-
 ### Test Specifications
 
-Framework-agnostic test specifications are in `tests/specs/`. Each spec contains test case IDs, request/response details, assertions, and retry logic for async operations.
+Framework-agnostic test specifications are in `specs/tests/`. Each spec contains test case IDs, request/response details, assertions, and retry logic for async operations.
 
 ## Architecture
 
