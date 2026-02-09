@@ -17,6 +17,7 @@
 package org.entrystore.rowstore.store;
 
 import org.entrystore.rowstore.etl.EtlProcessor;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -27,18 +28,26 @@ import java.sql.SQLException;
 public interface RowStore {
 
 	/**
-	 * @return Returns a database connection.
+	 * @return Returns a database connection for write operations.
 	 * @throws SQLException
 	 */
 	Connection getConnection() throws SQLException;
 
 	/**
-	 * @return Returns a database connection to a DB instance which is primarily intended
-	 * for read access (i.e., a read replica). Depending on the configuration this may
-	 * return a connection to the same DB instance as getConnection().
+	 * @return Returns a database connection for read operations (may be a read replica).
 	 * @throws SQLException
 	 */
 	Connection getQueryConnection() throws SQLException;
+
+	/**
+	 * @return Returns a JdbcTemplate for write operations.
+	 */
+	JdbcTemplate getJdbcTemplate();
+
+	/**
+	 * @return Returns a JdbcTemplate for read operations (may target a read replica).
+	 */
+	JdbcTemplate getQueryJdbcTemplate();
 
 	/**
 	 * @return Returns an instance of the dataset manager.

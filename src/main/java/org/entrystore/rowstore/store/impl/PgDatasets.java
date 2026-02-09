@@ -22,13 +22,14 @@ import org.entrystore.rowstore.store.Datasets;
 import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -59,26 +60,21 @@ public class PgDatasets implements Datasets {
 	@Override
 	public Set<Dataset> getAll() {
 		long before = System.currentTimeMillis();
-		Set<Dataset> result = null;
-		try (Connection conn = getRowStore().getConnection();
-			 PreparedStatement stmt = conn.prepareStatement("SELECT * FROM " + DATASETS_TABLE_NAME);
-			 ResultSet rs = stmt.executeQuery()) {
-			log.debug("Executing: " + stmt);
-			result = new HashSet<>();
-			while (rs.next()) {
-				UUID id = (UUID) rs.getObject("id");
-				int status = rs.getInt("status");
-				Timestamp created = rs.getTimestamp("created");
-				String dataTable = rs.getString("data_table");
-				result.add(new PgDataset(rowstore, id.toString(), status, created, dataTable));
-			}
-		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
+		try {
+			List<Dataset> datasets = rowstore.getJdbcTemplate().query(
+					"SELECT * FROM " + DATASETS_TABLE_NAME,
+					(rs, rowNum) -> new PgDataset(rowstore,
+							((UUID) rs.getObject("id")).toString(),
+							rs.getInt("status"),
+							rs.getTimestamp("created"),
+							rs.getString("data_table")));
+			return new HashSet<>(datasets);
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+			return null;
 		} finally {
 			log.debug("Fetching datasets took {} ms", System.currentTimeMillis() - before);
 		}
-
-		return result;
 	}
 
 	/**
@@ -181,29 +177,21 @@ public class PgDatasets implements Datasets {
 	@Override
 	public boolean hasDataset(String id) {
 		long before = System.currentTimeMillis();
-		try (Connection conn = rowstore.getConnection();
-			 PreparedStatement stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?")) {
-			PGobject uuid = new PGobject();
-			uuid.setType("uuid");
-			uuid.setValue(id);
-			stmt.setObject(1, uuid);
-			log.debug("Executing: " + stmt);
-			try (ResultSet rs = stmt.executeQuery()) {
-				if (rs.next()) {
-					return true;
-				}
-			}
-		} catch (SQLException e) {
-			if ("22P02".equals(e.getSQLState())) {
-				log.debug("Probable alias detected: {}", e.getMessage());
+		try {
+			Integer count = rowstore.getJdbcTemplate().queryForObject(
+					"SELECT COUNT(*) FROM " + DATASETS_TABLE_NAME + " WHERE id = ?::uuid", Integer.class, id);
+			return count != null && count > 0;
+		} catch (DataAccessException e) {
+			Throwable cause = e.getCause();
+			if (cause instanceof SQLException se && "22P02".equals(se.getSQLState())) {
+				log.debug("Probable alias detected: {}", se.getMessage());
 			} else {
-				SqlExceptionLogUtil.error(log, e);
+				log.error(e.getMessage());
 			}
+			return false;
 		} finally {
 			log.debug("Checking for dataset existance took {} ms", System.currentTimeMillis() - before);
 		}
-
-		return false;
 	}
 
 	/**
@@ -219,21 +207,16 @@ public class PgDatasets implements Datasets {
 	@Override
 	public int amount() {
 		long before = System.currentTimeMillis();
-		int result = -1;
-		try (Connection conn = getRowStore().getConnection();
-			 PreparedStatement stmt = conn.prepareStatement("SELECT COUNT(*) AS amount FROM " + DATASETS_TABLE_NAME);
-			 ResultSet rs = stmt.executeQuery()) {
-			log.debug("Executing: " + stmt);
-			if (rs.next()) {
-				result = rs.getInt("amount");
-			}
-		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
+		try {
+			Integer result = rowstore.getJdbcTemplate().queryForObject(
+					"SELECT COUNT(*) FROM " + DATASETS_TABLE_NAME, Integer.class);
+			return result != null ? result : -1;
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+			return -1;
 		} finally {
 			log.debug("Fetching amount of datasets took {} ms", System.currentTimeMillis() - before);
 		}
-
-		return result;
 	}
 
 	/**

@@ -35,6 +35,9 @@ import org.postgresql.core.BaseConnection;
 import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -142,19 +145,13 @@ public class PgDataset implements Dataset {
 	@Override
 	public void setStatus(int status) {
 		long before = System.currentTimeMillis();
-		try (Connection conn = rowstore.getConnection();
-			 PreparedStatement stmt = conn.prepareStatement("UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?")) {
-			conn.setAutoCommit(true);
-			stmt.setInt(1, status);
-			PGobject uuid = new PGobject();
-			uuid.setType("uuid");
-			uuid.setValue(id);
-			stmt.setObject(2, uuid);
-			log.info("Setting status of " + getId() + " to " + EtlStatus.toString(status) + "(" + status + ")");
-			log.debug("Executing: " + stmt);
-			stmt.executeUpdate();
-		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
+		try {
+			log.info("Setting status of {} to {}({})", getId(), EtlStatus.toString(status), status);
+			rowstore.getJdbcTemplate().update(
+					"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid",
+					status, id);
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
 		} finally {
 			log.debug("Setting status took {} ms", System.currentTimeMillis() - before);
 		}
@@ -426,27 +423,20 @@ public class PgDataset implements Dataset {
 
 	private Set<String> getIndexNames() {
 		long before = System.currentTimeMillis();
-		Set<String> result = new HashSet<>();
 		String sql = "SELECT ci.relname AS indexname " +
-				"FROM pg_index i,pg_class ci,pg_class ct " +
-				"WHERE i.indexrelid=ci.oid AND " +
-				"i.indrelid=ct.oid AND " +
-				"ct.relname='" + dataTable + "' AND " +
+				"FROM pg_index i, pg_class ci, pg_class ct " +
+				"WHERE i.indexrelid = ci.oid AND " +
+				"i.indrelid = ct.oid AND " +
+				"ct.relname = ? AND " +
 				"ci.relname LIKE '%_jsonidx_%'";
-		try (Connection conn = rowstore.getConnection();
-			 Statement stmnt = conn.createStatement();
-			 ResultSet rs = stmnt.executeQuery(sql)) {
-			log.debug("Executing: " + sql);
-			while (rs.next()) {
-				result.add(rs.getString("indexname"));
-			}
-		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
+		try {
+			return new HashSet<>(rowstore.getJdbcTemplate().queryForList(sql, String.class, dataTable));
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+			return new HashSet<>();
 		} finally {
 			log.debug("Fetching index names took {} ms", System.currentTimeMillis() - before);
 		}
-
-		return result;
 	}
 
 	/**
@@ -576,23 +566,17 @@ public class PgDataset implements Dataset {
 
 	private Set<String> getColumnNames(boolean useQueryDatabase) {
 		long before = System.currentTimeMillis();
-		Set<String> result = new HashSet<>();
+		JdbcTemplate jt = useQueryDatabase ? rowstore.getQueryJdbcTemplate() : rowstore.getJdbcTemplate();
 		String sql = "SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable() +
 				" WHERE rownr=(SELECT min(rownr) FROM " + getDataTable() + ")";
-		try (Connection conn = useQueryDatabase ? rowstore.getQueryConnection() : rowstore.getConnection();
-			 PreparedStatement stmt = conn.prepareStatement(sql);
-			 ResultSet rs = stmt.executeQuery()) {
-			log.debug("Executing: " + stmt);
-			while (rs.next()) {
-				result.add(rs.getString("column_names"));
-			}
-		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
+		try {
+			return new HashSet<>(jt.queryForList(sql, String.class));
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+			return new HashSet<>();
 		} finally {
 			log.debug("Fetching column names took {} ms", System.currentTimeMillis() - before);
 		}
-
-		return result;
 	}
 
 	/**
@@ -600,33 +584,28 @@ public class PgDataset implements Dataset {
 	 */
 	private void initFromDb() {
 		long before = System.currentTimeMillis();
-		try (Connection conn = rowstore.getConnection();
-			 PreparedStatement stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?")) {
-			PGobject uuid = new PGobject();
-			uuid.setType("uuid");
-			uuid.setValue(getId());
-			stmt.setObject(1, uuid);
-			log.debug("Loading dataset " + getId() + " from database");
-			log.debug("Executing: " + stmt);
-			try (ResultSet rs = stmt.executeQuery()) {
-				if (rs.next()) {
-					this.status = rs.getInt("status");
-					this.created = rs.getTimestamp("created");
-					String loadedTable = rs.getString("data_table");
-					if (loadedTable != null) {
-						loadedTable = loadedTable.trim();
-						validateDataTableName(loadedTable);
-					}
-					this.dataTable = loadedTable;
-				} else {
-					throw new IllegalStateException("Unable to initialize Dataset object from database");
-				}
+		try {
+			log.debug("Loading dataset {} from database", getId());
+			Map<String, Object> row = rowstore.getJdbcTemplate().queryForMap(
+					"SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", getId());
+			this.status = (int) row.get("status");
+			this.created = (java.sql.Timestamp) row.get("created");
+			String loadedTable = (String) row.get("data_table");
+			if (loadedTable != null) {
+				loadedTable = loadedTable.trim();
+				validateDataTableName(loadedTable);
 			}
-		} catch (SQLException e) {
-			if (!"22P02".equalsIgnoreCase(e.getSQLState())) {
-				SqlExceptionLogUtil.error(log, e);
-			} else {
-				log.info(e.getMessage().replaceFirst("ERROR: ", ""));
+			this.dataTable = loadedTable;
+		} catch (EmptyResultDataAccessException e) {
+			throw new IllegalStateException("Unable to initialize Dataset object from database");
+		} catch (DataAccessException e) {
+			Throwable cause = e.getCause();
+			if (cause instanceof SQLException se) {
+				if (!"22P02".equalsIgnoreCase(se.getSQLState())) {
+					SqlExceptionLogUtil.error(log, se);
+				} else {
+					log.info(se.getMessage().replaceFirst("ERROR: ", ""));
+				}
 			}
 			throw new IllegalArgumentException(e);
 		} finally {
@@ -640,22 +619,16 @@ public class PgDataset implements Dataset {
 	@Override
 	public long getRowCount() {
 		long before = System.currentTimeMillis();
-		long result = -1;
-		String sql = "SELECT COUNT(rownr)::BIGINT AS rowcount FROM " + getDataTable();
-		try (Connection conn = rowstore.getQueryConnection();
-			 PreparedStatement stmt = conn.prepareStatement(sql);
-			 ResultSet rs = stmt.executeQuery()) {
-			log.debug("Executing: " + stmt);
-			if (rs.next()) {
-				result = rs.getLong("rowcount");
-			}
-		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
+		try {
+			Long result = rowstore.getQueryJdbcTemplate().queryForObject(
+					"SELECT COUNT(rownr)::BIGINT FROM " + getDataTable(), Long.class);
+			return result != null ? result : -1;
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+			return -1;
 		} finally {
 			log.debug("Fetching row count took {} ms", System.currentTimeMillis() - before);
 		}
-
-		return result;
 	}
 
 	/**
@@ -668,27 +641,17 @@ public class PgDataset implements Dataset {
 
 	private Set<String> getAliases(boolean useQueryDatabase) {
 		long before = System.currentTimeMillis();
-		Set<String> result = new HashSet<>();
-		try (Connection conn = useQueryDatabase ? rowstore.getQueryConnection() : rowstore.getConnection();
-			 PreparedStatement stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?")) {
-			PGobject uuid = new PGobject();
-			uuid.setType("uuid");
-			uuid.setValue(getId());
-			stmt.setObject(1, uuid);
-			log.debug("Loading aliases for dataset " + getId());
-			log.debug("Executing: " + stmt);
-			try (ResultSet rs = stmt.executeQuery()) {
-				while (rs.next()) {
-					result.add(rs.getString("alias"));
-				}
-			}
-		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
+		JdbcTemplate jt = useQueryDatabase ? rowstore.getQueryJdbcTemplate() : rowstore.getJdbcTemplate();
+		try {
+			return new HashSet<>(jt.queryForList(
+					"SELECT alias FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?::uuid",
+					String.class, getId()));
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+			return new HashSet<>();
 		} finally {
 			log.debug("Fetching aliases took {} ms", System.currentTimeMillis() - before);
 		}
-
-		return result;
 	}
 
 	/**
@@ -750,23 +713,17 @@ public class PgDataset implements Dataset {
 
 	public String resolveAlias(String alias) {
 		long before = System.currentTimeMillis();
-		try (Connection conn = rowstore.getConnection();
-			 PreparedStatement stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?")) {
-			stmt.setString(1, alias);
-			log.debug("Executing: " + stmt);
-			try (ResultSet rs = stmt.executeQuery()) {
-				if (rs.next()) {
-					UUID uuid = (UUID) rs.getObject("dataset_id");
-					return uuid.toString();
-				}
-			}
-		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
+		try {
+			List<UUID> results = rowstore.getJdbcTemplate().query(
+					"SELECT dataset_id FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?",
+					(rs, rowNum) -> (UUID) rs.getObject("dataset_id"), alias);
+			return results.isEmpty() ? null : results.get(0).toString();
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+			return null;
 		} finally {
 			log.debug("Resolving alias took {} ms", System.currentTimeMillis() - before);
 		}
-
-		return null;
 	}
 
 	private boolean isAliasValid(String alias) {

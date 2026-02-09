@@ -25,6 +25,7 @@ import org.entrystore.rowstore.store.RowStoreConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
@@ -46,6 +47,10 @@ public class PgRowStore implements RowStore {
 
 	private final DataSource queryDatasource;
 
+	private final JdbcTemplate jdbcTemplate;
+
+	private final JdbcTemplate queryJdbcTemplate;
+
 	private Datasets datasets;
 
 	private final EtlProcessor etlProcessor;
@@ -62,6 +67,8 @@ public class PgRowStore implements RowStore {
 		this.config = config;
 		this.datasource = datasource;
 		this.queryDatasource = queryDatasource;
+		this.jdbcTemplate = new JdbcTemplate(datasource);
+		this.queryJdbcTemplate = new JdbcTemplate(queryDatasource);
 
 		etlProcessor = new EtlProcessor(this);
 		log.info("Started RowStore {}", versionInfo.getVersion());
@@ -81,6 +88,16 @@ public class PgRowStore implements RowStore {
 	@Override
 	public Connection getQueryConnection() throws SQLException {
 		return queryDatasource.getConnection();
+	}
+
+	@Override
+	public JdbcTemplate getJdbcTemplate() {
+		return jdbcTemplate;
+	}
+
+	@Override
+	public JdbcTemplate getQueryJdbcTemplate() {
+		return queryJdbcTemplate;
 	}
 
 	/**
