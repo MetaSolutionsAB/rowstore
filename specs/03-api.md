@@ -16,7 +16,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-1.03** Content negotiation is supported via the `Accept` header and the `format` query parameter. The `format` parameter takes precedence over the `Accept` header.
 
-> **API-1.04** JSONP is supported via the `_callback` query parameter, which wraps JSON responses in a JavaScript function call for cross-origin browser access.
+> **API-1.04** [REMOVED] JSONP support via `_callback` parameter — replaced by CORS.
 
 ## API-2 Base URL
 
@@ -36,7 +36,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.06** `PUT /dataset/{id}` — Replaces all data in an existing dataset with new CSV data. Truncates the data table before loading. Returns 202 Accepted.
 
-> **API-3.07** `DELETE /dataset/{id}` — Deletes a dataset, its data table, and all aliases. Only permitted when status is AVAILABLE (3) or ERROR (4). Returns 200 on success, 423 Locked if dataset is still processing.
+> **API-3.07** `DELETE /dataset/{id}` — Deletes a dataset, its data table, and all aliases. Only permitted when status is AVAILABLE (3) or ERROR (4). Returns **204 No Content** on success, 423 Locked if dataset is still processing.
 
 > **API-3.08** `GET /dataset/{id}/info` — Returns dataset metadata in JSON-LD format: status, created timestamp, column names, row count, identifier, aliases, `@context`, and `@id`.
 
@@ -92,9 +92,9 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 ## API-6 Error Response Conventions
 
 > **API-6.01** Success statuses:
-> - **200 OK** — Successful query, list, delete, or status request
+> - **200 OK** — Successful query, list, or status request
 > - **202 Accepted** — CSV upload accepted for async processing
-> - **204 No Content** — Successful alias update with no response body
+> - **204 No Content** — Successful alias update or dataset deletion with no response body
 
 > **API-6.02** Client error statuses:
 > - **400 Bad Request** — Invalid parameters, empty filter values, non-numeric limit/offset, invalid alias format
@@ -112,11 +112,11 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 ## API-7 JSONP Support
 
-> **API-7.01** The `_callback` query parameter triggers JSONP wrapping. The JSON response is wrapped as `callbackName({...})`. Supported response MIME types: `application/json`, `application/ld+json`, `application/rdf+json`. If the parameter is present but empty, the default callback name `callback` is used.
+> **API-7.01** [REMOVED] JSONP support has been removed. Cross-origin access is now provided via CORS headers. See [SEC-6.01](07-security.md#sec-6-cors).
 
 ## API-8 Server Header
 
-> **API-8.01** All responses include a `Server` header with value `RowStore/<version>` (e.g., `RowStore/1.8-SNAPSHOT`).
+> **API-8.01** All responses include a `Server` header with value `RowStore` (configured via `server.server-header` in Spring Boot).
 
 ## API-9 Per-Dataset Swagger
 
@@ -129,7 +129,6 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 - No authentication on any endpoint (see [07-security.md](07-security.md))
 - No versioning in URL path (no `/v1/` prefix)
 - `_sort` parameter is recognized but not implemented
-- JSONP uses a simple callback wrapper with no XSS sanitization of the callback name
 
 ## References
 
@@ -138,11 +137,12 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 - [Configuration](06-configuration.md#cfg-3-application-options) — `baseurl`, `querymaxlimit` options
 - [Security](07-security.md#sec-5-rate-limiting) — Rate limiting and input validation
 - [Web GUI](09-ui-ux.md#uix-2-display-modes) — Web GUI endpoint
-- [Glossary](12-glossary.md#glo-1-terms) — JSONP, Export, Swagger/OpenAPI
-- Source: `RowStoreApplication.java` (routes), `DatasetResource.java`, `DatasetsResource.java`, `AliasResource.java`, `StatusResource.java`, `ExportResource.java`, `WebGuiResource.java`, `SwaggerResource.java`
+- [Glossary](12-glossary.md#glo-1-terms) — Export, Swagger/OpenAPI, CORS
+- Source: `DatasetController.java`, `DatasetsController.java`, `AliasController.java`, `StatusController.java`, `ExportController.java`, `WebGuiController.java`, `SwaggerController.java`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: JSONP removed, CORS added, DELETE returns 204, source references updated |

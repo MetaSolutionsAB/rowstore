@@ -116,10 +116,11 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 - [ETL Pipeline](04-etl-pipeline.md#etl-5-batch-inserts) — ETL processing that populates data tables
 - [Query Processing](05-querying.md#query-5-sql-construction) — How data tables are queried
 - [Glossary](12-glossary.md#glo-1-terms) — Term definitions
-- Source: `PgDataset.java`, `PgDatasets.java`, `EtlStatus.java`, `DatasetInfoResource.java`
+- Source: `PgDataset.java`, `PgDatasets.java`, `EtlStatus.java`, `DatasetInfoController.java`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated source references for Spring Boot migration |

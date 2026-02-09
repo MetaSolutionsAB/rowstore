@@ -68,7 +68,7 @@ Covers data publishers, API consumers, operators/admins, and embedded viewers. E
 > **Preconditions**: An existing dataset in AVAILABLE or ERROR status.
 > **Steps**:
 > 1. `DELETE /dataset/{id}`
-> 2. Receive 200 OK
+> 2. Receive 204 No Content
 >
 > **Expected Outcome**: Dataset, its data table, and all aliases are permanently removed. Returns 423 Locked if dataset is still processing.
 > **References**: [API-3.07](03-api.md#api-3-endpoint-catalog)
@@ -138,17 +138,7 @@ Covers data publishers, API consumers, operators/admins, and embedded viewers. E
 > **Expected Outcome**: Complete dataset streamed as a download with `Content-Disposition` header.
 > **References**: [API-3.10](03-api.md#api-3-endpoint-catalog)
 
-> **USR-2.06 Use JSONP for Cross-Origin Access**
->
-> **Persona**: API Consumer
-> **Goal**: Access RowStore data from a browser on a different domain.
-> **Preconditions**: A dataset in AVAILABLE status.
-> **Steps**:
-> 1. Include a `<script>` tag: `<script src="https://rowstore.example.com/dataset/{id}?_callback=handleData"></script>`
-> 2. The response is `handleData({...})`, which calls the JavaScript function
->
-> **Expected Outcome**: Data is available to the browser-side JavaScript function.
-> **References**: [API-7.01](03-api.md#api-7-jsonp-support), [SEC-7.01](07-security.md#sec-7-jsonp)
+> **USR-2.06** [REMOVED] Use JSONP for Cross-Origin Access — JSONP support has been removed. See [USR-2.08](#usr-2-api-consumer-stories) for CORS-based cross-origin access.
 
 > **USR-2.07 Get OpenAPI Spec for a Dataset**
 >
@@ -162,22 +152,38 @@ Covers data publishers, API consumers, operators/admins, and embedded viewers. E
 > **Expected Outcome**: A valid OpenAPI specification with query parameters matching the dataset's column names.
 > **References**: [API-3.11](03-api.md#api-3-endpoint-catalog)
 
+> **USR-2.08 Use CORS for Cross-Origin Access**
+>
+> **Persona**: API Consumer
+> **Goal**: Access RowStore data from a browser on a different domain.
+> **Preconditions**: A dataset in AVAILABLE status; CORS allowed origins configured (default: all origins).
+> **Steps**:
+> 1. Make a `fetch()` request from JavaScript on a different origin:
+>    ```javascript
+>    const response = await fetch('https://rowstore.example.com/dataset/{id}?city=Stockholm');
+>    const data = await response.json();
+>    ```
+> 2. The browser automatically sends `Origin` header and validates the CORS response
+>
+> **Expected Outcome**: Data is accessible from any allowed origin. The server includes `Access-Control-Allow-Origin` in the response.
+> **References**: [SEC-6.01](07-security.md#sec-6-cors), [CFG-3.10](06-configuration.md#cfg-3-application-options)
+
 ## USR-3 Operator/Admin Stories
 
 > **USR-3.01 Deploy a Standalone Instance**
 >
 > **Persona**: Operator/Admin
 > **Goal**: Set up a new RowStore instance.
-> **Preconditions**: Java 21, PostgreSQL 9.4+, the RowStore distribution.
+> **Preconditions**: Java 25, PostgreSQL 9.4+.
 > **Steps**:
 > 1. Create a PostgreSQL database
 > 2. Write a `rowstore.json` config file (see [CFG-9.01](06-configuration.md#cfg-9-annotated-example))
 > 3. Build: `mvn -Dmaven.test.skip=true install`
-> 4. Run: `standalone/jetty/target/dist/bin/rowstore rowstore.json`
+> 4. Run: `java -jar target/rowstore-2.0-SNAPSHOT.jar --rowstore.config.uri=file:///path/to/rowstore.json`
 > 5. Verify: `GET /status`
 >
-> **Expected Outcome**: RowStore is running and responding to requests. Schema is auto-created.
-> **References**: [DEPL-1](08-deployment.md#depl-1-standalone-jetty), [CFG-9](06-configuration.md#cfg-9-annotated-example)
+> **Expected Outcome**: RowStore is running and responding to requests. Schema is auto-created by Flyway.
+> **References**: [DEPL-1](08-deployment.md#depl-1-spring-boot-standalone), [CFG-9](06-configuration.md#cfg-9-annotated-example)
 
 > **USR-3.02 Configure Rate Limiting**
 >
@@ -207,8 +213,10 @@ Covers data publishers, API consumers, operators/admins, and embedded viewers. E
 > **Steps**:
 > 1. `GET /status` — basic health check
 > 2. `GET /status?jvm` — memory, processors, heap details
+> 3. `GET /actuator/health` — Spring Boot health with database connectivity
+> 4. `GET /actuator/metrics` — detailed JVM and connection pool metrics
 >
-> **Expected Outcome**: Service name, version, dataset count, active ETL processes, and (optionally) JVM memory metrics.
+> **Expected Outcome**: Service name, version, dataset count, active ETL processes, and (optionally) JVM memory metrics. Actuator provides additional database and pool metrics.
 > **References**: [DEPL-5](08-deployment.md#depl-5-monitoring)
 
 > **USR-3.04 Set Up a Read Replica**
@@ -305,7 +313,7 @@ Covers data publishers, API consumers, operators/admins, and embedded viewers. E
 - [Query Processing](05-querying.md#query-1-query-overview) — Query processing
 - [Configuration](06-configuration.md#cfg-3-application-options) — Configuration options
 - [Security](07-security.md#sec-5-rate-limiting) — Security features
-- [Deployment](08-deployment.md#depl-1-standalone-jetty) — Deployment procedures
+- [Deployment](08-deployment.md#depl-1-spring-boot-standalone) — Deployment procedures
 - [Web GUI](09-ui-ux.md#uix-1-overview) — Web GUI features
 - [Glossary](12-glossary.md#glo-1-terms) — Term definitions
 
@@ -314,3 +322,4 @@ Covers data publishers, API consumers, operators/admins, and embedded viewers. E
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: JSONP story removed, CORS story added, deployment steps updated, Actuator monitoring added |

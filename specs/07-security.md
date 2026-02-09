@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Documents the security posture of RowStore: authentication, authorization, input validation, SQL injection prevention, rate limiting, and other security-relevant behaviors.
+Documents the security posture of RowStore: authentication, authorization, input validation, SQL injection prevention, rate limiting, CORS, and other security-relevant behaviors.
 
 ## Scope
 
@@ -10,7 +10,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 ## SEC-1 Authentication
 
-> **SEC-1.01** An `ApiKeyFilter` exists in the codebase but is a **stub implementation**. It always returns `CONTINUE` for all requests, effectively allowing all traffic through without authentication.
+> **SEC-1.01** An `ApiKeyFilter` exists in the codebase but is a **stub implementation**. It passes all requests through without authentication (`implements jakarta.servlet.Filter`).
 
 > **SEC-1.02** No authentication is currently enforced on any endpoint. All API endpoints are publicly accessible.
 
@@ -22,7 +22,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-3.01** All data queries use **prepared statements** with parameterized values (`data->>? = ?` and `data->>? ~ ?`). Column names and filter values are bound as parameters, not concatenated.
 
-> **SEC-3.02** Dynamic DDL statements (table creation, index creation) use `BaseConnection.escapeString()` for column names that are interpolated into SQL strings. This PostgreSQL-specific escaping prevents injection in contexts where prepared statement parameters cannot be used (e.g., `CREATE INDEX` column references).
+> **SEC-3.02** Dynamic DDL statements (table creation, index creation) use `BaseConnection.escapeString()` for column names that are interpolated into SQL strings. The `BaseConnection` is obtained via `Connection.unwrap(BaseConnection.class)` through the HikariCP proxy. This PostgreSQL-specific escaping prevents injection in contexts where prepared statement parameters cannot be used (e.g., `CREATE INDEX` column references).
 
 ## SEC-4 Input Validation
 
@@ -37,6 +37,14 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 > **SEC-4.05** **Empty query values**: Filter parameters with empty values (e.g., `?column=`) return **400 Bad Request**.
 
 > **SEC-4.06** **`_limit`/`_offset`**: Must be valid integers. Non-numeric values return **400 Bad Request**. Values are capped or corrected (limit capped at `querymaxlimit`, negative offset corrected to 0).
+
+> **SEC-4.07** **Data table name validation**: Data table names are validated against the regex pattern `data_[a-f0-9]{32}` before use in any SQL operation. This prevents SQL injection through malicious table names stored in the database.
+
+> **SEC-4.08** **ReDoS protection**: Regex filter values are validated by `DatasetUtil.isSafeRegex()` before being passed to PostgreSQL. Patterns exceeding a maximum length or matching known dangerous patterns are rejected with **400 Bad Request**.
+
+> **SEC-4.09** **Upload size limit**: CSV uploads are limited to `maxuploadsize` bytes (default 100 MB, configurable). Uploads exceeding this limit are rejected.
+
+> **SEC-4.10** **Alias row locking**: Alias mutation operations (PUT, POST, DELETE) use `SELECT ... FOR UPDATE` on the dataset row to prevent concurrent modification and ensure consistency.
 
 ## SEC-5 Rate Limiting
 
@@ -55,11 +63,11 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 ## SEC-6 CORS
 
-> **SEC-6.01** Cross-Origin Resource Sharing (CORS) headers are **not implemented**. There is no `Access-Control-Allow-Origin` or preflight handling.
+> **SEC-6.01** Cross-Origin Resource Sharing (CORS) is implemented via Spring's `CorsFilter`. Allowed origins are configurable via `cors.allowedorigins` in `rowstore.json` (default: `["*"]`, allowing all origins). The filter adds `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`, and `Access-Control-Allow-Headers` headers, and handles preflight `OPTIONS` requests.
 
 ## SEC-7 JSONP
 
-> **SEC-7.01** JSONP is supported via the `_callback` query parameter as a client-side workaround for the lack of CORS. The callback wraps JSON responses for cross-origin browser access. See [API-7.01](03-api.md#api-7-jsonp-support).
+> **SEC-7.01** [REMOVED] JSONP support has been removed. Cross-origin access is now provided via CORS headers (see [SEC-6.01](#sec-6-cors)).
 
 ## SEC-8 Temp File Handling
 
@@ -68,22 +76,20 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 ## Known Limitations
 
 - No authentication or authorization (all endpoints are public)
-- No CORS support (JSONP is the only cross-origin mechanism)
 - No HTTPS termination (must be handled by a reverse proxy)
-- No request body size limits (large CSV uploads are written directly to temp files)
 - No CSRF protection
-- JSONP callback names are not sanitized for XSS
 
 ## References
 
 - [REST API](03-api.md#api-6-error-response-conventions) — Error status codes
 - [Query Processing](05-querying.md#query-9-input-validation) — Input validation for query parameters
 - [Configuration](06-configuration.md#cfg-6-rate-limit-configuration) — Rate limit configuration options
-- [Glossary](12-glossary.md#glo-1-terms) — Rate Limit (Average), Rate Limit (Sliding Window), JSONP
-- Source: `ApiKeyFilter.java`, `RateLimitFilter.java`, `DatasetResource.java`, `AliasResource.java`, `PgDataset.java`
+- [Glossary](12-glossary.md#glo-1-terms) — Rate Limit (Average), Rate Limit (Sliding Window), CORS
+- Source: `ApiKeyFilter.java`, `RateLimitFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: CORS implemented, JSONP removed, new validations (table name, ReDoS, upload size, alias locking) |

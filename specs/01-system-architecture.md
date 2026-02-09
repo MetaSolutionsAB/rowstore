@@ -29,58 +29,59 @@ Covers the system from a structural and architectural perspective. For detailed 
 ## ARCH-3 Technology Stack
 
 > **ARCH-3.01** Core technologies:
-> - **Java 21** — Runtime and language level
-> - **Restlet 2.5.1** — REST framework
+> - **Java 25** — Runtime and language level
+> - **Spring Boot 3.5.10** — Application framework with embedded Tomcat
 > - **PostgreSQL** — Data storage (JSONB)
-> - **Jetty 9.4.57** — Embedded HTTP server (standalone mode)
+> - **HikariCP** — JDBC connection pooling
+> - **Flyway** — Database schema migration
 
 > **ARCH-3.02** Key libraries:
 > - **OpenCSV 5.11.2** — CSV parsing (RFC4180 and legacy modes)
 > - **Guava 33.4.8-jre** — Rate limiting (`RateLimiter`), caching, utilities
-> - **Log4j2 2.25.0** — Logging (via SLF4J 2.0.17)
+> - **Log4j2** — Logging (via SLF4J)
 > - **juniversalchardet** — Primary charset detection
 > - **ICU4J** — Fallback charset detection
-> - **PostgreSQL JDBC 42.7.7** — Database driver
+> - **PostgreSQL JDBC** — Database driver (managed by Spring Boot)
 > - **JSON-org 20250517** — JSON processing
+> - **Spring Boot Actuator** — Health checks and metrics
 
 ## ARCH-4 Module Structure
 
-> **ARCH-4.01** **`webapp`** — Core application module. Contains the Restlet-based REST API, ETL pipeline, PostgreSQL storage layer, web GUI templates, and all resource handlers. Produces a WAR artifact.
+> **ARCH-4.01** RowStore is a **single Maven module** producing an executable JAR via the `spring-boot-maven-plugin`. All source code (REST controllers, ETL pipeline, store layer, configuration, filters) resides in one module.
 
-> **ARCH-4.02** **`standalone/jetty`** — Embedded Jetty server for standalone deployment. Wraps the webapp module with CLI argument parsing, HTTP/2 support, and connector configuration. Produces a distributable tarball.
+> **ARCH-4.02** [REMOVED] `standalone/jetty` — Replaced by Spring Boot's embedded Tomcat server.
 
-> **ARCH-4.03** **`standalone/common`** — Shared standalone utilities used by the Jetty module for configuration resolution and application bootstrap.
+> **ARCH-4.03** [REMOVED] `standalone/common` — Replaced by Spring Boot's embedded Tomcat server.
 
 ## ARCH-5 Component Architecture
 
 > **ARCH-5.01** The request processing chain:
 > ```
 > HTTP Request
->   → JSCallbackFilter (JSONP wrapping)
->     → RateLimitFilter (optional, if configured)
->       → Router
->         → Resource handler
+>   → CorsFilter (CORS headers)
+>     → ApiKeyFilter (stub — passes all requests)
+>       → RateLimitFilter (optional, if configured)
+>         → DispatcherServlet
+>           → Controller handler method
 > ```
-> The JSCallbackFilter is the outermost filter. The RateLimitFilter is only attached when rate limiting is enabled (timerange > 0 AND (global > 0 OR dataset > 0)).
+> The `CorsFilter` is the outermost filter, providing cross-origin support. The `RateLimitFilter` is only active when rate limiting is enabled (timerange > 0 AND (global > 0 OR dataset > 0)).
 
-> **ARCH-5.02** Read path (query): `GET /dataset/{id}?col=value` → `DatasetResource.representJson()` → `PgDataset.query()` → PostgreSQL prepared statement → JSON response with pagination envelope.
+> **ARCH-5.02** Read path (query): `GET /dataset/{id}?col=value` → `DatasetController` → `PgDataset.query()` → PostgreSQL prepared statement → JSON response with pagination envelope.
 
-> **ARCH-5.03** Write path (upload): `POST /datasets` with CSV body → `DatasetsResource.acceptCSV()` → temp file creation → `EtlProcessor.submit()` → 202 response → async `DatasetSubmitter` poll → `DatasetLoader` thread → `PgDataset.populate()`.
+> **ARCH-5.03** Write path (upload): `POST /datasets` with CSV body → `DatasetsController` → temp file creation → `EtlProcessor.submit()` → 202 response → virtual thread with Semaphore permit → `PgDataset.populate()`.
 
 ## ARCH-6 Key Design Decisions
 
 > **ARCH-6.01** **JSONB storage**: Each row is stored as a JSONB object rather than in a normalized relational schema. This enables schemaless operation (no DDL changes when column structures differ between datasets), per-column `text_pattern_ops` indexing, and flexible regex querying.
 
-> **ARCH-6.02** **Queue-based async ETL**: CSV processing happens asynchronously via a `ConcurrentLinkedQueue` with configurable concurrency (`maxetlprocesses`, default 5). This decouples upload latency from processing time and prevents resource exhaustion from concurrent large uploads.
+> **ARCH-6.02** **Virtual-thread ETL with Semaphore**: CSV processing happens asynchronously via virtual threads with a `Semaphore` for concurrency limiting (`maxetlprocesses`, default 5). Tasks are dispatched immediately (no polling delay), and the Semaphore blocks virtual threads cheaply until a permit is available.
 
-> **ARCH-6.03** **Restlet framework**: RowStore uses Restlet as its REST framework, providing resource-oriented routing, content negotiation, and filter chains. Each endpoint is a `ServerResource` subclass with annotated HTTP method handlers.
+> **ARCH-6.03** **Spring Boot framework**: RowStore uses Spring Boot as its application framework, providing embedded Tomcat, HikariCP connection pooling, Flyway schema migration, Actuator health/metrics endpoints, virtual thread support, and a large ecosystem of tooling and documentation.
 
 ## Known Limitations
 
 - Single-process architecture (no clustering or horizontal scaling)
-- No built-in metrics or APM integration
 - No WebSocket or Server-Sent Events for ETL progress notifications
-- Jetty 9.x (Jakarta EE 8, not Jakarta EE 9+)
 
 ## References
 
@@ -97,3 +98,4 @@ Covers the system from a structural and architectural perspective. For detailed 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot 3.5.10 migration (Java 25, Tomcat, HikariCP, Flyway, virtual threads) |

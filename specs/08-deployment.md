@@ -2,45 +2,43 @@
 
 ## Purpose
 
-Documents how to build, deploy, and operate a RowStore instance, including standalone Jetty deployment, Docker, CI/CD, PostgreSQL requirements, monitoring, logging, and shutdown behavior.
+Documents how to build, deploy, and operate a RowStore instance, including Spring Boot standalone deployment, Docker, CI/CD, PostgreSQL requirements, monitoring, logging, and shutdown behavior.
 
 ## Scope
 
 Covers operational concerns. For configuration options, see [06-configuration.md](06-configuration.md). For the system architecture being deployed, see [01-system-architecture.md](01-system-architecture.md).
 
-## DEPL-1 Standalone Jetty
+## DEPL-1 Spring Boot Standalone
 
-> **DEPL-1.01** Build the distributable:
+> **DEPL-1.01** Build the executable JAR:
 > ```bash
 > mvn -Dmaven.test.skip=true install
 > ```
-> This produces a tarball at `standalone/jetty/target/dist/`.
+> This produces `target/rowstore-<version>.jar`.
 
 > **DEPL-1.02** Run the server:
 > ```bash
-> chmod +x standalone/jetty/target/dist/bin/rowstore
-> standalone/jetty/target/dist/bin/rowstore <config-file> [port]
+> java -jar target/rowstore-2.0-SNAPSHOT.jar --rowstore.config.uri=file:///path/to/rowstore.json
 > ```
-> The config file is required (or set `ROWSTORE_CONFIG_URI`). Port defaults to 8282.
+> The config URI is required (or set `ROWSTORE_CONFIG_URI`). Port defaults to 8282.
 
-> **DEPL-1.03** CLI options for tuning:
-> - `-c, --config <URI>` — Configuration file
-> - `-p, --port <PORT>` — Listen port (default 8282)
-> - `-l, --log-level <LEVEL>` — Log level
-> - `--connector-params <SETTINGS>` — Jetty connector parameters (comma-separated key=value)
+> **DEPL-1.03** Standard Spring Boot properties can be used:
+> - `--server.port=8282` — Listen port
+> - `--rowstore.config.uri=<URI>` — Configuration file
+> - `--spring.main.banner-mode=off` — Disable startup banner
 >
 > See [CFG-7](06-configuration.md#cfg-7-cli-options) for details.
 
-> **DEPL-1.04** The standalone Jetty deployment supports HTTP/2 and respects `useForwardedForHeader=true` for running behind reverse proxies. Access log format: `{ciua} "{m} {rp} {rq}" {S} {ES} {es} {hh} {cig} {fi}`.
+> **DEPL-1.04** [REMOVED] HTTP/2 and `useForwardedForHeader` — These were Jetty-specific. For reverse proxy support with Tomcat, use Spring Boot's `server.forward-headers-strategy=native` property.
 
 ## DEPL-2 Docker
 
 > **DEPL-2.01** Official Docker image: `metasolutions/rowstore:<version>` on Docker Hub.
 
-> **DEPL-2.02** The Dockerfile is maintained in an external repository (`bitbucket.org:metasolutions/docker.git`), separate from the main RowStore source.
+> **DEPL-2.02** The Dockerfile is maintained **in the RowStore repository** (root `Dockerfile`). It uses `eclipse-temurin:25-jre-alpine` as the base image and copies the pre-built JAR.
 
 > **DEPL-2.03** Docker tags follow these conventions:
-> - Version-specific: `1.8`, `1.8-SNAPSHOT`
+> - Version-specific: `2.0`, `2.0-SNAPSHOT`
 > - Major.minor shorthand
 > - `develop` — Latest development build
 
@@ -59,7 +57,7 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > - **Other branches**: Build and test only (no deploy, no Docker push)
 
 > **DEPL-3.03** Deploy artifacts:
-> - Standalone tarball (`.tar.gz`)
+> - Executable JAR (`.jar`)
 > - SHA256 checksum
 > - GPG signature
 > - Uploaded via SCP to metasolutions.se
@@ -68,7 +66,7 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 
 > **DEPL-4.01** PostgreSQL 9.4+ is required for JSONB column support. Recommended: PostgreSQL 16 (used in CI/CD tests).
 
-> **DEPL-4.02** RowStore auto-creates its schema on startup using `CREATE TABLE IF NOT EXISTS` for the `datasets` and `aliases` tables. No manual schema migration is needed.
+> **DEPL-4.02** Schema is managed by **Flyway** with `baselineOnMigrate=true`. On first startup against an existing database, Flyway adopts the current schema. New migrations are applied automatically. The initial migration (`V1__initial_schema.sql`) creates the `datasets` and `aliases` tables.
 
 ## DEPL-5 Monitoring
 
@@ -76,7 +74,7 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > ```json
 > {
 >     "service": "RowStore",
->     "version": "1.8-SNAPSHOT",
+>     "version": "2.0-SNAPSHOT",
 >     "datasets": 42,
 >     "activeEtlProcesses": 2
 > }
@@ -99,26 +97,28 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > ```
 > Memory values are in bytes. Data sourced from `Runtime` and `ManagementFactory.getMemoryMXBean()`.
 
-> **DEPL-5.03** There is no built-in metrics export (no Prometheus endpoint, no StatsD, no APM agent). Monitoring relies on the `/status` endpoint and external log analysis.
+> **DEPL-5.03** **Spring Boot Actuator** endpoints are available:
+> - `/actuator/health` — Application health with database connectivity check
+> - `/actuator/metrics` — JVM, HTTP, and HikariCP connection pool metrics
+> - `/actuator/info` — Application information
+>
+> A custom `RowStoreHealthIndicator` reports dataset count and active ETL processes.
 
 ## DEPL-6 Logging
 
-> **DEPL-6.01** Logging uses Log4j2 (via SLF4J). Output is console-only (no file appenders by default). Log level can be set via the `loglevel` config option or the `-l` CLI argument. Dynamic log level changes take effect at startup only.
+> **DEPL-6.01** Logging uses Log4j2 (via SLF4J). Output is console-only (no file appenders by default). Log level can be set via the `loglevel` config option.
 
 ## DEPL-7 Shutdown
 
-> **DEPL-7.01** Graceful shutdown is handled by `RowStore.shutdown()`:
-> - Interrupts the ETL `DatasetSubmitter` thread
-> - Deregisters JDBC drivers to prevent classloader leaks
-> - Active ETL processing may be interrupted mid-operation
+> **DEPL-7.01** Graceful shutdown is handled by `EtlProcessor.shutdown()`:
+> - Calls `ExecutorService.shutdown()` to stop accepting new tasks
+> - Awaits termination of active virtual threads (30-second timeout)
+> - Active ETL processing completes or is interrupted after the timeout
 
 ## Known Limitations
 
-- No health check endpoint beyond `/status` (no readiness/liveness probes)
-- No metrics export for monitoring systems
 - No rolling restart or zero-downtime deployment support
-- No database migration tooling (schema changes require manual intervention)
-- Shutdown may interrupt active ETL jobs without cleanup
+- Shutdown may interrupt active ETL jobs if they exceed the 30-second grace period
 
 ## References
 
@@ -126,10 +126,11 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 - [Configuration](06-configuration.md#cfg-7-cli-options) — All configuration options
 - [Security](07-security.md#sec-5-rate-limiting) — Security considerations for deployment
 - [Glossary](12-glossary.md#glo-1-terms) — Term definitions
-- Source: `RowStoreApplicationStandaloneJetty.java`, `RowStoreApplicationStandalone.java`, `bitbucket-pipelines.yml`, `log4j2.properties`
+- Source: `RowStoreApplication.java`, `DataSourceConfig.java`, `RowStoreHealthIndicator.java`, `bitbucket-pipelines.yml`, `Dockerfile`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: executable JAR, in-repo Dockerfile, Flyway, Actuator, graceful shutdown |

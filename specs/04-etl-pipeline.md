@@ -6,26 +6,25 @@ Documents the Extract-Transform-Load pipeline that processes CSV uploads into qu
 
 ## Scope
 
-Covers the full upload-to-available lifecycle: file reception, queue mechanics, charset/separator detection, CSV parsing, batch inserts, indexing, and concurrency control. For the API endpoints that trigger ETL, see [03-api.md](03-api.md). For the resulting data model, see [02-domain-model.md](02-domain-model.md).
+Covers the full upload-to-available lifecycle: file reception, virtual thread dispatch, charset/separator detection, CSV parsing, batch inserts, indexing, and concurrency control. For the API endpoints that trigger ETL, see [03-api.md](03-api.md). For the resulting data model, see [02-domain-model.md](02-domain-model.md).
 
 ## ETL-1 Pipeline Overview
 
 > **ETL-1.01** The ETL pipeline follows this sequence:
 > ```
-> CSV Upload → Temp File → Queue (ConcurrentLinkedQueue)
->   → DatasetSubmitter (poll thread)
->     → DatasetLoader (worker thread)
->       → Charset Detection → Separator Detection → CSV Parsing
->         → Batch Insert (every 200 rows) → Index Creation
->           → Status: AVAILABLE
+> CSV Upload → Temp File → EtlProcessor.submit()
+>   → Virtual Thread (Semaphore-gated)
+>     → Charset Detection → Separator Detection → CSV Parsing
+>       → Batch Insert (every 200 rows) → Index Creation
+>         → Status: AVAILABLE
 > ```
 > The upload returns 202 immediately. Processing is entirely asynchronous.
 
-## ETL-2 Queue Mechanics
+## ETL-2 Concurrency Mechanism
 
-> **ETL-2.01** The ETL queue is a `ConcurrentLinkedQueue<EtlResource>`. The `DatasetSubmitter` thread polls it in a loop with a 5-second sleep interval between checks.
+> **ETL-2.01** The ETL processor uses an `ExecutorService` with virtual threads (`Executors.newVirtualThreadPerTaskExecutor()`) and a `Semaphore` for concurrency limiting. Tasks are dispatched immediately — there is no polling delay.
 
-> **ETL-2.02** The maximum number of concurrent processing threads is controlled by the `maxetlprocesses` configuration option (default: 5). A new `DatasetLoader` thread is started only when `runningConversions < concurrentConversions`.
+> **ETL-2.02** The maximum number of concurrent processing tasks is controlled by the `maxetlprocesses` configuration option (default: 5). The `Semaphore` is initialized with this value, and each task acquires a permit before processing.
 
 ## ETL-3 Status Lifecycle
 
@@ -35,7 +34,7 @@ Covers the full upload-to-available lifecycle: file reception, queue mechanics, 
 > |------|----|---------|
 > | — | CREATED (0) | Dataset record created in registry |
 > | CREATED (0) | ACCEPTED_DATA (1) | CSV file received and temp file written |
-> | ACCEPTED_DATA (1) | PROCESSING (2) | DatasetLoader thread starts processing |
+> | ACCEPTED_DATA (1) | PROCESSING (2) | Virtual thread begins processing |
 > | PROCESSING (2) | AVAILABLE (3) | All rows inserted and indexes created |
 > | PROCESSING (2) | ERROR (4) | Exception during parsing or insertion |
 
@@ -81,17 +80,17 @@ Covers the full upload-to-available lifecycle: file reception, queue mechanics, 
 > CREATE INDEX <table>_jsonidx_<md5> ON <table>
 >     ((data->>'<column>') text_pattern_ops)
 > ```
-> Column names are escaped via `BaseConnection.escapeString()` to prevent SQL injection in DDL.
+> Column names are escaped via `BaseConnection.escapeString()` (accessed via `Connection.unwrap()` through the HikariCP proxy) to prevent SQL injection in DDL.
 
 > **ETL-7.02** Columns where any field value exceeds **256 characters** are not indexed. Field sizes are tracked per column during insertion using a `columnSize` HashMap.
 
 ## ETL-8 Concurrency Control
 
-> **ETL-8.01** A `runningConversions` counter tracks active `DatasetLoader` threads. The `DatasetSubmitter` only dequeues a new job when this count is below `concurrentConversions`. If a dataset is already in PROCESSING state when a new upload arrives for the same dataset, the system busy-waits until the current processing completes.
+> **ETL-8.01** An `AtomicInteger` (`activeProcesses`) tracks running tasks. The `Semaphore` controls maximum concurrent processing. If a dataset is already in PROCESSING state when a new upload arrives for the same dataset, the system busy-waits until the current processing completes.
 
 ## ETL-9 Temp File Lifecycle
 
-> **ETL-9.01** Uploaded CSV content is written to a temp file named `RowStore-*.csv` via `File.createTempFile()`. The file is marked with `deleteOnExit()` as a safety net. It is explicitly deleted after successful processing or on early failure (before queuing).
+> **ETL-9.01** Uploaded CSV content is written to a temp file named `RowStore-*.csv` via `File.createTempFile()`. The file is marked with `deleteOnExit()` as a safety net. It is explicitly deleted after successful processing or on early failure (before queuing). Upload size is enforced by `maxuploadsize` (default 100 MB).
 
 ## Known Limitations
 
@@ -105,7 +104,7 @@ Covers the full upload-to-available lifecycle: file reception, queue mechanics, 
 
 - [Domain Model](02-domain-model.md#dom-4-physical-database-schema) — Entity model and database schema
 - [REST API](03-api.md#api-3-endpoint-catalog) — Upload endpoints (POST /datasets, POST/PUT /dataset/{id})
-- [Configuration](06-configuration.md#cfg-3-application-options) — `maxetlprocesses`, `legacyparser` options
+- [Configuration](06-configuration.md#cfg-3-application-options) — `maxetlprocesses`, `legacyparser`, `maxuploadsize` options
 - [Glossary](12-glossary.md#glo-1-terms) — ETL, Populate, Append Mode, Replace Mode
 - Source: `EtlProcessor.java`, `PgDataset.java` (populate method), `DatasetUtil.java`
 
@@ -114,3 +113,4 @@ Covers the full upload-to-available lifecycle: file reception, queue mechanics, 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: virtual threads + Semaphore replace queue polling, HikariCP unwrap for BaseConnection |

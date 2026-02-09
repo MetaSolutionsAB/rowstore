@@ -17,13 +17,13 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > **TEST-2.01** Test stack:
 > - **JUnit 5** — Test framework with `@TestMethodOrder(OrderAnnotation.class)` for sequential execution
 > - **REST Assured 5.4.0** — HTTP client for sending requests and asserting responses
-> - **Testcontainers 1.20.4** — Manages a PostgreSQL 16-alpine Docker container per test class
+> - **Testcontainers 1.20.4** — Manages a PostgreSQL 16-alpine Docker container per test environment
 > - **Awaitility 4.2.0** — Polling-based assertions for async ETL completion
 > - **AssertJ 3.27.7** — Fluent assertion library
 
 ## TEST-3 Test Organization
 
-> **TEST-3.01** The test suite contains **22 `*IT.java` test classes** with approximately **137+ test methods**. All test classes follow the Maven Failsafe `*IT.java` naming convention.
+> **TEST-3.01** The test suite contains **22 `*IT.java` test classes** with **141 test methods**. All test classes follow the Maven Failsafe `*IT.java` naming convention.
 
 > **TEST-3.02** Tests within each class are executed **sequentially** using JUnit 5's `@Order` annotation. This is necessary because many tests depend on prior test state (e.g., a dataset created in test 1 is queried in test 2).
 
@@ -71,18 +71,21 @@ Covers the Java integration test suite and its relationship to the framework-agn
 >
 > | Endpoint | Test Spec | IT Classes |
 > |----------|-----------|------------|
-> | `GET /status` | [01-status.md](tests/01-status.md) | StatusIT |
-> | `GET /datasets` | [02-datasets.md](tests/02-datasets.md) | DatasetsIT |
-> | `POST /datasets` | [03-dataset-lifecycle.md](tests/03-dataset-lifecycle.md) | DatasetLifecycleIT, DatasetUtf8LifecycleIT |
-> | `GET /dataset/{id}` | [05-querying.md](tests/05-querying.md) | QueryIT, RegexpQueryIT |
-> | `POST/PUT /dataset/{id}` | [03-dataset-lifecycle.md](tests/03-dataset-lifecycle.md) | DatasetLifecycleIT |
-> | `DELETE /dataset/{id}` | [03-dataset-lifecycle.md](tests/03-dataset-lifecycle.md) | DatasetLifecycleIT |
-> | `GET /dataset/{id}/info` | [07-metadata-endpoints.md](tests/07-metadata-endpoints.md) | DatasetInfoIT |
-> | `*/dataset/{id}/aliases` | [07-metadata-endpoints.md](tests/07-metadata-endpoints.md) | AliasIT |
+> | `GET /status` | [01-status.md](tests/01-status.md) | StatusIT, StatusExtendedIT |
+> | `GET /datasets` | [02-datasets.md](tests/02-datasets.md) | DatasetsListIT |
+> | `POST /datasets` | [03-dataset-lifecycle.md](tests/03-dataset-lifecycle.md) | DatasetUtf8LifecycleIT |
+> | `GET /dataset/{id}` | [05-querying.md](tests/05-querying.md) | QueryAdvancedIT, RegexDisabledIT, RegexSimpleIT |
+> | `POST/PUT /dataset/{id}` | [03-dataset-lifecycle.md](tests/03-dataset-lifecycle.md) | DatasetUtf8LifecycleIT |
+> | `DELETE /dataset/{id}` | [03-dataset-lifecycle.md](tests/03-dataset-lifecycle.md) | DatasetUtf8LifecycleIT |
+> | `GET /dataset/{id}/info` | [07-metadata-endpoints.md](tests/07-metadata-endpoints.md) | DatasetUtf8LifecycleIT |
+> | `*/dataset/{id}/aliases` | [07-metadata-endpoints.md](tests/07-metadata-endpoints.md) | DatasetUtf8LifecycleIT |
 > | `GET /dataset/{id}/export` | [06-export.md](tests/06-export.md) | ExportIT |
-> | CSV formats | [04-csv-formats.md](tests/04-csv-formats.md) | CsvFormatIT |
+> | `GET /dataset/{id}/html` | — | WebGuiIT |
+> | `GET /dataset/{id}/swagger` | — | SwaggerIT |
+> | CSV formats | [04-csv-formats.md](tests/04-csv-formats.md) | CsvParsingIT, DatasetEncodingIT, DatasetSemicolonIT, DatasetEmptyColumnIT, DatasetCorruptIT |
 > | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT |
-> | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT |
+> | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT, RateLimitAverageIT, RateLimitPartialConfigIT, RateLimitZeroValueIT |
+> | CORS | — | CorsIT |
 
 ## TEST-9 Framework-Agnostic Specs
 
@@ -109,3 +112,4 @@ Covers the Java integration test suite and its relationship to the framework-agn
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: 22 IT classes, 141 test methods, expanded coverage matrix |

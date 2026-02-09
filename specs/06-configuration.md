@@ -15,7 +15,7 @@ Covers the JSON configuration file format, all application and database options,
 ## CFG-2 Resolution Order
 
 > **CFG-2.01** The configuration file is resolved in this order:
-> 1. Explicit URI via `-c`/`--config` CLI argument
+> 1. `--rowstore.config.uri=<URI>` Spring Boot property (command line)
 > 2. `ROWSTORE_CONFIG_URI` environment variable
 > 3. `rowstore.json` from the classpath (fallback)
 
@@ -32,9 +32,9 @@ Covers the JSON configuration file format, all application and database options,
 >
 > See [QUERY-4](05-querying.md#query-4-regex-modes) for details.
 
-> **CFG-3.03** `maxetlprocesses` (int, default `5`) — Maximum number of concurrent ETL processing threads. Controls how many CSV files can be parsed and loaded simultaneously. See [ETL-2.02](04-etl-pipeline.md#etl-2-queue-mechanics).
+> **CFG-3.03** `maxetlprocesses` (int, default `5`) — Maximum number of concurrent ETL processing tasks. Controls the Semaphore permit count for virtual thread concurrency. See [ETL-2.02](04-etl-pipeline.md#etl-2-concurrency-mechanism).
 
-> **CFG-3.04** `loglevel` (String, default `"info"`) — Log level for the application. Valid values: `DEBUG`, `INFO`, `WARN`, `ERROR` (case-insensitive). Can be overridden by the `-l` CLI argument.
+> **CFG-3.04** `loglevel` (String, default `"info"`) — Log level for the application. Valid values: `DEBUG`, `INFO`, `WARN`, `ERROR` (case-insensitive).
 
 > **CFG-3.05** `legacyparser` (boolean, default `false`) — When `true`, uses OpenCSV's `CSVParserBuilder` instead of `RFC4180ParserBuilder` for CSV parsing. See [ETL-4.03](04-etl-pipeline.md#etl-4-csv-processing).
 
@@ -43,6 +43,10 @@ Covers the JSON configuration file format, all application and database options,
 > **CFG-3.07** `querymaxlimit` (int, default `100`) — Maximum value allowed for the `_limit` query parameter. Client-requested limits exceeding this value are capped. See [QUERY-3.01](05-querying.md#query-3-special-parameters).
 
 > **CFG-3.08** `exportpagesize` (int, default `100000`) — Number of rows fetched per internal database query during export operations. Controls memory usage for large exports.
+
+> **CFG-3.09** `maxuploadsize` (long, default `104857600`) — Maximum CSV upload size in bytes (default 100 MB). Uploads exceeding this limit are rejected. See [SEC-4.09](07-security.md#sec-4-input-validation).
+
+> **CFG-3.10** `cors.allowedorigins` (JSON array, default `["*"]`) — List of allowed origins for CORS. When set to `["*"]`, all origins are permitted. See [SEC-6.01](07-security.md#sec-6-cors).
 
 ## CFG-4 Database Configuration
 
@@ -59,9 +63,9 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-4.02** `ssl` (boolean, default `false`) — Enables SSL for the PostgreSQL connection.
 
-> **CFG-4.03** Connection pool settings:
-> - `connectionPoolInit` (int, default `-1`) — Initial pool size. `-1` disables pooling.
-> - `connectionPoolMax` (int, default `-1`) — Maximum pool size. `-1` disables pooling.
+> **CFG-4.03** Connection pool settings (HikariCP):
+> - `connectionPoolInit` (int, default `-1`) — Minimum idle connections (`minimumIdle`). `-1` uses HikariCP defaults.
+> - `connectionPoolMax` (int, default `-1`) — Maximum pool size (`maximumPoolSize`). `-1` uses HikariCP defaults.
 
 > **CFG-4.04** Timeout settings (all in seconds):
 > - `socketTimeout` (int, default `0`) — Socket read timeout. `0` means no timeout.
@@ -70,7 +74,7 @@ Covers the JSON configuration file format, all application and database options,
 
 ## CFG-5 Read Replica Configuration
 
-> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection for read queries. It accepts the same properties as `database`. When not configured, all queries use the primary `database` connection. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing).
+> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`. When not configured, all queries use the primary `database` connection. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing).
 
 ## CFG-6 Rate Limit Configuration
 
@@ -85,23 +89,23 @@ Covers the JSON configuration file format, all application and database options,
 > - `dataset` — One limiter per dataset URL path
 > - `clientip` — One limiter per client IP (from `X-Forwarded-For` header)
 
-> **CFG-6.04** Rate limiting is enabled when: `timerange > 0 AND (global > 0 OR dataset > 0)`. If these conditions are not met, the `RateLimitFilter` is not attached to the filter chain. See [SEC-5](07-security.md#sec-5-rate-limiting).
+> **CFG-6.04** Rate limiting is enabled when: `timerange > 0 AND (global > 0 OR dataset > 0)`. If these conditions are not met, the `RateLimitFilter` is not active. See [SEC-5](07-security.md#sec-5-rate-limiting).
 
 ## CFG-7 CLI Options
 
-> **CFG-7.01** `-c, --config <URI>` — Configuration file URI. Required if `ROWSTORE_CONFIG_URI` is not set.
+> **CFG-7.01** `--rowstore.config.uri=<URI>` — Configuration file URI (Spring Boot property). Example: `--rowstore.config.uri=file:///etc/rowstore/config.json`.
 
-> **CFG-7.02** `-p, --port <PORT>` — HTTP listen port. Default: `8282`.
+> **CFG-7.02** `--server.port=<PORT>` — HTTP listen port. Default: `8282`. Standard Spring Boot property.
 
-> **CFG-7.03** `-l, --log-level <LEVEL>` — Log level override. Overrides the `loglevel` config option.
+> **CFG-7.03** [REMOVED] `-l, --log-level` — CLI log level override. Use Spring Boot properties or Log4j2 configuration instead.
 
-> **CFG-7.04** `--connector-params <SETTINGS>` — Jetty connector parameters as comma-separated `key=value` pairs. Used for thread pool tuning and other Jetty-specific settings.
+> **CFG-7.04** [REMOVED] `--connector-params` — Jetty connector parameters. Jetty has been replaced by embedded Tomcat.
 
 ## CFG-8 Environment Variables
 
-> **CFG-8.01** `ROWSTORE_CONFIG_URI` — Configuration file URI. Used when no `-c` CLI argument is provided.
+> **CFG-8.01** `ROWSTORE_CONFIG_URI` — Configuration file URI. Used when no `--rowstore.config.uri` property is provided.
 
-> **CFG-8.02** `ROWSTORE_CONNECTOR_PARAMS` — Jetty connector parameters. Alternative to `--connector-params` CLI argument.
+> **CFG-8.02** [REMOVED] `ROWSTORE_CONNECTOR_PARAMS` — Jetty connector parameters. Jetty has been replaced by embedded Tomcat.
 
 ## CFG-9 Annotated Example
 
@@ -116,6 +120,10 @@ Covers the JSON configuration file format, all application and database options,
 >     "querytimeout": 30,
 >     "querymaxlimit": 500,
 >     "exportpagesize": 50000,
+>     "maxuploadsize": 209715200,
+>     "cors": {
+>         "allowedorigins": ["https://example.com", "https://app.example.com"]
+>     },
 >     "database": {
 >         "type": "postgresql",
 >         "host": "db-primary.example.com",
@@ -159,14 +167,15 @@ Covers the JSON configuration file format, all application and database options,
 ## References
 
 - [Query Processing](05-querying.md#query-4-regex-modes) — `regexpqueries`, `querytimeout`, `querymaxlimit` behavior
-- [ETL Pipeline](04-etl-pipeline.md#etl-2-queue-mechanics) — `maxetlprocesses`, `legacyparser` behavior
+- [ETL Pipeline](04-etl-pipeline.md#etl-2-concurrency-mechanism) — `maxetlprocesses`, `legacyparser` behavior
 - [Security](07-security.md#sec-5-rate-limiting) — Rate limit behavior
-- [Deployment](08-deployment.md#depl-1-standalone-jetty) — CLI usage and deployment
-- [Glossary](12-glossary.md#glo-1-terms) — Read Replica, Rate Limit
-- Source: `RowStoreConfig.java`, `RowStoreApplicationStandalone.java`
+- [Deployment](08-deployment.md#depl-1-spring-boot-standalone) — CLI usage and deployment
+- [Glossary](12-glossary.md#glo-1-terms) — Read Replica, Rate Limit, CORS
+- Source: `RowStoreConfig.java`, `RowStoreConfigLoader.java`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |

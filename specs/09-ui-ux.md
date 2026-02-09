@@ -61,10 +61,11 @@ Covers the HTML-based dataset browser served at `/dataset/{id}/html`. For the AP
 - [REST API](03-api.md#api-3-endpoint-catalog) — API endpoints used by the GUI
 - [Query Processing](05-querying.md#query-3-special-parameters) — Query parameter handling
 - [Glossary](12-glossary.md#glo-1-terms) — Pagination, Query
-- Source: `WebGuiResource.java`, `webgui_header.html`, `webgui_body_full.html`, `webgui_body_embed.html`
+- Source: `WebGuiController.java`, `webgui_header.html`, `webgui_body_full.html`, `webgui_body_embed.html`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated source references for Spring Boot migration |

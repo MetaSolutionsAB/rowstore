@@ -24,7 +24,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-3.02** `_offset` — Number of rows to skip. Default: **0**. Negative values are corrected to 0. Non-numeric values return 400.
 
-> **QUERY-3.03** `_callback` — JSONP function name. When present, the JSON response is wrapped in a function call: `callbackName({...})`. Handled by `JSCallbackFilter`.
+> **QUERY-3.03** [REMOVED] `_callback` — JSONP function name. JSONP support has been removed; use CORS for cross-origin access.
 
 > **QUERY-3.04** `format` — Response format override. Takes precedence over the `Accept` header for content negotiation.
 
@@ -91,10 +91,11 @@ Covers the read path from query parameter parsing through SQL execution to respo
 - [Domain Model](02-domain-model.md#dom-5-index-strategy) — Data table schema and indexes
 - [Configuration](06-configuration.md#cfg-3-application-options) — `regexpqueries`, `querytimeout`, `querymaxlimit`
 - [Glossary](12-glossary.md#glo-1-terms) — Query, Regex Mode, Pagination
-- Source: `DatasetResource.java`, `PgDataset.java` (query method), `DatasetUtil.java`
+- Source: `DatasetController.java`, `PgDataset.java` (query method), `DatasetUtil.java`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: JSONP _callback removed, source references updated |

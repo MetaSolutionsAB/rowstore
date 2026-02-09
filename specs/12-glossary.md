@@ -28,7 +28,7 @@ All terms specific to the RowStore domain. General programming or database terms
 
 > **GLO-1.09 JSONB** — PostgreSQL's binary JSON column type. Used to store each dataset row as a schemaless key-value object, enabling per-column indexing and flexible querying.
 
-> **GLO-1.10 JSONP** — JSON with Padding. A technique for cross-origin data access that wraps JSON responses in a JavaScript function call. Activated via the `_callback` query parameter. See [API-7.01](03-api.md#api-7-jsonp-support).
+> **GLO-1.10** [REMOVED] **JSONP** — JSON with Padding. JSONP support has been removed. Cross-origin access is now provided via CORS. See [GLO-1.23](#glo-1-terms).
 
 > **GLO-1.11 Pagination** — The mechanism for retrieving query results in pages using `_limit` and `_offset` parameters. The response envelope includes `prev` and `next` URLs for navigation. See [QUERY-6](05-querying.md#query-6-pagination).
 
@@ -54,6 +54,8 @@ All terms specific to the RowStore domain. General programming or database terms
 
 > **GLO-1.22 Swagger/OpenAPI** — A per-dataset, dynamically generated OpenAPI specification that describes the dataset's query parameters based on its column names and the server configuration. Available at `/dataset/{id}/swagger`.
 
+> **GLO-1.23 CORS** — Cross-Origin Resource Sharing. An HTTP mechanism that allows browsers to make requests to a different origin than the page's origin. RowStore configures allowed origins via `cors.allowedorigins` in `rowstore.json` (default: all origins). See [SEC-6.01](07-security.md#sec-6-cors).
+
 ## Known Limitations
 
 - Terms are limited to the current RowStore feature set. As new features are added, corresponding terms should be added here.
@@ -68,3 +70,4 @@ All terms specific to the RowStore domain. General programming or database terms
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: JSONP removed, CORS added |
