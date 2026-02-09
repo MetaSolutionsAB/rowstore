@@ -92,7 +92,7 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
 - `baseurl` (String) - The base URL under which the root of RowStore can be reached. Used for generating correct URIs in API responses.
 - `regexpqueries` (String) - Determines whether the query interface should allow regular expressions to match column values. Differentiates between `disabled` (no regexp support), `simple` (support for queries starting with `^`), and `full` (support for any regexp queries).
 - `maxetlprocesses` (Integer) - Maximum number of concurrently running ETL processes (each process takes up one thread).
-- `database` - Configures the database connection. Does not support connection pooling.
+- `database` - Configures the database connection. By default, no connection pool is used (connections are opened and closed per operation, like `PGSimpleDataSource`). Set `connectionPoolMax` to a positive integer to enable HikariCP connection pooling.
   - `type` - DB type, currently only `postgresql` is supported. Default: `postgresql`.
   - `host` - Hostname.
   - `port` - Port. Default: `5432`.
@@ -100,13 +100,12 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
   - `database` - Name of database.
   - `user` - Username.
   - `password` - Password.
-  - `connectionPoolInit` - Initial size of connection pool. Use positive integer to activate, also requires `connectionPoolMax`. Default: -1.
-  - `connectionPoolMax` - Maximum size of connection pool. Use positive integer to activate, see `connectionPoolInit`. Default: -1.
+  - `connectionPoolMax` - Maximum size of connection pool. Set to a positive integer to enable HikariCP pooling. When not set or <= 0, no pool is used. Default: -1 (no pool).
+  - `connectionPoolInit` - Minimum idle connections in the pool. Only effective when `connectionPoolMax` > 0. Default: 0.
   - `socketTimeout` - Socket timeout in seconds. Default: 0 (unlimited).
   - `connectTimeout` - Connection timeout in seconds. Default: 5.
   - `loginTimeout` - Login timeout in seconds. Default: 5.
-- `queryDatabase` - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica. Supports connection pooling.
-  - same configuration properties as `database`.
+- `queryDatabase` - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica. Same configuration properties as `database`.
 - `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
 - `querytimeout` (Integer) - Configures query timeout for dataset-queries in seconds. By default no query timeout is active (unless configured directly in the database).
 - `querymaxlimit` (Integer) - Configures the maximum allowed size of the query response limit, i.e. the `_limit` URL parameter when querying a dataset. Default: 100.
@@ -153,6 +152,61 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
   "loglevel": "debug"
 }
 ```
+
+## Connection Pooling with PgBouncer
+
+When running many RowStore instances against a shared PostgreSQL cluster, a connection pooler such as [PgBouncer](https://www.pgbouncer.org/) is recommended to avoid connection exhaustion.
+
+### When to use PgBouncer
+
+By default, RowStore uses `PGSimpleDataSource` (no connection pool), which opens and closes connections per operation. This is appropriate for most deployments. However, when dozens or hundreds of instances share a single PostgreSQL cluster, even short-lived connections can cause contention on the server side.
+
+PgBouncer in `transaction` mode multiplexes many application connections over a smaller number of PostgreSQL server connections, reducing load on the database.
+
+### Recommended PgBouncer configuration
+
+```ini
+[databases]
+rowstore = host=postgres-main port=5432 dbname=rowstore
+
+[pgbouncer]
+pool_mode = transaction
+default_pool_size = 20
+max_client_conn = 1000
+```
+
+### RowStore configuration with PgBouncer
+
+Point RowStore at PgBouncer instead of PostgreSQL directly. Connection pooling in RowStore itself is typically not needed when using PgBouncer:
+
+```json
+{
+  "database": {
+    "host": "pgbouncer-host",
+    "port": 6432,
+    "database": "rowstore",
+    "user": "rowstore",
+    "password": "secret"
+  }
+}
+```
+
+To enable RowStore-side connection pooling in addition to PgBouncer (useful for high-traffic instances):
+
+```json
+{
+  "database": {
+    "host": "pgbouncer-host",
+    "port": 6432,
+    "database": "rowstore",
+    "user": "rowstore",
+    "password": "secret",
+    "connectionPoolMax": 5
+  }
+}
+```
+
+**Note:** The ETL `populate()` operation holds a connection for the duration of the CSV import (using `COPY`), which pins a server connection in PgBouncer's `transaction` mode.
 
 ## Installation
 

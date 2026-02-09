@@ -20,6 +20,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.entrystore.rowstore.store.RowStoreConfig;
 import org.flywaydb.core.Flyway;
+import org.postgresql.ds.PGSimpleDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -28,6 +29,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
 import javax.sql.DataSource;
+import java.util.concurrent.TimeUnit;
 
 @Configuration
 public class DataSourceConfig {
@@ -37,7 +39,7 @@ public class DataSourceConfig {
 	@Bean
 	@Primary
 	public DataSource dataSource(RowStoreConfig config) {
-		HikariDataSource ds = createHikariDataSource(config.getDatabase(), "rowstore-primary");
+		DataSource ds = createDataSource(config.getDatabase(), "rowstore-primary");
 
 		// Run Flyway
 		Flyway flyway = Flyway.configure()
@@ -58,8 +60,49 @@ public class DataSourceConfig {
 			return dataSource;
 		}
 
-		HikariDataSource ds = createHikariDataSource(config.getQueryDatabase(), "rowstore-query");
-		ds.setReadOnly(true);
+		DataSource ds = createDataSource(config.getQueryDatabase(), "rowstore-query");
+		if (ds instanceof PGSimpleDataSource pgDs) {
+			pgDs.setReadOnly(true);
+			pgDs.setReadOnlyMode("always");
+		} else if (ds instanceof HikariDataSource hikariDs) {
+			hikariDs.setReadOnly(true);
+		}
+		return ds;
+	}
+
+	private DataSource createDataSource(RowStoreConfig.Database dbConfig, String poolName) {
+		if (dbConfig.getConnectionPoolMax() > 0) {
+			return createHikariDataSource(dbConfig, poolName);
+		}
+		return createSimpleDataSource(dbConfig, poolName);
+	}
+
+	private PGSimpleDataSource createSimpleDataSource(RowStoreConfig.Database dbConfig, String poolName) {
+		PGSimpleDataSource ds = new PGSimpleDataSource();
+		ds.setUser(dbConfig.getUser());
+		ds.setPassword(dbConfig.getPassword());
+		ds.setServerNames(new String[]{dbConfig.getHost()});
+		ds.setDatabaseName(dbConfig.getName());
+		ds.setPortNumbers(new int[]{dbConfig.getPort()});
+		if (dbConfig.getSsl()) {
+			ds.setSsl(true);
+			ds.setSslMode("require");
+		}
+		if (dbConfig.getConnectTimeout() > 0) {
+			ds.setConnectTimeout(dbConfig.getConnectTimeout());
+		}
+		if (dbConfig.getLoginTimeout() > 0) {
+			try {
+				ds.setLoginTimeout(dbConfig.getLoginTimeout());
+			} catch (Exception e) {
+				log.warn("Failed to set login timeout on PGSimpleDataSource", e);
+			}
+		}
+		if (dbConfig.getSocketTimeout() > 0) {
+			ds.setSocketTimeout(dbConfig.getSocketTimeout());
+		}
+		log.info("Configured PGSimpleDataSource '{}': host={}, port={}, database={} (no connection pool)",
+				poolName, dbConfig.getHost(), dbConfig.getPort(), dbConfig.getName());
 		return ds;
 	}
 
@@ -73,17 +116,14 @@ public class DataSourceConfig {
 		hikariConfig.setUsername(dbConfig.getUser());
 		hikariConfig.setPassword(dbConfig.getPassword());
 
-		if (dbConfig.getConnectionPoolMax() > 0) {
-			hikariConfig.setMaximumPoolSize(dbConfig.getConnectionPoolMax());
-		} else {
-			hikariConfig.setMaximumPoolSize(10);
-		}
+		hikariConfig.setMaximumPoolSize(dbConfig.getConnectionPoolMax());
+		hikariConfig.setMinimumIdle(dbConfig.getConnectionPoolInit() > 0 ? dbConfig.getConnectionPoolInit() : 0);
 
-		if (dbConfig.getConnectionPoolInit() > 0) {
-			hikariConfig.setMinimumIdle(dbConfig.getConnectionPoolInit());
-		} else {
-			hikariConfig.setMinimumIdle(2);
-		}
+		// Lifecycle tuning
+		hikariConfig.setMaxLifetime(TimeUnit.MINUTES.toMillis(25));
+		hikariConfig.setIdleTimeout(TimeUnit.SECONDS.toMillis(10));
+		hikariConfig.setKeepaliveTime(TimeUnit.SECONDS.toMillis(120));
+		hikariConfig.setLeakDetectionThreshold(TimeUnit.SECONDS.toMillis(60));
 
 		if (dbConfig.getConnectTimeout() > 0) {
 			hikariConfig.setConnectionTimeout(dbConfig.getConnectTimeout() * 1000L);
