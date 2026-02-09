@@ -72,7 +72,10 @@ public class DatasetsController {
 		boolean accepted = false;
 		try {
 			try {
-				tmpFile = DatasetUtil.writeTempFile(request.getInputStream());
+				tmpFile = DatasetUtil.writeTempFile(request.getInputStream(), rowStore.getConfig().getMaxUploadSize());
+			} catch (DatasetUtil.PayloadTooLargeException ptle) {
+				log.warn(ptle.getMessage());
+				return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).build();
 			} catch (IOException ioe) {
 				log.error(ioe.getMessage());
 				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();

@@ -19,7 +19,6 @@ package org.entrystore.rowstore.store.impl;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.Datasets;
-import org.entrystore.rowstore.util.DatasetUtil;
 import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,14 +60,10 @@ public class PgDatasets implements Datasets {
 	public Set<Dataset> getAll() {
 		long before = System.currentTimeMillis();
 		Set<Dataset> result = null;
-		Connection conn = null;
-		PreparedStatement stmt = null;
-		ResultSet rs = null;
-		try {
-			conn = getRowStore().getConnection();
-			stmt = conn.prepareStatement("SELECT * FROM " + DATASETS_TABLE_NAME);
+		try (Connection conn = getRowStore().getConnection();
+			 PreparedStatement stmt = conn.prepareStatement("SELECT * FROM " + DATASETS_TABLE_NAME);
+			 ResultSet rs = stmt.executeQuery()) {
 			log.debug("Executing: " + stmt);
-			rs = stmt.executeQuery();
 			result = new HashSet<>();
 			while (rs.next()) {
 				UUID id = (UUID) rs.getObject("id");
@@ -77,26 +72,9 @@ public class PgDatasets implements Datasets {
 				String dataTable = rs.getString("data_table");
 				result.add(new PgDataset(rowstore, id.toString(), status, created, dataTable));
 			}
-			rs.close();
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			DatasetUtil.closeStatement(stmt);
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
 			log.debug("Fetching datasets took {} ms", System.currentTimeMillis() - before);
 		}
 
@@ -110,50 +88,34 @@ public class PgDatasets implements Datasets {
 	public Dataset createDataset() {
 		long before = System.currentTimeMillis();
 		String id = createUniqueDatasetId();
-		Connection conn = null;
 		String dataTable = constructDataTableName(id);
-		try {
-			conn = getRowStore().getConnection();
+		try (Connection conn = getRowStore().getConnection()) {
 			conn.setAutoCommit(false);
 
-			PreparedStatement ps = conn.prepareStatement("INSERT INTO " + DATASETS_TABLE_NAME + " (id, status, created, data_table) VALUES (?, ?, ?, ?)");
-			PGobject uuid = new PGobject();
-			uuid.setType("uuid");
-			uuid.setValue(id);
-			ps.setObject(1, uuid);
-			ps.setInt(2, EtlStatus.CREATED);
-			java.util.Date created = new java.util.Date();
-			ps.setTimestamp(3, new Timestamp(created.getTime()));
-			ps.setString(4, dataTable);
-			log.debug("Executing: " + ps);
-			ps.execute();
-			DatasetUtil.closeStatement(ps);
+			try (PreparedStatement ps = conn.prepareStatement("INSERT INTO " + DATASETS_TABLE_NAME + " (id, status, created, data_table) VALUES (?, ?, ?, ?)")) {
+				PGobject uuid = new PGobject();
+				uuid.setType("uuid");
+				uuid.setValue(id);
+				ps.setObject(1, uuid);
+				ps.setInt(2, EtlStatus.CREATED);
+				java.util.Date created = new java.util.Date();
+				ps.setTimestamp(3, new Timestamp(created.getTime()));
+				ps.setString(4, dataTable);
+				log.debug("Executing: " + ps);
+				ps.execute();
+			}
 
-			ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + dataTable + " (rownr SERIAL PRIMARY KEY, data JSONB NOT NULL)");
-			log.debug("Executing: " + ps);
-			ps.execute();
-			DatasetUtil.closeStatement(ps);
+			try (PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + dataTable + " (rownr SERIAL PRIMARY KEY, data JSONB NOT NULL)")) {
+				log.debug("Executing: " + ps);
+				ps.execute();
+			}
 
 			conn.commit();
 			log.info("Created dataset " + id);
-			return new PgDataset(getRowStore(), id, EtlStatus.CREATED, created, dataTable);
+			return new PgDataset(getRowStore(), id, EtlStatus.CREATED, new java.util.Date(), dataTable);
 		} catch (SQLException e) {
-			if (conn != null) {
-				try {
-					conn.rollback();
-				} catch (SQLException e1) {
-					SqlExceptionLogUtil.error(log, e1);
-				}
-			}
 			log.error(e.getMessage());
 		} finally {
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
 			log.debug("Creating dataset took {} ms", System.currentTimeMillis() - before);
 		}
 
@@ -169,46 +131,30 @@ public class PgDatasets implements Datasets {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
 		long before = System.currentTimeMillis();
-		Connection conn = null;
-		try {
-			conn = getRowStore().getConnection();
+		try (Connection conn = getRowStore().getConnection()) {
 			conn.setAutoCommit(false);
 
-			PreparedStatement ps = conn.prepareStatement("DROP TABLE " + constructDataTableName(id));
-			log.debug("Executing: " + ps);
-			ps.execute();
-			DatasetUtil.closeStatement(ps);
+			try (PreparedStatement ps = conn.prepareStatement("DROP TABLE " + constructDataTableName(id))) {
+				log.debug("Executing: " + ps);
+				ps.execute();
+			}
 
-			ps = conn.prepareStatement("DELETE FROM " + DATASETS_TABLE_NAME + " WHERE id = ?");
-			PGobject uuid = new PGobject();
-			uuid.setType("uuid");
-			uuid.setValue(id);
-			ps.setObject(1, uuid);
-			log.debug("Executing: " + ps);
-			ps.execute();
-			DatasetUtil.closeStatement(ps);
+			try (PreparedStatement ps = conn.prepareStatement("DELETE FROM " + DATASETS_TABLE_NAME + " WHERE id = ?")) {
+				PGobject uuid = new PGobject();
+				uuid.setType("uuid");
+				uuid.setValue(id);
+				ps.setObject(1, uuid);
+				log.debug("Executing: " + ps);
+				ps.execute();
+			}
 
 			conn.commit();
 			log.info("Purged dataset " + id);
 			return true;
 		} catch (SQLException e) {
-			if (conn != null) {
-				try {
-					conn.rollback();
-				} catch (SQLException e1) {
-					SqlExceptionLogUtil.error(log, e1);
-				}
-			}
 			log.error(e.getMessage());
 			return false;
 		} finally {
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
 			log.debug("Purging dataset took {} ms", System.currentTimeMillis() - before);
 		}
 	}
@@ -235,20 +181,17 @@ public class PgDatasets implements Datasets {
 	@Override
 	public boolean hasDataset(String id) {
 		long before = System.currentTimeMillis();
-		Connection conn = null;
-		PreparedStatement stmt = null;
-		ResultSet rs = null;
-		try {
-			conn = rowstore.getConnection();
-			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?");
+		try (Connection conn = rowstore.getConnection();
+			 PreparedStatement stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?")) {
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
 			uuid.setValue(id);
 			stmt.setObject(1, uuid);
 			log.debug("Executing: " + stmt);
-			rs = stmt.executeQuery();
-			if (rs.next()) {
-				return true;
+			try (ResultSet rs = stmt.executeQuery()) {
+				if (rs.next()) {
+					return true;
+				}
 			}
 		} catch (SQLException e) {
 			if ("22P02".equals(e.getSQLState())) {
@@ -257,21 +200,6 @@ public class PgDatasets implements Datasets {
 				SqlExceptionLogUtil.error(log, e);
 			}
 		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			DatasetUtil.closeStatement(stmt);
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
 			log.debug("Checking for dataset existance took {} ms", System.currentTimeMillis() - before);
 		}
 
@@ -292,36 +220,16 @@ public class PgDatasets implements Datasets {
 	public int amount() {
 		long before = System.currentTimeMillis();
 		int result = -1;
-		Connection conn = null;
-		PreparedStatement stmt = null;
-		ResultSet rs = null;
-		try {
-			conn = getRowStore().getConnection();
-			stmt = conn.prepareStatement("SELECT COUNT(*) AS amount FROM " + DATASETS_TABLE_NAME);
+		try (Connection conn = getRowStore().getConnection();
+			 PreparedStatement stmt = conn.prepareStatement("SELECT COUNT(*) AS amount FROM " + DATASETS_TABLE_NAME);
+			 ResultSet rs = stmt.executeQuery()) {
 			log.debug("Executing: " + stmt);
-			rs = stmt.executeQuery();
-			while (rs.next()) {
+			if (rs.next()) {
 				result = rs.getInt("amount");
 			}
-			rs.close();
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			DatasetUtil.closeStatement(stmt);
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
 			log.debug("Fetching amount of datasets took {} ms", System.currentTimeMillis() - before);
 		}
 
@@ -345,8 +253,14 @@ public class PgDatasets implements Datasets {
 	 * @param id The ID to be used for constructing the table name.
 	 * @return Returns a table name for storing a dataset's data.
 	 */
+	static final String DATA_TABLE_PATTERN = "data_[a-f0-9]{32}";
+
 	private String constructDataTableName(String id) {
-		return "data_" + id.replaceAll("-", "");
+		String tableName = "data_" + id.replaceAll("-", "");
+		if (!tableName.matches(DATA_TABLE_PATTERN)) {
+			throw new IllegalArgumentException("Generated data table name does not match expected pattern: " + tableName);
+		}
+		return tableName;
 	}
 
 	/**

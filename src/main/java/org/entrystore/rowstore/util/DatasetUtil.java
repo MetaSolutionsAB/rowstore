@@ -37,6 +37,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * @author Hannes Ebner
@@ -59,11 +60,62 @@ public class DatasetUtil {
 	}
 
 	public static File writeTempFile(InputStream inputStream) throws IOException {
+		return writeTempFile(inputStream, -1);
+	}
+
+	public static File writeTempFile(InputStream inputStream, long maxSize) throws IOException {
 		Path tmpPath = Files.createTempFile(RowStoreApplication.NAME, ".csv");
 		tmpPath.toFile().deleteOnExit();
 		log.info("Writing request body to temporary file at " + tmpPath);
-		Files.copy(inputStream, tmpPath, StandardCopyOption.REPLACE_EXISTING);
+		if (maxSize > 0) {
+			Files.copy(new BoundedInputStream(inputStream, maxSize), tmpPath, StandardCopyOption.REPLACE_EXISTING);
+		} else {
+			Files.copy(inputStream, tmpPath, StandardCopyOption.REPLACE_EXISTING);
+		}
 		return tmpPath.toFile();
+	}
+
+	public static class PayloadTooLargeException extends IOException {
+		public PayloadTooLargeException(long maxSize) {
+			super("Upload exceeds maximum allowed size of " + maxSize + " bytes");
+		}
+	}
+
+	private static class BoundedInputStream extends InputStream {
+		private final InputStream delegate;
+		private final long maxSize;
+		private long bytesRead = 0;
+
+		BoundedInputStream(InputStream delegate, long maxSize) {
+			this.delegate = delegate;
+			this.maxSize = maxSize;
+		}
+
+		@Override
+		public int read() throws IOException {
+			int b = delegate.read();
+			if (b != -1 && ++bytesRead > maxSize) {
+				throw new PayloadTooLargeException(maxSize);
+			}
+			return b;
+		}
+
+		@Override
+		public int read(byte[] buf, int off, int len) throws IOException {
+			int n = delegate.read(buf, off, len);
+			if (n > 0) {
+				bytesRead += n;
+				if (bytesRead > maxSize) {
+					throw new PayloadTooLargeException(maxSize);
+				}
+			}
+			return n;
+		}
+
+		@Override
+		public void close() throws IOException {
+			delegate.close();
+		}
 	}
 
 	/**
@@ -77,6 +129,25 @@ public class DatasetUtil {
 	public static boolean isRegExpString(String s) {
 		char[] indicators = {'^', '$', '(', '|', '[', '*', '+', '{', '?', '/'};
 		return StringUtils.indexOfAny(s, indicators) > -1;
+	}
+
+	private static final int MAX_REGEX_LENGTH = 200;
+	private static final Pattern CATASTROPHIC_BACKTRACK = Pattern.compile(
+			"\\(.+[+*]\\)\\s*[+*]" +  // (a+)+ or (a*)* patterns
+			"|\\(.+\\|.+\\)\\s*[+*]"   // (a|a)+ alternation with quantifier
+	);
+
+	public static boolean isSafeRegex(String pattern) {
+		if (pattern == null) {
+			return false;
+		}
+		if (pattern.length() > MAX_REGEX_LENGTH) {
+			return false;
+		}
+		if (CATASTROPHIC_BACKTRACK.matcher(pattern).find()) {
+			return false;
+		}
+		return true;
 	}
 
 	public static boolean isUUID(String string) {

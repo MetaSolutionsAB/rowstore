@@ -16,6 +16,7 @@
 
 package org.entrystore.rowstore.config;
 
+import org.entrystore.rowstore.store.RowStoreConfig;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
@@ -27,10 +28,16 @@ import java.util.List;
 @Configuration
 public class CorsConfig {
 
+	private final RowStoreConfig rowStoreConfig;
+
+	public CorsConfig(RowStoreConfig rowStoreConfig) {
+		this.rowStoreConfig = rowStoreConfig;
+	}
+
 	@Bean
 	public CorsFilter corsFilter() {
 		CorsConfiguration config = new CorsConfiguration();
-		config.setAllowedOrigins(List.of("*"));
+		config.setAllowedOrigins(rowStoreConfig.getCorsAllowedOrigins());
 		config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"));
 		config.setAllowedHeaders(List.of("*"));
 		config.setExposedHeaders(List.of("Location", "Content-Disposition", "Retry-After"));

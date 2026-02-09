@@ -70,10 +70,8 @@ public class AliasController {
 		}
 
 		try {
-			synchronized (dataset) {
-				if (!dataset.setAliases(parseJSONArray(body))) {
-					return ResponseEntity.badRequest().build();
-				}
+			if (!dataset.setAliases(parseJSONArray(body))) {
+				return ResponseEntity.badRequest().build();
 			}
 		} catch (Exception e) {
 			log.info(e.getMessage());
@@ -90,12 +88,10 @@ public class AliasController {
 		}
 
 		try {
-			synchronized (dataset) {
-				Set<String> aliases = dataset.getAliases();
-				aliases.addAll(parseJSONArray(body));
-				if (!dataset.setAliases(aliases)) {
-					return ResponseEntity.badRequest().build();
-				}
+			Set<String> aliases = dataset.getAliases();
+			aliases.addAll(parseJSONArray(body));
+			if (!dataset.setAliases(aliases)) {
+				return ResponseEntity.badRequest().build();
 			}
 		} catch (Exception e) {
 			log.info(e.getMessage());

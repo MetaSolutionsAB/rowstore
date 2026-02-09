@@ -22,6 +22,10 @@
     "password": "",
     "ssl": false
   },
+  "maxuploadsize": 104857600,
+  "cors": {
+    "allowedorigins": ["*"]
+  },
   "ratelimit": {
     "type": "slidingwindow",
     "timerange": 60,

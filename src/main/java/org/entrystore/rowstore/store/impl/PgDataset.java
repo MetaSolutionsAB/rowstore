@@ -108,6 +108,9 @@ public class PgDataset implements Dataset {
 		if (id == null) {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
+		if (dataTable != null) {
+			validateDataTableName(dataTable.trim());
+		}
 		this.rowstore = rowstore;
 		this.id = id;
 		this.status = status;
@@ -139,12 +142,9 @@ public class PgDataset implements Dataset {
 	@Override
 	public void setStatus(int status) {
 		long before = System.currentTimeMillis();
-		Connection conn = null;
-		PreparedStatement stmt = null;
-		try {
-			conn = rowstore.getConnection();
+		try (Connection conn = rowstore.getConnection();
+			 PreparedStatement stmt = conn.prepareStatement("UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?")) {
 			conn.setAutoCommit(true);
-			stmt = conn.prepareStatement("UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?");
 			stmt.setInt(1, status);
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
@@ -156,15 +156,6 @@ public class PgDataset implements Dataset {
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 		} finally {
-			DatasetUtil.closeStatement(stmt);
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
 			log.debug("Setting status took {} ms", System.currentTimeMillis() - before);
 		}
 
@@ -177,6 +168,12 @@ public class PgDataset implements Dataset {
 	@Override
 	public Date getCreationDate() {
 		return created;
+	}
+
+	private static void validateDataTableName(String name) {
+		if (!name.matches(PgDatasets.DATA_TABLE_PATTERN)) {
+			throw new IllegalArgumentException("Invalid data table name: " + name);
+		}
 	}
 
 	private String getDataTable() {
@@ -399,12 +396,9 @@ public class PgDataset implements Dataset {
 
 	private boolean truncateTable() {
 		long before = System.currentTimeMillis();
-		Connection conn = null;
-		Statement stmt = null;
-		try {
-			conn = rowstore.getConnection();
+		try (Connection conn = rowstore.getConnection();
+			 Statement stmt = conn.createStatement()) {
 			conn.setAutoCommit(false);
-			stmt = conn.createStatement();
 
 			log.debug("Truncating contents of table " + dataTable);
 			String truncTable = "TRUNCATE " + dataTable;
@@ -414,10 +408,7 @@ public class PgDataset implements Dataset {
 			log.debug("Removing all indexes from table " + dataTable);
 			Set<String> existingIndices = getIndexNames();
 			for (String index : existingIndices) {
-				// We cannot use prepared statements for CREATE INDEX with parametrized fields:
-				// the type to be used with setObject() is not known and setString() does not work.
-				// It should be safe to run BaseConnection.escapeString() to avoid SQL-injection
-				String sql = new StringBuilder("DROP INDEX IF EXISTS ").append(index).toString();
+				String sql = "DROP INDEX IF EXISTS " + index;
 				log.debug("Executing: " + sql);
 				stmt.executeUpdate(sql);
 			}
@@ -425,25 +416,8 @@ public class PgDataset implements Dataset {
 			conn.commit();
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
-			try {
-				log.info("Rolling back transaction");
-                if (conn != null) {
-                    conn.rollback();
-                }
-            } catch (SQLException e1) {
-				SqlExceptionLogUtil.error(log, e1);
-			}
 			return false;
 		} finally {
-			DatasetUtil.closeStatement(stmt);
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
 			log.debug("Truncating table took {} ms", System.currentTimeMillis() - before);
 		}
 
@@ -453,49 +427,22 @@ public class PgDataset implements Dataset {
 	private Set<String> getIndexNames() {
 		long before = System.currentTimeMillis();
 		Set<String> result = new HashSet<>();
-		Connection conn = null;
-		ResultSet rs = null;
-		Statement stmnt = null;
-		try {
-			conn = rowstore.getConnection();
-			StringBuffer sql = new StringBuffer("SELECT ci.relname AS indexname ").
-					append("FROM pg_index i,pg_class ci,pg_class ct ").
-					append("WHERE i.indexrelid=ci.oid AND ").
-					append("i.indrelid=ct.oid AND ").
-					append("ct.relname='").append(dataTable).append("' AND ").
-					append("ci.relname LIKE '%_jsonidx_%';"); // we only want our own indexes (no primary keys etc), so we filter for _jsonidx_ in the index name
-			String sqlStr = sql.toString();
-			stmnt = conn.createStatement();
-			log.debug("Executing: " + sqlStr);
-			rs = stmnt.executeQuery(sqlStr);
+		String sql = "SELECT ci.relname AS indexname " +
+				"FROM pg_index i,pg_class ci,pg_class ct " +
+				"WHERE i.indexrelid=ci.oid AND " +
+				"i.indrelid=ct.oid AND " +
+				"ct.relname='" + dataTable + "' AND " +
+				"ci.relname LIKE '%_jsonidx_%'";
+		try (Connection conn = rowstore.getConnection();
+			 Statement stmnt = conn.createStatement();
+			 ResultSet rs = stmnt.executeQuery(sql)) {
+			log.debug("Executing: " + sql);
 			while (rs.next()) {
 				result.add(rs.getString("indexname"));
 			}
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			if (stmnt != null) {
-				try {
-					stmnt.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
 			log.debug("Fetching index names took {} ms", System.currentTimeMillis() - before);
 		}
 
@@ -509,108 +456,97 @@ public class PgDataset implements Dataset {
 	public QueryResult query(Map<String, String> tuples, int limit, int offset) {
 		long totalTime = System.currentTimeMillis();
 		long queryTime = -1;
-		Connection conn = null;
-		PreparedStatement stmt = null;
-		ResultSet rs = null;
 
 		List<JSONObject> result = new ArrayList<>();
 		long resultCount = 0;
 		int regexp = rowstore.getConfig().getRegexpQuerySupport();
 		boolean optimizeRegexp = true;
-		try {
-			conn = rowstore.getQueryConnection();
-			StringBuilder queryTemplate = new StringBuilder("SELECT data, count(*) OVER() AS result_count FROM " + getDataTable());
-			if (!tuples.isEmpty()) {
-				String[] values = tuples.values().toArray(new String[tuples.size()]);
-				for (int i = 0; i < tuples.size(); i++) {
-					// We check whether there is a value
-					if (values[i].equals("~")) {
-						log.debug("No value provided after ~");
+
+		// Build query template first (no DB resources needed yet)
+		StringBuilder queryTemplate = new StringBuilder("SELECT data, count(*) OVER() AS result_count FROM " + getDataTable());
+		if (!tuples.isEmpty()) {
+			String[] values = tuples.values().toArray(new String[tuples.size()]);
+			for (int i = 0; i < tuples.size(); i++) {
+				if (values[i].equals("~")) {
+					log.debug("No value provided after ~");
+					return new QueryResult.Error("400");
+				}
+
+				if (i == 0) {
+					queryTemplate.append(" WHERE ");
+				} else {
+					queryTemplate.append(" AND ");
+				}
+
+				if (regexp == Dataset.REGEXP_QUERY_FULL && values[i].startsWith("~")) {
+					optimizeRegexp = false;
+				}
+
+				boolean useRegex = false;
+				if (regexp == Dataset.REGEXP_QUERY_FULL && (!optimizeRegexp || DatasetUtil.isRegExpString(values[i]))) {
+					useRegex = true;
+				} else if (regexp == Dataset.REGEXP_QUERY_SIMPLE && values[i].startsWith("^")) {
+					useRegex = true;
+				}
+
+				if (useRegex) {
+					String regexValue = values[i].startsWith("~") ? values[i].substring(1) : values[i];
+					if (!DatasetUtil.isSafeRegex(regexValue)) {
+						log.debug("Rejected unsafe regex pattern: length={}", regexValue.length());
 						return new QueryResult.Error("400");
 					}
-
-					if (i == 0) {
-						queryTemplate.append(" WHERE ");
-					} else {
-						queryTemplate.append(" AND ");
-					}
-
-					if (regexp == Dataset.REGEXP_QUERY_FULL && values[i].startsWith("~")) {
-						optimizeRegexp = false;
-					}
-
-					// we match using ~ to enable regular expressions
-					if (regexp == Dataset.REGEXP_QUERY_FULL && (!optimizeRegexp || DatasetUtil.isRegExpString(values[i]))) {
-						queryTemplate.append("data->>? ~ ?");
-					} else if (regexp == Dataset.REGEXP_QUERY_SIMPLE && values[i].startsWith("^")) {
-						queryTemplate.append("data->>? ~ ?");
-					} else {
-						queryTemplate.append("data->>? = ?");
-					}
+					queryTemplate.append("data->>? ~ ?");
+				} else {
+					queryTemplate.append("data->>? = ?");
 				}
 			}
+		}
+		queryTemplate.append(" ORDER BY rownr LIMIT ? OFFSET ? ");
 
-			queryTemplate.append(" ORDER BY rownr LIMIT ? OFFSET ? ");
-
-			stmt = conn.prepareStatement(queryTemplate.toString());
+		try (Connection c = rowstore.getQueryConnection();
+			 PreparedStatement s = c.prepareStatement(queryTemplate.toString())) {
 
 			int paramPos = 1;
 			if (!tuples.isEmpty()) {
 				for (String key : tuples.keySet()) {
-					stmt.setString(paramPos, key.toLowerCase());
+					s.setString(paramPos, key.toLowerCase());
 					String value = tuples.get(key);
 					if (!optimizeRegexp && value.startsWith("~")) {
 						value = value.substring(1);
 					}
-					stmt.setString(paramPos + 1, value);
+					s.setString(paramPos + 1, value);
 					paramPos += 2;
 				}
 			}
 
-			stmt.setInt(paramPos++, limit);
-			stmt.setInt(paramPos, offset);
+			s.setInt(paramPos++, limit);
+			s.setInt(paramPos, offset);
 
-			log.debug("Executing: " + stmt);
+			log.debug("Executing: " + s);
 
 			int queryTO = rowstore.getConfig().getQueryTimeout();
 			if (queryTO > -1) {
-				stmt.setQueryTimeout(queryTO);
+				s.setQueryTimeout(queryTO);
 			}
 			queryTime = System.currentTimeMillis();
-			rs = stmt.executeQuery();
-			queryTime = System.currentTimeMillis() - queryTime;
-			while (rs.next()) {
-				String value = rs.getString("data");
-				if (resultCount == 0) {
-					resultCount = rs.getLong("result_count");
-				}
-				try {
-					result.add(new JSONObject(value));
-				} catch (JSONException e) {
-					log.error(e.getMessage());
+			try (ResultSet r = s.executeQuery()) {
+				queryTime = System.currentTimeMillis() - queryTime;
+				while (r.next()) {
+					String value = r.getString("data");
+					if (resultCount == 0) {
+						resultCount = r.getLong("result_count");
+					}
+					try {
+						result.add(new JSONObject(value));
+					} catch (JSONException e) {
+						log.error(e.getMessage());
+					}
 				}
 			}
 		} catch (SQLException e) {
-			//SqlExceptionLogUtil.error(log, e);
 			log.debug(e.getMessage());
 			return new QueryResult.Error(e.getSQLState());
 		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			DatasetUtil.closeStatement(stmt);
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
 			log.debug("Performing database query took {} ms, total time was {} ms", queryTime, System.currentTimeMillis() - totalTime);
 		}
 
@@ -639,51 +575,21 @@ public class PgDataset implements Dataset {
 	}
 
 	private Set<String> getColumnNames(boolean useQueryDatabase) {
-		Date before = new Date();
-		Connection conn = null;
-		PreparedStatement stmt = null;
-		ResultSet rs = null;
+		long before = System.currentTimeMillis();
 		Set<String> result = new HashSet<>();
-		try {
-			if (useQueryDatabase) {
-				conn = rowstore.getQueryConnection();
-			} else {
-				conn = rowstore.getConnection();
-			}
-			// FIXME the following query is very slow on large tables
-			// (note: temporarily added WHERE clause to speed it up and avoid a full table scan,
-			// side effect of WHERE clause is that eventually added data with different structure is not
-			// being taken into consideration)
-			//StringBuilder queryTemplate = new StringBuilder("SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable() + " WHERE rownr = '1'");
-			StringBuilder queryTemplate = new StringBuilder("SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable() +
-					" WHERE rownr=(SELECT min(rownr) FROM " + getDataTable() + ")");
-			stmt = conn.prepareStatement(queryTemplate.toString());
+		String sql = "SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable() +
+				" WHERE rownr=(SELECT min(rownr) FROM " + getDataTable() + ")";
+		try (Connection conn = useQueryDatabase ? rowstore.getQueryConnection() : rowstore.getConnection();
+			 PreparedStatement stmt = conn.prepareStatement(sql);
+			 ResultSet rs = stmt.executeQuery()) {
 			log.debug("Executing: " + stmt);
-
-			rs = stmt.executeQuery();
 			while (rs.next()) {
 				result.add(rs.getString("column_names"));
 			}
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			DatasetUtil.closeStatement(stmt);
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
-			log.debug("Fetching column names took " + (new Date().getTime() - before.getTime()) + " ms");
+			log.debug("Fetching column names took {} ms", System.currentTimeMillis() - before);
 		}
 
 		return result;
@@ -694,52 +600,36 @@ public class PgDataset implements Dataset {
 	 */
 	private void initFromDb() {
 		long before = System.currentTimeMillis();
-		Connection conn = null;
-		PreparedStatement stmt = null;
-		ResultSet rs = null;
-		try {
-			conn = rowstore.getConnection();
-			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?");
+		try (Connection conn = rowstore.getConnection();
+			 PreparedStatement stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?")) {
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
 			uuid.setValue(getId());
 			stmt.setObject(1, uuid);
 			log.debug("Loading dataset " + getId() + " from database");
 			log.debug("Executing: " + stmt);
-			rs = stmt.executeQuery();
-			if (rs.next()) {
-				this.status = rs.getInt("status");
-				this.created = rs.getTimestamp("created");
-				this.dataTable = rs.getString("data_table");
-			} else {
-				throw new IllegalStateException("Unable to initialize Dataset object from database");
+			try (ResultSet rs = stmt.executeQuery()) {
+				if (rs.next()) {
+					this.status = rs.getInt("status");
+					this.created = rs.getTimestamp("created");
+					String loadedTable = rs.getString("data_table");
+					if (loadedTable != null) {
+						loadedTable = loadedTable.trim();
+						validateDataTableName(loadedTable);
+					}
+					this.dataTable = loadedTable;
+				} else {
+					throw new IllegalStateException("Unable to initialize Dataset object from database");
+				}
 			}
 		} catch (SQLException e) {
-			// We ignore SQL Exceptions due to wrong UUID input format
 			if (!"22P02".equalsIgnoreCase(e.getSQLState())) {
 				SqlExceptionLogUtil.error(log, e);
 			} else {
-				// hack to avoid text "ERROR:" in log message
 				log.info(e.getMessage().replaceFirst("ERROR: ", ""));
 			}
 			throw new IllegalArgumentException(e);
 		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			DatasetUtil.closeStatement(stmt);
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
 			log.debug("Loading dataset took {} ms", System.currentTimeMillis() - before);
 		}
 	}
@@ -751,37 +641,17 @@ public class PgDataset implements Dataset {
 	public long getRowCount() {
 		long before = System.currentTimeMillis();
 		long result = -1;
-		Connection conn = null;
-		PreparedStatement stmt = null;
-		ResultSet rs = null;
-		try {
-			conn = rowstore.getQueryConnection();
-			stmt = conn.prepareStatement("SELECT COUNT(rownr)::BIGINT AS rowcount FROM " + getDataTable());
+		String sql = "SELECT COUNT(rownr)::BIGINT AS rowcount FROM " + getDataTable();
+		try (Connection conn = rowstore.getQueryConnection();
+			 PreparedStatement stmt = conn.prepareStatement(sql);
+			 ResultSet rs = stmt.executeQuery()) {
 			log.debug("Executing: " + stmt);
-			rs = stmt.executeQuery();
 			if (rs.next()) {
 				result = rs.getLong("rowcount");
 			}
-			rs.close();
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			DatasetUtil.closeStatement(stmt);
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
 			log.debug("Fetching row count took {} ms", System.currentTimeMillis() - before);
 		}
 
@@ -798,47 +668,23 @@ public class PgDataset implements Dataset {
 
 	private Set<String> getAliases(boolean useQueryDatabase) {
 		long before = System.currentTimeMillis();
-		Set<String> result = new HashSet<>();;
-		Connection conn = null;
-		PreparedStatement stmt = null;
-		ResultSet rs = null;
-		try {
-			if (useQueryDatabase) {
-				conn = rowstore.getQueryConnection();
-			} else {
-				conn = rowstore.getConnection();
-			}
-			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?");
+		Set<String> result = new HashSet<>();
+		try (Connection conn = useQueryDatabase ? rowstore.getQueryConnection() : rowstore.getConnection();
+			 PreparedStatement stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?")) {
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
 			uuid.setValue(getId());
 			stmt.setObject(1, uuid);
 			log.debug("Loading aliases for dataset " + getId());
 			log.debug("Executing: " + stmt);
-			rs = stmt.executeQuery();
-			while (rs.next()) {
-				String alias = rs.getString("alias");
-				result.add(alias);
+			try (ResultSet rs = stmt.executeQuery()) {
+				while (rs.next()) {
+					result.add(rs.getString("alias"));
+				}
 			}
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			DatasetUtil.closeStatement(stmt);
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
 			log.debug("Fetching aliases took {} ms", System.currentTimeMillis() - before);
 		}
 
@@ -854,56 +700,48 @@ public class PgDataset implements Dataset {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
 		long before = System.currentTimeMillis();
-		Set<String> existingAliases = getAliases(false);
-		Connection conn = null;
-		PreparedStatement ps = null;
-		try {
-			conn = rowstore.getConnection();
+		try (Connection conn = rowstore.getConnection()) {
 			conn.setAutoCommit(false);
 
-			ps = conn.prepareStatement("DELETE FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?");
 			PGobject uuid = new PGobject();
 			uuid.setType("uuid");
 			uuid.setValue(id);
-			ps.setObject(1, uuid);
-			log.debug("Executing: " + ps);
-			ps.execute();
-			DatasetUtil.closeStatement(ps);
 
-			ps = conn.prepareStatement("INSERT INTO " + PgDatasets.ALIAS_TABLE_NAME + " (dataset_id, alias) VALUES (?, ?)");
-			for (String alias : aliases) {
-				if (existingAliases.contains(alias) || (isAliasValid(alias) && isAliasAvailable(alias))) {
-					ps.setObject(1, uuid);
-					ps.setString(2, alias);
-					log.debug("Adding to batch: " + ps);
-					ps.addBatch();
-				} else {
-					log.debug("Received invalid or unavailable alias, rolling back");
-					conn.rollback();
-					return false;
-				}
+			// Acquire row-level lock to serialize concurrent alias modifications
+			try (PreparedStatement lockStmt = conn.prepareStatement("SELECT 1 FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ? FOR UPDATE")) {
+				lockStmt.setObject(1, uuid);
+				lockStmt.executeQuery();
 			}
-			log.debug("Executing and committing batch");
-			ps.executeBatch();
-			DatasetUtil.closeStatement(ps);
+
+			Set<String> existingAliases = getAliases(false);
+
+			try (PreparedStatement deleteStmt = conn.prepareStatement("DELETE FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?")) {
+				deleteStmt.setObject(1, uuid);
+				log.debug("Executing: " + deleteStmt);
+				deleteStmt.execute();
+			}
+
+			try (PreparedStatement insertStmt = conn.prepareStatement("INSERT INTO " + PgDatasets.ALIAS_TABLE_NAME + " (dataset_id, alias) VALUES (?, ?)")) {
+				for (String alias : aliases) {
+					if (existingAliases.contains(alias) || (isAliasValid(alias) && isAliasAvailable(alias))) {
+						insertStmt.setObject(1, uuid);
+						insertStmt.setString(2, alias);
+						log.debug("Adding to batch: " + insertStmt);
+						insertStmt.addBatch();
+					} else {
+						log.debug("Received invalid or unavailable alias, rolling back");
+						conn.rollback();
+						return false;
+					}
+				}
+				log.debug("Executing and committing batch");
+				insertStmt.executeBatch();
+			}
 			conn.commit();
 		} catch (SQLException e) {
-			try {
-				conn.rollback();
-			} catch (SQLException e1) {
-				SqlExceptionLogUtil.error(log, e1);
-			}
 			log.error(e.getMessage());
 			return false;
 		} finally {
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
 			log.debug("Setting aliases took {} ms", System.currentTimeMillis() - before);
 		}
 
@@ -912,43 +750,23 @@ public class PgDataset implements Dataset {
 
 	public String resolveAlias(String alias) {
 		long before = System.currentTimeMillis();
-		String result = null;
-		Connection conn = null;
-		PreparedStatement stmt = null;
-		ResultSet rs = null;
-		try {
-			conn = rowstore.getConnection();
-			stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?");
+		try (Connection conn = rowstore.getConnection();
+			 PreparedStatement stmt = conn.prepareStatement("SELECT * FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?")) {
 			stmt.setString(1, alias);
 			log.debug("Executing: " + stmt);
-			rs = stmt.executeQuery();
-			if (rs.next()) {
-				UUID uuid = (UUID) rs.getObject("dataset_id");
-				return uuid.toString();
+			try (ResultSet rs = stmt.executeQuery()) {
+				if (rs.next()) {
+					UUID uuid = (UUID) rs.getObject("dataset_id");
+					return uuid.toString();
+				}
 			}
 		} catch (SQLException e) {
 			SqlExceptionLogUtil.error(log, e);
 		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-			DatasetUtil.closeStatement(stmt);
-			if (conn != null) {
-				try {
-					conn.close();
-				} catch (SQLException e) {
-					SqlExceptionLogUtil.error(log, e);
-				}
-			}
-
 			log.debug("Resolving alias took {} ms", System.currentTimeMillis() - before);
 		}
 
-		return result;
+		return null;
 	}
 
 	private boolean isAliasValid(String alias) {

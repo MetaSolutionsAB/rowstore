@@ -16,10 +16,14 @@
 
 package org.entrystore.rowstore.store;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Loads the configuration from a JSON file and provides convenience methods to access configuration properties.
@@ -57,6 +61,10 @@ public class RowStoreConfig {
 	private int queryMaxLimit = -1;
 
 	private int exportPageSize = -1;
+
+	private long maxUploadSize = 104857600; // 100 MB default
+
+	private List<String> corsAllowedOrigins = List.of("*");
 
 	private Database database;
 
@@ -115,6 +123,24 @@ public class RowStoreConfig {
 
 			// Page size for queries when exporting
 			exportPageSize = config.optInt("exportpagesize", 100000);
+
+			// Max upload size in bytes (default 100 MB)
+			maxUploadSize = config.optLong("maxuploadsize", 104857600);
+
+			// CORS allowed origins
+			if (config.has("cors")) {
+				JSONObject corsConfig = config.getJSONObject("cors");
+				if (corsConfig.has("allowedorigins")) {
+					JSONArray origins = corsConfig.getJSONArray("allowedorigins");
+					List<String> originList = new ArrayList<>();
+					for (int i = 0; i < origins.length(); i++) {
+						originList.add(origins.getString(i));
+					}
+					if (!originList.isEmpty()) {
+						corsAllowedOrigins = originList;
+					}
+				}
+			}
 		} catch (JSONException e) {
 			log.error(e.getMessage());
 		}
@@ -176,6 +202,14 @@ public class RowStoreConfig {
 
 	public Database getDatabase() {
 		return database;
+	}
+
+	public long getMaxUploadSize() {
+		return maxUploadSize;
+	}
+
+	public List<String> getCorsAllowedOrigins() {
+		return corsAllowedOrigins;
 	}
 
 	public Database getQueryDatabase() {
