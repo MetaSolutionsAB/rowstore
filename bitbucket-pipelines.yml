@@ -1,4 +1,4 @@
-image: eclipse-temurin:25-jdk-alpine
+image: maven:3-eclipse-temurin-25-alpine
 
 options:
   max-time: 10
