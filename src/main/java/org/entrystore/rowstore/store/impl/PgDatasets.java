@@ -41,11 +41,11 @@ import java.util.UUID;
  */
 public class PgDatasets implements Datasets {
 
-	private static Logger log = LoggerFactory.getLogger(PgDatasets.class);
+	private static final Logger log = LoggerFactory.getLogger(PgDatasets.class);
 
-	protected static String DATASETS_TABLE_NAME = "datasets";
+	protected static final String DATASETS_TABLE_NAME = "datasets";
 
-	protected static String ALIAS_TABLE_NAME = "aliases";
+	protected static final String ALIAS_TABLE_NAME = "aliases";
 
 	PgRowStore rowstore;
 
@@ -244,13 +244,6 @@ public class PgDatasets implements Datasets {
 			throw new IllegalArgumentException("Generated data table name does not match expected pattern: " + tableName);
 		}
 		return tableName;
-	}
-
-	/**
-	 * @return Returns the length of the data table names.
-	 */
-	private int getDataTableNameLength() {
-		return constructDataTableName(UUID.randomUUID().toString()).length();
 	}
 
 }

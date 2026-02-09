@@ -727,15 +727,7 @@ public class PgDataset implements Dataset {
 	}
 
 	private boolean isAliasValid(String alias) {
-		if (alias == null) {
-			return false;
-		}
-
-		if (!StringUtils.isAlphanumeric(alias)) {
-			return false;
-		}
-
-		return true;
+		return alias != null && StringUtils.isAlphanumeric(alias);
 	}
 
 	private boolean isAliasAvailable(String alias) {

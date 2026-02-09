@@ -32,7 +32,6 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
@@ -138,16 +137,9 @@ public class DatasetUtil {
 	);
 
 	public static boolean isSafeRegex(String pattern) {
-		if (pattern == null) {
-			return false;
-		}
-		if (pattern.length() > MAX_REGEX_LENGTH) {
-			return false;
-		}
-		if (CATASTROPHIC_BACKTRACK.matcher(pattern).find()) {
-			return false;
-		}
-		return true;
+		return pattern != null
+				&& pattern.length() <= MAX_REGEX_LENGTH
+				&& !CATASTROPHIC_BACKTRACK.matcher(pattern).find();
 	}
 
 	public static boolean isUUID(String string) {
