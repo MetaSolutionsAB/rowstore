@@ -19,11 +19,12 @@ package org.entrystore.rowstore.resources;
 import jakarta.servlet.http.HttpServletRequest;
 import org.entrystore.rowstore.etl.EtlResource;
 import org.entrystore.rowstore.etl.EtlStatus;
+import org.entrystore.rowstore.resources.model.DatasetAcceptedResponse;
+import org.entrystore.rowstore.resources.model.QueryResponse;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.QueryResult;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.util.DatasetUtil;
-import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +45,7 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -65,27 +67,25 @@ public class DatasetController {
 			return ResponseEntity.notFound().build();
 		}
 
-		String redir = rowStore.getConfig().getBaseURL();
-		redir += redir.endsWith("/") ? "" : "/";
-		redir += "dataset/" + id + "/html";
+		String redir = DatasetUtil.buildDatasetURL(rowStore.getConfig().getBaseURL(), id) + "/html";
 		return ResponseEntity.status(HttpStatus.SEE_OTHER)
 				.header(HttpHeaders.LOCATION, redir)
 				.build();
 	}
 
 	@GetMapping(value = "/dataset/{id}/json", produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<String> representJsonExplicit(@PathVariable("id") String id,
+	public ResponseEntity<?> representJsonExplicit(@PathVariable("id") String id,
 			@RequestParam Map<String, String> allParams) {
 		return doQuery(id, allParams);
 	}
 
 	@GetMapping(value = "/dataset/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<String> representJson(@PathVariable("id") String id,
+	public ResponseEntity<?> representJson(@PathVariable("id") String id,
 			@RequestParam Map<String, String> allParams) {
 		return doQuery(id, allParams);
 	}
 
-	private ResponseEntity<String> doQuery(String id, Map<String, String> parameters) {
+	private ResponseEntity<?> doQuery(String id, Map<String, String> parameters) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();
@@ -139,40 +139,42 @@ public class DatasetController {
 			return ResponseEntity.badRequest().build();
 		}
 
-		JSONArray rows = new JSONArray();
-		for (JSONObject row : qResult.getResults()) {
-			rows.put(row);
-		}
+		List<Map<String, Object>> rows = qResult.getResults().stream()
+				.map(JSONObject::toMap)
+				.toList();
 
-		JSONObject result = new JSONObject();
-		result.put("results", rows);
-		result.put("limit", qResult.getLimit());
-		result.put("offset", qResult.getOffset());
-		result.put("resultCount", qResult.getResultCount());
-		result.put("queryTime", qResult.getQueryTime());
-
+		String prev = null;
 		if ((qResult.getOffset() - qResult.getLimit()) >= 0) {
-			result.put("prev", constructPageUrl(dataset, qResult.getOffset() - qResult.getLimit(), qResult, parameters));
+			prev = constructPageUrl(dataset, qResult.getOffset() - qResult.getLimit(), qResult, parameters);
 		}
 
+		String next = null;
 		if (qResult.getResultCount() >= (qResult.getLimit() + qResult.getOffset())) {
-			result.put("next", constructPageUrl(dataset, qResult.getOffset() + qResult.getLimit(), qResult, parameters));
+			next = constructPageUrl(dataset, qResult.getOffset() + qResult.getLimit(), qResult, parameters);
 		}
 
-		return ResponseEntity.ok(result.toString());
+		return ResponseEntity.ok(new QueryResponse(
+				rows,
+				qResult.getLimit(),
+				qResult.getOffset(),
+				qResult.getResultCount(),
+				qResult.getQueryTime(),
+				prev,
+				next
+		));
 	}
 
 	@PostMapping(value = "/dataset/{id}", consumes = "text/csv")
-	public ResponseEntity<String> acceptCSVPost(@PathVariable("id") String id, HttpServletRequest request) {
+	public ResponseEntity<?> acceptCSVPost(@PathVariable("id") String id, HttpServletRequest request) {
 		return acceptCSV(id, request, true);
 	}
 
 	@PutMapping(value = "/dataset/{id}", consumes = "text/csv")
-	public ResponseEntity<String> acceptCSVPut(@PathVariable("id") String id, HttpServletRequest request) {
+	public ResponseEntity<?> acceptCSVPut(@PathVariable("id") String id, HttpServletRequest request) {
 		return acceptCSV(id, request, false);
 	}
 
-	private ResponseEntity<String> acceptCSV(String id, HttpServletRequest request, boolean append) {
+	private ResponseEntity<?> acceptCSV(String id, HttpServletRequest request, boolean append) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();
@@ -203,17 +205,18 @@ public class DatasetController {
 
 			String datasetURL = DatasetUtil.buildDatasetURL(rowStore.getConfig().getBaseURL(), dataset.getId());
 
-			JSONObject result = new JSONObject();
-			result.put("id", dataset.getId());
-			result.put("url", datasetURL);
-			result.put("status", dataset.getStatus());
-			result.put("info", datasetURL + "/info");
+			DatasetAcceptedResponse body = new DatasetAcceptedResponse(
+					dataset.getId(),
+					datasetURL,
+					dataset.getStatus(),
+					datasetURL + "/info"
+			);
 
 			accepted = true;
 			HttpHeaders headers = new HttpHeaders();
 			headers.add(HttpHeaders.LOCATION, datasetURL);
 			headers.add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
-			return new ResponseEntity<>(result.toString(), headers, HttpStatus.ACCEPTED);
+			return new ResponseEntity<>(body, headers, HttpStatus.ACCEPTED);
 		} finally {
 			if (tmpFile != null && !accepted) {
 				log.info("Deleting temporary file " + tmpFile);

@@ -18,7 +18,6 @@ package org.entrystore.rowstore.resources;
 
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
-import org.json.JSONArray;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -32,7 +31,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashSet;
 import java.util.Set;
 
 @RestController
@@ -48,28 +46,24 @@ public class AliasController {
 	}
 
 	@GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<String> getAliases(@PathVariable("id") String id) {
+	public ResponseEntity<Set<String>> getAliases(@PathVariable("id") String id) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();
 		}
 
-		JSONArray result = new JSONArray();
-		for (String alias : dataset.getAliases()) {
-			result.put(alias);
-		}
-		return ResponseEntity.ok(result.toString());
+		return ResponseEntity.ok(dataset.getAliases());
 	}
 
 	@PutMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<Void> setAliases(@PathVariable("id") String id, @RequestBody String body) {
+	public ResponseEntity<Void> setAliases(@PathVariable("id") String id, @RequestBody Set<String> aliases) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();
 		}
 
 		try {
-			if (!dataset.setAliases(parseJSONArray(body))) {
+			if (!dataset.setAliases(aliases)) {
 				return ResponseEntity.badRequest().build();
 			}
 		} catch (Exception e) {
@@ -80,7 +74,7 @@ public class AliasController {
 	}
 
 	@PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<Void> addAliases(@PathVariable("id") String id, @RequestBody String body) {
+	public ResponseEntity<Void> addAliases(@PathVariable("id") String id, @RequestBody Set<String> newAliases) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();
@@ -88,7 +82,7 @@ public class AliasController {
 
 		try {
 			Set<String> aliases = dataset.getAliases();
-			aliases.addAll(parseJSONArray(body));
+			aliases.addAll(newAliases);
 			if (!dataset.setAliases(aliases)) {
 				return ResponseEntity.badRequest().build();
 			}
@@ -106,17 +100,8 @@ public class AliasController {
 			return ResponseEntity.notFound().build();
 		}
 
-		dataset.setAliases(new HashSet<>());
+		dataset.setAliases(Set.of());
 		return ResponseEntity.noContent().build();
-	}
-
-	private Set<String> parseJSONArray(String jsonText) {
-		JSONArray request = new JSONArray(jsonText);
-		Set<String> aliases = new HashSet<>();
-		for (int i = 0; i < request.length(); i++) {
-			aliases.add(request.get(i).toString());
-		}
-		return aliases;
 	}
 
 }

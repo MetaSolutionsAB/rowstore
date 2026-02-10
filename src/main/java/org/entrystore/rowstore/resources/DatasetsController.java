@@ -19,11 +19,10 @@ package org.entrystore.rowstore.resources;
 import jakarta.servlet.http.HttpServletRequest;
 import org.entrystore.rowstore.etl.EtlResource;
 import org.entrystore.rowstore.etl.EtlStatus;
+import org.entrystore.rowstore.resources.model.DatasetAcceptedResponse;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.util.DatasetUtil;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -36,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 import java.util.Set;
 
 @RestController
@@ -50,20 +50,19 @@ public class DatasetsController {
 	}
 
 	@GetMapping(value = "/datasets", produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<String> listDatasets() {
-		JSONArray result = new JSONArray();
+	public ResponseEntity<List<String>> listDatasets() {
 		Set<Dataset> datasets = rowStore.getDatasets().getAll();
-		if (datasets != null) {
-			for (Dataset ds : datasets) {
-				result.put(ds.getId());
-			}
-			return ResponseEntity.ok(result.toString());
+		if (datasets == null) {
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
 		}
-		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+		List<String> result = datasets.stream()
+				.map(Dataset::getId)
+				.toList();
+		return ResponseEntity.ok(result);
 	}
 
 	@PostMapping(value = "/datasets", consumes = "text/csv")
-	public ResponseEntity<String> acceptCSV(HttpServletRequest request) {
+	public ResponseEntity<?> acceptCSV(HttpServletRequest request) {
 		if (request.getContentLength() == 0) {
 			return ResponseEntity.badRequest().build();
 		}
@@ -96,17 +95,18 @@ public class DatasetsController {
 
 			String datasetURL = DatasetUtil.buildDatasetURL(rowStore.getConfig().getBaseURL(), newDataset.getId());
 
-			JSONObject result = new JSONObject();
-			result.put("id", newDataset.getId());
-			result.put("url", datasetURL);
-			result.put("status", EtlStatus.ACCEPTED_DATA);
-			result.put("info", datasetURL + "/info");
+			DatasetAcceptedResponse body = new DatasetAcceptedResponse(
+					newDataset.getId(),
+					datasetURL,
+					EtlStatus.ACCEPTED_DATA,
+					datasetURL + "/info"
+			);
 
 			accepted = true;
 			HttpHeaders headers = new HttpHeaders();
 			headers.add(HttpHeaders.LOCATION, datasetURL);
 			headers.add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
-			return new ResponseEntity<>(result.toString(), headers, HttpStatus.ACCEPTED);
+			return new ResponseEntity<>(body, headers, HttpStatus.ACCEPTED);
 		} finally {
 			if (tmpFile != null && !accepted) {
 				log.info("Deleting temporary file " + tmpFile);

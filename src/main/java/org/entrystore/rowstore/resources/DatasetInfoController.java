@@ -16,12 +16,10 @@
 
 package org.entrystore.rowstore.resources;
 
+import org.entrystore.rowstore.resources.model.DatasetInfoResponse;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
-import org.json.JSONException;
-import org.json.JSONObject;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.entrystore.rowstore.util.DatasetUtil;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,8 +31,6 @@ import java.text.SimpleDateFormat;
 @RestController
 public class DatasetInfoController {
 
-	private static final Logger log = LoggerFactory.getLogger(DatasetInfoController.class);
-
 	private final RowStore rowStore;
 
 	public DatasetInfoController(RowStore rowStore) {
@@ -42,30 +38,24 @@ public class DatasetInfoController {
 	}
 
 	@GetMapping(value = "/dataset/{id}/info", produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<String> getInfo(@PathVariable("id") String id) {
+	public ResponseEntity<DatasetInfoResponse> getInfo(@PathVariable("id") String id) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();
 		}
 
-		JSONObject result = new JSONObject();
-		try {
-			result.put("status", dataset.getStatus());
-			result.put("created", new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ").format(dataset.getCreationDate()));
-			result.put("columnnames", dataset.getColumnNames());
-			result.put("rowcount", dataset.getRowCount());
-			result.put("identifier", dataset.getId());
-			result.put("aliases", dataset.getAliases());
+		DatasetInfoResponse body = new DatasetInfoResponse(
+				dataset.getStatus(),
+				new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ").format(dataset.getCreationDate()),
+				dataset.getColumnNames(),
+				dataset.getRowCount(),
+				dataset.getId(),
+				dataset.getAliases(),
+				"https://entrystore.org/rowstore/",
+				DatasetUtil.buildDatasetURL(rowStore.getConfig().getBaseURL(), dataset.getId())
+		);
 
-			String baseURL = rowStore.getConfig().getBaseURL();
-			baseURL += baseURL.endsWith("/") ? "" : "/";
-			result.put("@context", "https://entrystore.org/rowstore/");
-			result.put("@id", baseURL + "dataset/" + dataset.getId());
-		} catch (JSONException e) {
-			log.error(e.getMessage());
-		}
-
-		return ResponseEntity.ok(result.toString());
+		return ResponseEntity.ok(body);
 	}
 
 }

@@ -25,11 +25,7 @@
         <guava.version>33.4.8-jre</guava.version>
         <icu4j.version>77.1</icu4j.version>
         <juniversalchardet.version>2.5.0</juniversalchardet.version>
-        <rest-assured.version>5.4.0</rest-assured.version>
-        <awaitility.version>4.2.0</awaitility.version>
-        <testcontainers.version>1.20.4</testcontainers.version>
         <docker-java.version>3.5.1</docker-java.version>
-        <assertj.version>3.27.7</assertj.version>
     </properties>
 
     <developers>
@@ -142,37 +138,31 @@
         <dependency>
             <groupId>io.rest-assured</groupId>
             <artifactId>rest-assured</artifactId>
-            <version>${rest-assured.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
-            <version>${assertj.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
-            <version>${awaitility.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers</artifactId>
-            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
-            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
         <!-- Force newer docker-java for Docker 29+ compatibility -->
