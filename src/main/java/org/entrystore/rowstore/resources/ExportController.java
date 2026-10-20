@@ -17,9 +17,11 @@
 package org.entrystore.rowstore.resources;
 
 import com.opencsv.CSVWriter;
+import jakarta.servlet.http.HttpServletRequest;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
+import org.entrystore.rowstore.store.RowStream;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,18 +32,29 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.NativeWebRequest;
+import org.springframework.web.context.request.async.CallableProcessingInterceptor;
+import org.springframework.web.context.request.async.WebAsyncUtils;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.io.BufferedWriter;
+import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
-import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
 
+/**
+ * Streams a dataset as JSON or CSV.
+ * <p>
+ * The row stream is opened before the response is committed, so that a database failure at that point results
+ * in HTTP 500. Once the first bytes have been sent, status and headers cannot be changed anymore: a failure while
+ * streaming aborts the connection instead (the writers are deliberately not closed in that case, because closing
+ * them would terminate the chunked response cleanly and make a truncated export look complete).
+ */
 @RestController
 public class ExportController {
 
@@ -54,7 +67,7 @@ public class ExportController {
 	}
 
 	@GetMapping(value = "/dataset/{id}/export", produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<StreamingResponseBody> exportJSON(@PathVariable("id") String id) {
+	public ResponseEntity<StreamingResponseBody> exportJSON(@PathVariable("id") String id, HttpServletRequest request) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
@@ -64,11 +77,16 @@ public class ExportController {
 			return new ResponseEntity<>(HttpStatus.FAILED_DEPENDENCY);
 		}
 
+		RowStream stream = openRowStream(dataset, request);
+		if (stream == null) {
+			return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+
 		StreamingResponseBody body = outputStream -> {
-			ResultSet rs = null;
-			try (Writer writer = new BufferedWriter(new OutputStreamWriter(outputStream), 131072)) {
+			try (stream) {
+				Writer writer = new BufferedWriter(new OutputStreamWriter(outputStream), 131072);
 				writer.write("[");
-				rs = dataset.streamAll();
+				ResultSet rs = stream.rs();
 				boolean first = true;
 				while (rs.next()) {
 					if (!first) {
@@ -81,10 +99,9 @@ public class ExportController {
 					}
 				}
 				writer.write("]");
-			} catch (SQLException e) {
-				log.error(e.getMessage());
-			} finally {
-				cleanup(rs);
+				writer.flush();
+			} catch (SQLException | RuntimeException e) {
+				throw abortExport(id, e);
 			}
 		};
 
@@ -95,7 +112,7 @@ public class ExportController {
 	}
 
 	@GetMapping(value = "/dataset/{id}/export", produces = "text/csv")
-	public ResponseEntity<StreamingResponseBody> exportCSV(@PathVariable("id") String id) {
+	public ResponseEntity<StreamingResponseBody> exportCSV(@PathVariable("id") String id, HttpServletRequest request) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
@@ -105,13 +122,19 @@ public class ExportController {
 			return new ResponseEntity<>(HttpStatus.FAILED_DEPENDENCY);
 		}
 
+		// one list for header and cells guarantees the same column order in both
+		List<String> columnNames = new ArrayList<>(dataset.getColumnNames());
+
+		RowStream stream = openRowStream(dataset, request);
+		if (stream == null) {
+			return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+
 		StreamingResponseBody body = outputStream -> {
-			// one list for header and cells guarantees the same column order in both
-			List<String> columnNames = new ArrayList<>(dataset.getColumnNames());
-			ResultSet rs = null;
-			try (CSVWriter csvWriter = new CSVWriter(new BufferedWriter(new OutputStreamWriter(outputStream), 131072))) {
+			try (stream) {
+				CSVWriter csvWriter = new CSVWriter(new BufferedWriter(new OutputStreamWriter(outputStream), 131072));
 				csvWriter.writeNext(columnNames.toArray(new String[0]), false);
-				rs = dataset.streamAll();
+				ResultSet rs = stream.rs();
 				while (rs.next()) {
 					String data = rs.getString("data");
 					csvWriter.writeNext(toCsvRow(new JSONObject(data), columnNames), false);
@@ -119,10 +142,9 @@ public class ExportController {
 						csvWriter.flush();
 					}
 				}
-			} catch (SQLException e) {
-				log.error(e.getMessage());
-			} finally {
-				cleanup(rs);
+				csvWriter.flush();
+			} catch (SQLException | RuntimeException e) {
+				throw abortExport(id, e);
 			}
 		};
 
@@ -130,6 +152,41 @@ public class ExportController {
 		headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + id + ".csv\"");
 		headers.setContentType(MediaType.parseMediaType("text/csv"));
 		return ResponseEntity.ok().headers(headers).body(body);
+	}
+
+	/**
+	 * Opens the row stream of a dataset. The stream is closed by the response body after streaming. It is also
+	 * closed when the async request completes, which covers the case that the body is never invoked (e.g. if the
+	 * async task is cancelled due to a timeout or a client disconnect before it started); closing twice is a no-op.
+	 *
+	 * @return Returns the open stream, or null if it could not be opened.
+	 */
+	private RowStream openRowStream(Dataset dataset, HttpServletRequest request) {
+		RowStream stream;
+		try {
+			stream = dataset.streamAll();
+		} catch (SQLException e) {
+			log.error("Unable to read dataset {} for export", dataset.getId(), e);
+			return null;
+		}
+
+		WebAsyncUtils.getAsyncManager(request).registerCallableInterceptor(RowStream.class.getName(),
+				new CallableProcessingInterceptor() {
+					@Override
+					public <T> void afterCompletion(NativeWebRequest webRequest, Callable<T> task) {
+						stream.close();
+					}
+				});
+		return stream;
+	}
+
+	/**
+	 * Logs a failure during streaming and returns an IOException to be thrown from the response body, which makes
+	 * the servlet container abort the connection instead of completing the response.
+	 */
+	private IOException abortExport(String id, Exception e) {
+		log.error("Export of dataset {} failed while streaming, aborting response", id, e);
+		return new IOException("Export of dataset " + id + " failed", e);
 	}
 
 	/**
@@ -142,44 +199,6 @@ public class ExportController {
 			row[i] = json.optString(columnNames.get(i), "");
 		}
 		return row;
-	}
-
-	private void cleanup(ResultSet rs) {
-		if (rs == null) {
-			return;
-		}
-
-		Statement statement = getQuietly(rs::getStatement);
-		Connection connection = (statement != null) ? getQuietly(statement::getConnection) : null;
-
-		closeQuietly(rs);
-		closeQuietly(statement);
-		closeQuietly(connection);
-	}
-
-	private <T> T getQuietly(SqlSupplier<T> supplier) {
-		try {
-			return supplier.get();
-		} catch (SQLException e) {
-			log.error(e.getMessage());
-			return null;
-		}
-	}
-
-	private void closeQuietly(AutoCloseable closeable) {
-		if (closeable == null) {
-			return;
-		}
-		try {
-			closeable.close();
-		} catch (Exception e) {
-			log.error(e.getMessage());
-		}
-	}
-
-	@FunctionalInterface
-	private interface SqlSupplier<T> {
-		T get() throws SQLException;
 	}
 
 }
