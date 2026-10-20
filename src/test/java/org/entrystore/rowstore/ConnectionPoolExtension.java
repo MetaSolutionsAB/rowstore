@@ -22,12 +22,14 @@ import org.junit.jupiter.api.extension.ExecutionCondition;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.testcontainers.DockerClientFactory;
 
 /**
  * JUnit 5 extension that starts a RowStore test environment with HikariCP connection pooling enabled.
  *
- * Uses connectionPoolMax=3 to verify that the HikariCP code path works correctly.
+ * Uses connectionPoolMax=3 to verify that the HikariCP code path works correctly, with a separate
+ * queryDatabase (pointing to the same container) so that the read-only query pool is exercised too.
  */
 public class ConnectionPoolExtension implements BeforeAllCallback, ExecutionCondition {
 
@@ -59,6 +61,8 @@ public class ConnectionPoolExtension implements BeforeAllCallback, ExecutionCond
                 if (environment == null) {
                     environment = ConfigurableTestEnvironment.builder()
                             .connectionPoolMax(3)
+                            .socketTimeout(60)
+                            .separateQueryDatabase(true)
                             .buildEnvironment();
                     environment.start();
 
@@ -81,6 +85,13 @@ public class ConnectionPoolExtension implements BeforeAllCallback, ExecutionCond
             throw new IllegalStateException("ConnectionPoolExtension has not been initialized");
         }
         return environment.getBaseUrl();
+    }
+
+    /**
+     * Returns the Spring context of the in-process RowStore server, or null when testing an external instance.
+     */
+    public static ConfigurableApplicationContext getApplicationContext() {
+        return environment != null ? environment.getApplicationContext() : null;
     }
 
     private boolean isDockerAvailable() {

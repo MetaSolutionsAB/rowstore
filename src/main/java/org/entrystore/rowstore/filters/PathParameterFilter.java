@@ -22,30 +22,33 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 
+/**
+ * Rejects requests with path parameters (";" in the path) with 400. RowStore does not use them, but Tomcat and Spring
+ * ignore them when routing, so e.g. "/v3;x/api-docs" would bypass path rules of a reverse proxy and
+ * "/dataset/{id};1" would get its own per-dataset rate limit bucket. Encoded semicolons ("%3B") are not delimiters
+ * and are not affected. Runs first, so that it also covers Actuator and springdoc endpoints.
+ */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 20)
-public class ApiKeyFilter implements Filter {
-
-	private static final Logger log = LoggerFactory.getLogger(ApiKeyFilter.class);
+@Order(Ordered.HIGHEST_PRECEDENCE)
+public class PathParameterFilter implements Filter {
 
 	@Override
 	public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain chain)
 			throws IOException, ServletException {
-		HttpServletRequest httpReq = (HttpServletRequest) servletRequest;
-		if ("GET".equalsIgnoreCase(httpReq.getMethod()) || "HEAD".equalsIgnoreCase(httpReq.getMethod())) {
-			chain.doFilter(servletRequest, servletResponse);
-		} else {
-			// TODO: check for API-key and its validity
-			chain.doFilter(servletRequest, servletResponse);
+		// The raw request URI does not contain the query string
+		String uri = ((HttpServletRequest) servletRequest).getRequestURI();
+		if (uri != null && uri.indexOf(';') >= 0) {
+			((HttpServletResponse) servletResponse).sendError(HttpServletResponse.SC_BAD_REQUEST);
+			return;
 		}
+		chain.doFilter(servletRequest, servletResponse);
 	}
 
 }

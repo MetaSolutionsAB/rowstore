@@ -10,9 +10,9 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 ## SEC-1 Authentication
 
-> **SEC-1.01** An `ApiKeyFilter` exists in the codebase but is a **stub implementation**. It passes all requests through without authentication (`implements jakarta.servlet.Filter`).
+> **SEC-1.01** [REMOVED] (2026-10-20) The pass-through `ApiKeyFilter` stub was deleted: there is no application-level API key, authentication is done by the reverse proxy (SEC-9).
 
-> **SEC-1.02** No authentication is currently enforced on any endpoint. All API endpoints are publicly accessible.
+> **SEC-1.02** No authentication is enforced by the application. Authentication of the private API is the responsibility of the reverse proxy, see [SEC-9](#sec-9-reverse-proxy-contract).
 
 ## SEC-2 Authorization
 
@@ -46,6 +46,8 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-4.10** **Alias row locking**: Alias mutation operations (PUT, POST, DELETE) use `SELECT ... FOR UPDATE` on the dataset row to prevent concurrent modification and ensure consistency.
 
+> **SEC-4.11** **Path parameters**: Requests whose request path (the raw URI before `?`) contains `;` are rejected with **400 Bad Request** by `PathParameterFilter`, the first filter in the chain, so this also covers Actuator and springdoc endpoints and happens before rate limiting. RowStore uses no path parameters (neither did 1.x), but Tomcat and Spring ignore `;...` segments when routing: without this check `/v3;x/api-docs` or `/status;x?jvm` would bypass path rules of the reverse proxy (SEC-9.03), and `/dataset/{id};1`, `/dataset/{id};2`, … would each get their own per-dataset rate limit bucket. An encoded semicolon (`%3B`) is not a delimiter and is part of the path segment (e.g. an unknown dataset ID, 404).
+
 ## SEC-5 Rate Limiting
 
 > **SEC-5.01** **Sliding window** (`type: "slidingwindow"`): Uses a Guava `Cache` with `expireAfterWrite` set to the `timerange`. Each request adds a timestamped entry. When the count within the window exceeds the limit, requests are rejected with **429 Too Many Requests** and a `Retry-After` header indicating when the oldest entry expires (oldest entry time + timerange + 1ms).
@@ -55,15 +57,19 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 > **SEC-5.03** Rate limiting operates at three scopes:
 > - **Global**: A single rate limiter shared by all requests
 > - **Per-dataset**: One rate limiter per dataset URL path (keyed by request path)
-> - **Per-client IP**: One rate limiter per client IP address (extracted from the `X-Forwarded-For` header)
+> - **Per-client IP**: One rate limiter per client IP address (the request's remote address, see SEC-5.05)
 >
 > Each scope has an independent limit. A request is rejected if it exceeds any active scope's limit.
 
 > **SEC-5.04** Rate limiting applies to **GET and HEAD** requests only. POST, PUT, and DELETE are not rate limited. The `/status` endpoint is **exempt** from rate limiting. Rate limiter caches have a maximum size of **32,768 entries**.
 
+> **SEC-5.05** **Client address**: The per-client-IP key is the request's remote address (`getRemoteAddr()`). `TrustedProxyFilter` replaces it with an address from `X-Forwarded-For` only if the connecting peer is a trusted proxy (`trustedproxies`, [CFG-3.11](06-configuration.md#cfg-3-application-options)). The header (all header lines, comma-separated) is walked from right to left, skipping addresses of trusted proxies; the first untrusted address is the client address. If all entries are trusted proxies, the leftmost entry is used. Entries left of the client address can be set freely by the client and are ignored, so a client cannot choose its own rate limit key. Entries are parsed as IP literals only; host names are never resolved. Entries with a port (`192.0.2.1:4711`) or an IPv6 zone ID (`fe80::1%eth0`) are not IP literals and count as untrusted, so proxies must write bare addresses. The zone ID of the connecting peer itself (a proxy connecting over link-local IPv6, e.g. `fe80::1%2`) comes from the local socket and is ignored when matching it against `trustedproxies`. If a peer that is not a trusted proxy sends `X-Forwarded-For`, a warning naming the peer and `trustedproxies` is logged at most once per hour per peer address (not when `trustedproxies` is `[]`). This is the algorithm of Tomcat's `RemoteIpValve`, which is not used because its proxy lists are regular expressions, not CIDR ranges. Other forwarding headers (`X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-Port`, `Forwarded`) are not evaluated (`server.forward-headers-strategy=none`); all URLs in responses are built from `baseurl`.
+
+> **SEC-5.06** **Trusted proxy default**: Without `trustedproxies`, loopback, private (RFC 1918), shared (100.64.0.0/10) and link-local IPv4 addresses and IPv6 loopback, unique local and link-local addresses are trusted, equivalent to the `internalProxies` default of Tomcat's `RemoteIpValve`, so a reverse proxy on the same host or on a private or container network works without configuration. An empty array trusts nobody: `X-Forwarded-For` is always ignored and the per-client-IP limit applies to the address of the connecting peer. If clients other than the reverse proxy can connect from a private address, `trustedproxies` must list exactly the reverse proxy addresses. (1.x used any `X-Forwarded-For` value verbatim as the key.)
+
 ## SEC-6 CORS
 
-> **SEC-6.01** Cross-Origin Resource Sharing (CORS) is implemented via Spring's `CorsFilter`. Allowed origins are configurable via `cors.allowedorigins` in `rowstore.json` (default: `["*"]`, allowing all origins). The filter adds `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`, and `Access-Control-Allow-Headers` headers, and handles preflight `OPTIONS` requests.
+> **SEC-6.01** Cross-Origin Resource Sharing (CORS) is implemented via Spring's `CorsFilter`. Allowed origins are configurable via `cors.allowedorigins` in `rowstore.json` (default: `["*"]`, allowing all origins). The filter adds `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`, and `Access-Control-Allow-Headers` headers, and handles preflight `OPTIONS` requests. It runs before `RateLimitFilter`, so `429` responses also carry the CORS headers and expose `Retry-After`.
 
 ## SEC-7 JSONP
 
@@ -73,9 +79,25 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-8.01** Uploaded CSV files are written to temp files marked with `deleteOnExit()` as a JVM shutdown safety net. Files are also explicitly deleted on early failure (before ETL queuing) and after successful processing.
 
+## SEC-9 Reverse Proxy Contract
+
+> **SEC-9.01** RowStore must always run behind a reverse proxy and must never be reachable directly by untrusted clients. The application has no authentication of its own (SEC-1.02); the security of a deployment depends on the reverse proxy fulfilling SEC-9.02 to SEC-9.04.
+
+> **SEC-9.02** The reverse proxy authenticates all requests with methods other than `GET` and `HEAD` (the private API: creating, replacing, appending to and deleting datasets, managing aliases). `GET` and `HEAD` requests form the public read API.
+
+> **SEC-9.03** The reverse proxy denies public access to these paths, which RowStore serves on the application port (8282) in 2.0, so blocking them at the proxy is the only protection (a separate management port is planned for 2.1, ROWS-108):
+> - `/actuator` and `/actuator/**` (exposed endpoints: `health`, `info`, `metrics`)
+> - `/swagger-ui.html` and `/swagger-ui/**` (springdoc Swagger UI)
+> - `/v3/api-docs`, `/v3/api-docs/**` and `/v3/api-docs.yaml` (springdoc OpenAPI description)
+> - `/status?jvm`, i.e. `/status` with a `jvm` query parameter in any form (JVM memory and processor details); `/status` without parameters is public
+>
+> Path rules must not be bypassable by path parameters: Tomcat and Spring ignore `;...` segments when routing (e.g. `/v3;x/api-docs` would serve the OpenAPI description and `/status;x?jvm` the JVM details). RowStore rejects such requests itself ([SEC-4.11](#sec-4-input-validation)); the proxy should still reject request paths containing `;` as defence in depth.
+
+> **SEC-9.04** The reverse proxy is the only component that sets `X-Forwarded-For` towards RowStore, and its address is listed in `trustedproxies` ([CFG-3.11](06-configuration.md#cfg-3-application-options), [SEC-5.05](#sec-5-rate-limiting)). Otherwise the per-client-IP rate limit is keyed on the proxy address (proxy not trusted) or can be influenced by clients (clients connecting from a trusted address).
+
 ## Known Limitations
 
-- No authentication or authorization (all endpoints are public)
+- No application-level authentication or authorization; the reverse proxy is responsible (SEC-9)
 - No HTTPS termination (must be handled by a reverse proxy)
 - No CSRF protection
 
@@ -85,7 +107,8 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 - [Query Processing](05-querying.md#query-9-input-validation) — Input validation for query parameters
 - [Configuration](06-configuration.md#cfg-6-rate-limit-configuration) — Rate limit configuration options
 - [Glossary](12-glossary.md#glo-1-terms) — Rate Limit (Average), Rate Limit (Sliding Window), CORS
-- Source: `ApiKeyFilter.java`, `RateLimitFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
+- [README Security section](../README.md#security) — Reverse proxy requirements and nginx example
+- Source: `PathParameterFilter.java`, `RateLimitFilter.java`, `TrustedProxyFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
 
 ## Change Log
 
@@ -93,3 +116,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: CORS implemented, JSONP removed, new validations (table name, ReDoS, upload size, alias locking) |
+| 2026-10-20 | Added SEC-5.05 and SEC-5.06 (client address from `X-Forwarded-For` only via trusted proxies); SEC-5.03 updated |
+| 2026-10-20 | SEC-1.01 removed (ApiKeyFilter stub deleted), SEC-1.02 reworded; added SEC-9 (reverse proxy contract) |
+| 2026-10-20 | Added SEC-4.11 (path parameters rejected); SEC-9.03 refers to it |
+| 2026-10-20 | SEC-6.01: CORS headers also on 429 responses |

@@ -57,14 +57,15 @@ Covers the system from a structural and architectural perspective. For detailed 
 
 > **ARCH-5.01** The request processing chain:
 > ```
-> HTTP Request
->   → CorsFilter (CORS headers)
->     → ApiKeyFilter (stub — passes all requests)
->       → RateLimitFilter (optional, if configured)
->         → DispatcherServlet
->           → Controller handler method
+> HTTP Request (from the reverse proxy, see SEC-9)
+>   → PathParameterFilter (400 for ";" in the request path, SEC-4.11)
+>     → CorsFilter (CORS headers, preflight requests)
+>       → TrustedProxyFilter (client address from X-Forwarded-For if the peer is a trusted proxy)
+>         → RateLimitFilter (optional, if configured)
+>           → DispatcherServlet
+>             → Controller handler method
 > ```
-> The `CorsFilter` is the outermost filter, providing cross-origin support. The `RateLimitFilter` is only active when rate limiting is enabled (timerange > 0 AND (global > 0 OR dataset > 0)).
+> The `RateLimitFilter` is only active when rate limiting is enabled (timerange > 0 AND (global > 0 OR dataset > 0)). `CorsFilter` runs before it, so `429` responses carry CORS headers. There is no authentication filter; authentication is done by the reverse proxy ([SEC-9](07-security.md#sec-9-reverse-proxy-contract)).
 
 > **ARCH-5.02** Read path (query): `GET /dataset/{id}?col=value` → `DatasetController` → `PgDataset.query()` → PostgreSQL prepared statement → JSON response with pagination envelope.
 
@@ -99,3 +100,5 @@ Covers the system from a structural and architectural perspective. For detailed 
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot 3.5.10 migration (Java 25, Tomcat, HikariCP, Flyway, virtual threads) |
+| 2026-10-20 | ARCH-5.01: ApiKeyFilter removed, TrustedProxyFilter added, actual filter order documented |
+| 2026-10-20 | ARCH-5.01: PathParameterFilter added; CorsFilter moved before RateLimitFilter |

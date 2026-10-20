@@ -97,7 +97,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 > - **204 No Content** — Successful alias update or dataset deletion with no response body
 
 > **API-6.02** Client error statuses:
-> - **400 Bad Request** — Invalid parameters, empty filter values, non-numeric limit/offset, invalid alias format
+> - **400 Bad Request** — Invalid parameters, empty filter values, non-numeric limit/offset, invalid alias format, path parameters (`;` in the request path, [SEC-4.11](07-security.md#sec-4-input-validation))
 > - **404 Not Found** — Dataset or alias not found
 > - **415 Unsupported Media Type** — Non-CSV content type for upload endpoints
 
@@ -128,7 +128,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 - No PATCH support for partial dataset updates
 - No bulk operations endpoint
-- No authentication on any endpoint (see [07-security.md](07-security.md))
+- No authentication in the application; the reverse proxy authenticates the private API (see [SEC-9](07-security.md#sec-9-reverse-proxy-contract))
 - No versioning in URL path (no `/v1/` prefix)
 - `_sort` parameter is recognized but not implemented
 
