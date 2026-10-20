@@ -240,10 +240,10 @@ Current limitations relevant to this area.
 | CFG-3.09 | maxuploadsize (long bytes, default 104857600) |
 | CFG-3.10 | cors.allowedorigins (JSON array, default ["*"]) |
 | CFG-4.01 | database object: type, host, port, database, user, password |
-| CFG-4.02 | ssl (boolean, default false) |
+| CFG-4.02 | ssl (boolean, default false) → sslmode require/disable |
 | CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1) |
 | CFG-4.04 | socketTimeout (0), connectTimeout (5), loginTimeout (5) |
-| CFG-5.01 | queryDatabase (optional, falls back to database) |
+| CFG-5.01 | queryDatabase (optional, falls back to database, read-only) |
 | CFG-6.01 | ratelimit.type (slidingwindow/average) |
 | CFG-6.02 | ratelimit.timerange (seconds) |
 | CFG-6.03 | ratelimit.global, .dataset, .clientip (requests per timerange) |

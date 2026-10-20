@@ -39,7 +39,7 @@ public class DataSourceConfig {
 	@Bean
 	@Primary
 	public DataSource dataSource(RowStoreConfig config) {
-		DataSource ds = createDataSource(config.getDatabase(), "rowstore-primary");
+		DataSource ds = createDataSource(config.getDatabase(), "rowstore-primary", false);
 
 		// Run Flyway
 		Flyway flyway = Flyway.configure()
@@ -60,34 +60,30 @@ public class DataSourceConfig {
 			return dataSource;
 		}
 
-		DataSource ds = createDataSource(config.getQueryDatabase(), "rowstore-query");
-		if (ds instanceof PGSimpleDataSource pgDs) {
-			pgDs.setReadOnly(true);
-			pgDs.setReadOnlyMode("always");
-		} else if (ds instanceof HikariDataSource hikariDs) {
-			hikariDs.setReadOnly(true);
-		}
-		return ds;
+		return createDataSource(config.getQueryDatabase(), "rowstore-query", true);
 	}
 
-	private DataSource createDataSource(RowStoreConfig.Database dbConfig, String poolName) {
+	/**
+	 * @param readOnly if true, connections are read-only also in auto-commit mode (readOnlyMode=always)
+	 */
+	private DataSource createDataSource(RowStoreConfig.Database dbConfig, String poolName, boolean readOnly) {
 		if (dbConfig.getConnectionPoolMax() > 0) {
-			return createHikariDataSource(dbConfig, poolName);
+			return createHikariDataSource(dbConfig, poolName, readOnly);
 		}
-		return createSimpleDataSource(dbConfig, poolName);
+		return createSimpleDataSource(dbConfig, poolName, readOnly);
 	}
 
-	private PGSimpleDataSource createSimpleDataSource(RowStoreConfig.Database dbConfig, String poolName) {
+	private PGSimpleDataSource createSimpleDataSource(RowStoreConfig.Database dbConfig, String poolName, boolean readOnly) {
 		PGSimpleDataSource ds = new PGSimpleDataSource();
 		ds.setUser(dbConfig.getUser());
 		ds.setPassword(dbConfig.getPassword());
 		ds.setServerNames(new String[]{dbConfig.getHost()});
 		ds.setDatabaseName(dbConfig.getName());
 		ds.setPortNumbers(new int[]{dbConfig.getPort()});
-		if (dbConfig.getSsl()) {
-			ds.setSsl(true);
-			ds.setSslMode("require");
-		}
+		// pgjdbc defaults to sslmode=prefer, which can cause connection timeouts if SSL is not wanted
+		ds.setSsl(dbConfig.getSsl());
+		ds.setSslMode(dbConfig.getSsl() ? "require" : "disable");
+		ds.setLogUnclosedConnections(log.isDebugEnabled());
 		if (dbConfig.getConnectTimeout() > 0) {
 			ds.setConnectTimeout(dbConfig.getConnectTimeout());
 		}
@@ -101,12 +97,16 @@ public class DataSourceConfig {
 		if (dbConfig.getSocketTimeout() > 0) {
 			ds.setSocketTimeout(dbConfig.getSocketTimeout());
 		}
+		if (readOnly) {
+			ds.setReadOnly(true);
+			ds.setReadOnlyMode("always");
+		}
 		log.info("Configured PGSimpleDataSource '{}': host={}, port={}, database={} (no connection pool)",
 				poolName, dbConfig.getHost(), dbConfig.getPort(), dbConfig.getName());
 		return ds;
 	}
 
-	private HikariDataSource createHikariDataSource(RowStoreConfig.Database dbConfig, String poolName) {
+	private HikariDataSource createHikariDataSource(RowStoreConfig.Database dbConfig, String poolName, boolean readOnly) {
 		HikariConfig hikariConfig = new HikariConfig();
 		hikariConfig.setPoolName(poolName);
 
@@ -129,9 +129,25 @@ public class DataSourceConfig {
 			hikariConfig.setConnectionTimeout(dbConfig.getConnectTimeout() * 1000L);
 		}
 
-		if (dbConfig.getSsl()) {
-			hikariConfig.addDataSourceProperty("ssl", "true");
-			hikariConfig.addDataSourceProperty("sslmode", "require");
+		// pgjdbc defaults to sslmode=prefer, which can cause connection timeouts if SSL is not wanted
+		hikariConfig.addDataSourceProperty("ssl", String.valueOf(dbConfig.getSsl()));
+		hikariConfig.addDataSourceProperty("sslmode", dbConfig.getSsl() ? "require" : "disable");
+
+		// Driver timeouts in seconds; connectionTimeout above only limits waiting for a pooled connection
+		if (dbConfig.getConnectTimeout() > 0) {
+			hikariConfig.addDataSourceProperty("connectTimeout", String.valueOf(dbConfig.getConnectTimeout()));
+		}
+		if (dbConfig.getLoginTimeout() > 0) {
+			hikariConfig.addDataSourceProperty("loginTimeout", String.valueOf(dbConfig.getLoginTimeout()));
+		}
+		if (dbConfig.getSocketTimeout() > 0) {
+			hikariConfig.addDataSourceProperty("socketTimeout", String.valueOf(dbConfig.getSocketTimeout()));
+		}
+
+		// Must be configured before the pool is started
+		if (readOnly) {
+			hikariConfig.setReadOnly(true);
+			hikariConfig.addDataSourceProperty("readOnlyMode", "always");
 		}
 
 		log.info("Configured HikariCP pool '{}': url={}, maxPoolSize={}, minIdle={}",

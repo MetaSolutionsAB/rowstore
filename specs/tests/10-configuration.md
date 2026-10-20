@@ -2,7 +2,10 @@
 
 ## Overview
 
-Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configuration.md#cfg-1-file-format)). These are unit tests (`RowStoreConfigTest`) that construct `RowStoreConfig` directly from JSON; they need neither Docker nor a running server.
+Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configuration.md#cfg-1-file-format)) and for how database settings are applied to the data sources ([CFG-4](../06-configuration.md#cfg-4-database-configuration), [CFG-5](../06-configuration.md#cfg-5-read-replica-configuration)).
+
+- TC-CFG-* and TC-DS-* are unit tests (`RowStoreConfigTest`, `DataSourceConfigTest`); they need neither Docker nor a running server.
+- TC-POOL-* are integration tests (`ConnectionPoolIT`) against an in-process server with `connectionPoolMax=3`, `ssl=false`, `socketTimeout=60` and a separate `queryDatabase` pointing to the same container. TC-POOL-006 to TC-POOL-008 inspect the DataSource beans and are skipped against an external instance. TC-POOL-001 to TC-POOL-005 (status, lifecycle, query and HikariCP metrics with a pool) are defined in the test class.
 
 ## Test Cases
 
@@ -59,3 +62,30 @@ Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configura
 
 **Assertions:**
 1. Construction succeeds
+
+### TC-DS-001: Unpooled query data source applies SSL mode, timeouts and read-only mode
+
+**Input (one per case):** Config with a separate `queryDatabase` without pool, `ssl` = false or true, `socketTimeout` = 60, `connectTimeout` = 7, `loginTimeout` = 8.
+
+**Assertions:**
+1. `sslmode` is `disable` for `ssl=false` and `require` for `ssl=true`
+2. Driver timeouts are 60 / 7 / 8 seconds
+3. `readOnly` is true and `readOnlyMode` is `always`
+
+### TC-POOL-006: SSL mode and driver timeouts are passed to the HikariCP pools
+
+**Assertions (primary and query pool):**
+1. Data source properties contain `sslmode=disable`, `connectTimeout=5`, `loginTimeout=5`, `socketTimeout=60`
+
+### TC-POOL-007: Query pool is read-only, also in auto-commit mode
+
+**Assertions:**
+1. The query pool is a separate pool with data source property `readOnlyMode=always`; the primary pool has no `readOnlyMode`
+2. `SHOW transaction_read_only` returns `on` on a query pool connection and `off` on a primary pool connection
+
+### TC-POOL-008: Connections do not use SSL when ssl is false
+
+**Assertions (primary and query pool):**
+1. `SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()` returns false
+
+**Note:** The Testcontainers PostgreSQL image runs without SSL, so this cannot distinguish `sslmode=disable` from `prefer`; TC-POOL-006 asserts the configured mode.

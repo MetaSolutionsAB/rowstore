@@ -69,7 +69,7 @@ Covers the JSON configuration file format, all application and database options,
 > | `user` | String | — | Database user (required) |
 > | `password` | String | — | Database password (required) |
 
-> **CFG-4.02** `ssl` (boolean, default `false`) — Enables SSL for the PostgreSQL connection.
+> **CFG-4.02** `ssl` (boolean, default `false`) — Enables SSL for the PostgreSQL connection. `true` sets the driver's `sslmode=require`, `false` sets `sslmode=disable` (instead of the pgjdbc default `prefer`), with and without connection pool.
 
 > **CFG-4.03** Connection pool settings (HikariCP):
 > - `connectionPoolInit` (int, default `-1`) — Minimum idle connections (`minimumIdle`). `-1` uses HikariCP defaults.
@@ -79,10 +79,12 @@ Covers the JSON configuration file format, all application and database options,
 > - `socketTimeout` (int, default `0`) — Socket read timeout. `0` means no timeout.
 > - `connectTimeout` (int, default `5`) — Connection establishment timeout.
 > - `loginTimeout` (int, default `5`) — Authentication timeout.
+>
+> Values > 0 are passed to the PostgreSQL driver, with and without connection pool. With HikariCP, `connectTimeout` additionally sets the pool's `connectionTimeout` (maximum wait for a pooled connection).
 
 ## CFG-5 Read Replica Configuration
 
-> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`. When not configured, all queries use the primary `database` connection. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing).
+> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`. When not configured, all queries use the primary `database` connection. Connections to `queryDatabase` are read-only also in auto-commit mode (driver `readOnlyMode=always`), with and without connection pool. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing).
 
 ## CFG-6 Rate Limit Configuration
 
@@ -186,4 +188,4 @@ Covers the JSON configuration file format, all application and database options,
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |
-| 2026-10-20 | Added CFG-1.02 (fail fast on invalid config), CFG-3.08 removed (exportpagesize unused) |
+| 2026-10-20 | Added CFG-1.02 (fail fast on invalid config), CFG-3.08 removed (exportpagesize unused); CFG-4.02, CFG-4.04, CFG-5.01 clarified for driver settings with HikariCP |
