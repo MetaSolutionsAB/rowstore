@@ -15,7 +15,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
 | `08-error-handling.md` | Error codes: 400, 404, 423, 424 | 13 |
 | `09-rate-limiting.md` | Rate limiting (429) - requires separate profile | 5 |
-| `11-etl-processing.md` | ETL scheduling, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 41 |
+| `11-etl-processing.md` | ETL scheduling, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 47 |
 
 ## Prerequisites
 

@@ -191,7 +191,7 @@ Current limitations relevant to this area.
 | ETL-4.01 | Charset detection: juniversalchardet → ICU4J → UTF-8 |
 | ETL-4.02 | Separator detection: semicolon if consistent in first 2 lines, else comma |
 | ETL-4.03 | Parser: RFC4180Parser (default) or CSVParser (legacy) |
-| ETL-4.04 | Column names: lowercase, stripped, BOM and soft hyphens removed, empty skipped |
+| ETL-4.04 | Column names: lowercase, ends trimmed (trim and Unicode whitespace), BOM and soft hyphens removed, empty skipped |
 | ETL-4.05 | Empty lines: trailing ignored, otherwise the load fails (line number logged), both parsers alike |
 | ETL-4.06 | Leading byte order mark skipped before parsing and separator detection |
 | ETL-4.07 | Labels sanitized: U+FEFF and U+00AD removed anywhere; also used by the append check; affected names change |
@@ -214,10 +214,10 @@ Current limitations relevant to this area.
 | ETL-10.01 | Final status from locally tracked outcome; exceptions logged with stack trace |
 | ETL-10.02 | Final status write retried with backoff (96 s of delays plus connection timeouts) |
 | ETL-11.01 | Background cleanup of column names after startup; affected = first-row key not clean; skipped datasets |
-| ETL-11.02 | Cleaning rule: remove U+FEFF/U+00AD, strip, unquote only after a leading BOM, lowercase |
-| ETL-11.03 | Rename per dataset as exclusive ETL task, one dataset at a time, one transaction incl. indexes, status unchanged |
-| ETL-11.04 | Append before the cleanup renames the columns within the append |
-| ETL-11.05 | Empty or colliding cleaned names: dataset skipped with WARN, no change |
+| ETL-11.02 | Cleaning rule per configured parser, derived from the parsers: unquote only after a leading BOM directly followed by a quote, then normalize; residual ambiguity |
+| ETL-11.03 | Rename per dataset as exclusive ETL task, one dataset at a time, one transaction; old indexes dropped last with the swap lock pattern; rewrite cost; stop on connection failures |
+| ETL-11.04 | Append before the cleanup renames the columns to its labels within the append |
+| ETL-11.05 | Empty or colliding cleaned names, also old and new name in any row: dataset skipped with WARN, no change |
 | ETL-11.06 | Idempotent; PUT yields clean names; column names of affected datasets change |
 
 ### QUERY — Query Processing
