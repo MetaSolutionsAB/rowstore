@@ -39,8 +39,8 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.LinkedHashSet;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 
 @RestController
 public class ExportController {
@@ -106,14 +106,15 @@ public class ExportController {
 		}
 
 		StreamingResponseBody body = outputStream -> {
-			Set<String> columnNames = new LinkedHashSet<>(dataset.getColumnNames());
+			// one list for header and cells guarantees the same column order in both
+			List<String> columnNames = new ArrayList<>(dataset.getColumnNames());
 			ResultSet rs = null;
 			try (CSVWriter csvWriter = new CSVWriter(new BufferedWriter(new OutputStreamWriter(outputStream), 131072))) {
 				csvWriter.writeNext(columnNames.toArray(new String[0]), false);
 				rs = dataset.streamAll();
 				while (rs.next()) {
 					String data = rs.getString("data");
-					csvWriter.writeNext(jsonObjectToStringArray(new JSONObject(data), columnNames), false);
+					csvWriter.writeNext(toCsvRow(new JSONObject(data), columnNames), false);
 					if ((rs.getRow() % 10000) == 0) {
 						csvWriter.flush();
 					}
@@ -131,12 +132,16 @@ public class ExportController {
 		return ResponseEntity.ok().headers(headers).body(body);
 	}
 
-	private String[] jsonObjectToStringArray(JSONObject json, Set<String> keys) {
-		Set<String> result = new LinkedHashSet<>();
-		for (String key : keys) {
-			result.add(json.getString(key));
+	/**
+	 * Converts a row to CSV cells in the order of the column names. Rows are sparse if their CSV line had fewer
+	 * cells than the header, missing cells are exported as empty strings.
+	 */
+	private static String[] toCsvRow(JSONObject json, List<String> columnNames) {
+		String[] row = new String[columnNames.size()];
+		for (int i = 0; i < row.length; i++) {
+			row[i] = json.optString(columnNames.get(i), "");
 		}
-		return result.toArray(new String[0]);
+		return row;
 	}
 
 	private void cleanup(ResultSet rs) {
