@@ -16,9 +16,13 @@
 
 package org.entrystore.rowstore;
 
+import com.opencsv.CSVReader;
+import com.opencsv.CSVReaderBuilder;
+import com.opencsv.RFC4180ParserBuilder;
 import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -28,10 +32,31 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.StringReader;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Integration tests for the /dataset/{id}/export endpoint.
@@ -51,6 +76,14 @@ class ExportIT extends BaseIntegrationTest {
     private String infoUrl;
     private String datasetId;
 
+    /**
+     * Header a,b,c; rows "x,x,y" (duplicate values), "p,q" (short row, stored without key c)
+     * and ",,z" (empty cells).
+     */
+    private static final String EDGE_FILE = "dataset_export_edge.csv";
+
+    private DatasetUrls edgeUrls;
+
     @BeforeAll
     void createDataset() {
         byte[] csvData = loadTestData(TEST_FILE);
@@ -59,12 +92,17 @@ class ExportIT extends BaseIntegrationTest {
         datasetUrl = urls.datasetUrl;
         infoUrl = urls.infoUrl;
         datasetId = urls.datasetId;
+
+        edgeUrls = createDatasetAndWait(loadTestData(EDGE_FILE));
     }
 
     @AfterAll
     void cleanup() {
         if (datasetUrl != null) {
             deleteDataset(datasetUrl);
+        }
+        if (edgeUrls != null) {
+            deleteDataset(edgeUrls.datasetUrl);
         }
     }
 
@@ -297,5 +335,184 @@ class ExportIT extends BaseIntegrationTest {
             assertThat(csvDisposition).contains(datasetId);
             assertThat(csvDisposition).contains(".csv");
         }
+    }
+
+    @Test
+    @Order(9)
+    @DisplayName("TC-EXPORT-010: CSV export keeps duplicate cell values in their columns")
+    void exportCsv_duplicateValues_keepColumnPositions() throws Exception {
+        List<Map<String, String>> records = exportCsvRecords(edgeUrls.datasetUrl);
+        assertThat(records).contains(Map.of("a", "x", "b", "x", "c", "y"));
+
+        // JSON export format is unchanged: "[" + rows joined by ",\n" + "]"
+        String json = exportJsonBody(edgeUrls.datasetUrl);
+        assertThat(json).startsWith("[{").endsWith("}]");
+        String[] rows = json.substring(1, json.length() - 1).split(",\n");
+        assertThat(rows).hasSize(3);
+        assertThat(rows).anySatisfy(row ->
+                assertThat(new JSONObject(row).toMap()).isEqualTo(Map.of("a", "x", "b", "x", "c", "y")));
+    }
+
+    @Test
+    @Order(10)
+    @DisplayName("TC-EXPORT-011: CSV export of a short row yields empty trailing cells")
+    void exportCsv_shortRow_yieldsEmptyCells() throws Exception {
+        List<Map<String, String>> records = exportCsvRecords(edgeUrls.datasetUrl);
+        assertThat(records).containsExactlyInAnyOrder(
+                Map.of("a", "x", "b", "x", "c", "y"),
+                Map.of("a", "p", "b", "q", "c", ""),
+                Map.of("a", "", "b", "", "c", "z"));
+
+        // JSON export keeps the short row as stored, i.e. without a key for the missing cell
+        JSONArray json = new JSONArray(exportJsonBody(edgeUrls.datasetUrl));
+        assertThat(json.length()).isEqualTo(3);
+        List<Map<String, Object>> objects = new ArrayList<>();
+        for (int i = 0; i < json.length(); i++) {
+            objects.add(json.getJSONObject(i).toMap());
+        }
+        assertThat(objects).contains(Map.of("a", "p", "b", "q"));
+    }
+
+    @Test
+    @Order(11)
+    @DisplayName("TC-EXPORT-012: Database failure before streaming returns 500 and releases the connection")
+    void exportDatabaseFailureBeforeStreaming_returns500() throws Exception {
+        assumeTrue(RowStoreTestEnvironment.getInstance().isStarted(),
+                "Requires direct database access (embedded test environment)");
+
+        try (Connection db = RowStoreTestEnvironment.getInstance().openDatabaseConnection()) {
+            String table = TestUtils.getDataTableName(db, edgeUrls.datasetId);
+            // Without its data table the export query fails when the row stream is opened, i.e. before
+            // the first byte of the body is written, so the status code can still report the failure
+            TestUtils.setTableHidden(db, table, true);
+            try {
+                given().accept(ContentType.JSON).when().get(edgeUrls.datasetUrl + "/export").then().statusCode(500);
+                given().accept("text/csv").when().get(edgeUrls.datasetUrl + "/export").then().statusCode(500);
+
+                // The connections of the failed exports must be closed, not left idle in an aborted transaction
+                await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))
+                        .until(() -> TestUtils.countBackendsReferencing(db, table) == 0);
+            } finally {
+                TestUtils.setTableHidden(db, table, false);
+            }
+        }
+    }
+
+    @Test
+    @Order(12)
+    @DisplayName("TC-EXPORT-013: Database failure mid-stream aborts the connection")
+    void exportDatabaseFailureMidStream_abortsConnection() throws Exception {
+        assumeTrue(RowStoreTestEnvironment.getInstance().isStarted(),
+                "Requires direct database access (embedded test environment)");
+
+        DatasetUrls urls = createDatasetAndWait(loadTestData(EDGE_FILE));
+        try (Connection db = RowStoreTestEnvironment.getInstance().openDatabaseConnection()) {
+            String table = TestUtils.getDataTableName(db, urls.datasetId);
+            // About 50 MB of rows, far more than the server's write buffer and the socket buffers can hold.
+            // While the client pauses reading, the export is therefore blocked mid-stream with its database
+            // cursor open and has to fetch more rows from the database after the client resumes.
+            try (Statement st = db.createStatement()) {
+                st.executeUpdate("INSERT INTO " + table + " (data) SELECT jsonb_build_object(" +
+                        "'a', 'pad' || g, 'b', '', 'c', repeat('x', 1000)) FROM generate_series(1, 50000) g");
+            }
+
+            assertExportAbortedOnBackendTermination(db, table, urls.datasetUrl, "application/json");
+            assertExportAbortedOnBackendTermination(db, table, urls.datasetUrl, "text/csv");
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    /**
+     * Starts an export, terminates its database backend while the export is streaming and verifies that
+     * the client sees an aborted connection instead of a cleanly terminated (and thus complete-looking) body.
+     */
+    private void assertExportAbortedOnBackendTermination(Connection db, String table, String url, String accept)
+            throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url + "/export")).header("Accept", accept).build();
+        try (HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()) {
+            HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            // Status line and headers are committed with the first bytes of the body, so once streaming has
+            // started a 5xx is impossible: a later failure can only be signalled by aborting the connection
+            assertThat(response.statusCode()).isEqualTo(200);
+
+            try (InputStream body = response.body()) {
+                assertThat(body.readNBytes(1024)).hasSize(1024);
+
+                AtomicInteger pid = new AtomicInteger();
+                await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(100))
+                        .until(() -> {
+                            pid.set(findExportBackend(db, table));
+                            return pid.get() > 0;
+                        });
+                try (PreparedStatement ps = db.prepareStatement("SELECT pg_terminate_backend(?)")) {
+                    ps.setInt(1, pid.get());
+                    ps.execute();
+                }
+
+                assertThatThrownBy(() -> body.transferTo(OutputStream.nullOutputStream()))
+                        .as("Export as %s must end with an aborted connection, not a cleanly terminated body", accept)
+                        .isInstanceOf(IOException.class);
+            }
+        }
+    }
+
+    private int findExportBackend(Connection db, String table) throws Exception {
+        try (PreparedStatement ps = db.prepareStatement(
+                "SELECT pid FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND query = ?")) {
+            ps.setString(1, "SELECT data FROM " + table);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    private String exportJsonBody(String url) {
+        return given()
+                .accept(ContentType.JSON)
+        .when()
+                .get(url + "/export")
+        .then()
+                .statusCode(200)
+                .contentType(ContentType.JSON)
+                .extract()
+                .asString();
+    }
+
+    /**
+     * Exports a dataset as CSV and maps each row to its header. The header order is not guaranteed
+     * (column names are kept in a set), but header and cells must be in the same order.
+     */
+    private List<Map<String, String>> exportCsvRecords(String url) throws Exception {
+        String body = given()
+                .accept("text/csv")
+        .when()
+                .get(url + "/export")
+        .then()
+                .statusCode(200)
+                .contentType("text/csv")
+                .extract()
+                .asString();
+
+        List<String[]> lines;
+        try (CSVReader reader = new CSVReaderBuilder(new StringReader(body))
+                .withCSVParser(new RFC4180ParserBuilder().build())
+                .build()) {
+            lines = reader.readAll();
+        }
+        assertThat(lines).isNotEmpty();
+        String[] header = lines.get(0);
+        assertThat(header).containsExactlyInAnyOrder("a", "b", "c");
+
+        List<Map<String, String>> records = new ArrayList<>();
+        for (String[] line : lines.subList(1, lines.size())) {
+            assertThat(line).as("Cells of CSV row %s", String.join(",", line)).hasSameSizeAs(header);
+            Map<String, String> record = new HashMap<>();
+            for (int i = 0; i < header.length; i++) {
+                record.put(header[i], line[i]);
+            }
+            records.add(record);
+        }
+        return records;
     }
 }

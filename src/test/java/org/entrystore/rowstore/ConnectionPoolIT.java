@@ -27,7 +27,12 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.sql.Connection;
+import java.time.Duration;
+
 import static io.restassured.RestAssured.given;
+import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
@@ -135,5 +140,52 @@ class ConnectionPoolIT extends ConfigurableTestBase {
         .then()
                 .statusCode(200)
                 .body("measurements[0].value", greaterThanOrEqualTo(3.0f));
+    }
+
+    @Test
+    @Order(6)
+    @DisplayName("TC-EXPORT-014: Failed exports return their connections to the pool")
+    void failedExports_returnConnectionsToPool() throws Exception {
+        ConfigurableTestEnvironment environment = ConnectionPoolExtension.getEnvironment();
+        assumeTrue(environment != null, "Requires direct database access (embedded test environment)");
+
+        DatasetUrls urls = createDatasetAndWait(loadTestData("dataset_export_edge.csv"));
+        try (Connection db = environment.openDatabaseConnection()) {
+            String table = TestUtils.getDataTableName(db, urls.datasetId);
+            TestUtils.setTableHidden(db, table, true);
+            try {
+                // More failed exports than the pool (max 3) has connections: a leak would exhaust the pool
+                for (int i = 0; i < 4; i++) {
+                    given()
+                            .accept(i % 2 == 0 ? "application/json" : "text/csv")
+                    .when()
+                            .get(urls.datasetUrl + "/export")
+                    .then()
+                            .statusCode(500);
+                }
+            } finally {
+                TestUtils.setTableHidden(db, table, false);
+            }
+
+            given()
+                    .accept("application/json")
+            .when()
+                    .get(urls.datasetUrl + "/export")
+            .then()
+                    .statusCode(200)
+                    .body("size()", equalTo(3));
+
+            await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))
+                    .until(() -> given()
+                            .spec(jsonSpec)
+                            .get("/actuator/metrics/hikaricp.connections.active")
+                            .then()
+                            .statusCode(200)
+                            .extract()
+                            .jsonPath()
+                            .getFloat("measurements[0].value") == 0.0f);
+        } finally {
+            given().delete(urls.datasetUrl);
+        }
     }
 }

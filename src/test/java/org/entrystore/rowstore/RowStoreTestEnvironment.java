@@ -27,6 +27,9 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 
 /**
  * Manages the test environment for RowStore integration tests.
@@ -139,6 +142,17 @@ public class RowStoreTestEnvironment {
      */
     public boolean isStarted() {
         return started;
+    }
+
+    /**
+     * Opens a direct JDBC connection to the test database, e.g., for failure injection.
+     */
+    public Connection openDatabaseConnection() throws SQLException {
+        if (postgresContainer == null) {
+            throw new IllegalStateException("Test environment has not been started");
+        }
+        return DriverManager.getConnection(postgresContainer.getJdbcUrl(),
+                postgresContainer.getUsername(), postgresContainer.getPassword());
     }
 
     private void startPostgres() {
