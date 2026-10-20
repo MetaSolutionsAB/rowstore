@@ -92,6 +92,12 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 
 > **ETL-9.01** Uploaded CSV content is written to a temp file named `RowStore-*.csv` via `File.createTempFile()`. The file is marked with `deleteOnExit()` as a safety net. It is explicitly deleted after successful processing or on early failure (before queuing). Upload size is enforced by `maxuploadsize` (default 100 MB).
 
+## ETL-10 Failure Handling
+
+> **ETL-10.01** `populate()` tracks the outcome of a load locally and sets the final status (AVAILABLE on success, ERROR otherwise) from it, without reading the status back from the database. Exceptions that are not handled inside `populate()` (e.g., I/O errors, runtime exceptions) still set ERROR and then propagate to the `EtlProcessor`, which logs them with stack trace, makes a further best-effort attempt to set ERROR, and continues with the next job.
+
+> **ETL-10.02** The final status write of a load is retried with backoff if it fails, e.g., because the database is unreachable: up to six attempts with delays of 1, 5, 15, 30 and 45 seconds (about 1.5 minutes). If all attempts fail, the dataset remains in PROCESSING.
+
 ## Known Limitations
 
 - No progress reporting during ETL processing (no percentage or row count updates)
@@ -114,3 +120,4 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: virtual threads + Semaphore replace queue polling, HikariCP unwrap for BaseConnection |
+| 2026-10-20 | Failure handling of loads (ETL-10) |

@@ -82,6 +82,11 @@ public class PgDataset implements Dataset {
 
 	private final int maxSizeForIndex = 256;
 
+	/**
+	 * Delays between the attempts to write the final status of a load: six attempts over about 1.5 minutes.
+	 */
+	private long[] statusRetryDelaysMillis = {1000, 5000, 15000, 30000, 45000};
+
 	protected PgDataset(RowStore rowstore, String id) {
 		if (rowstore == null) {
 			throw new IllegalArgumentException("RowStore must not be null");
@@ -144,19 +149,69 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public void setStatus(int status) {
+		try {
+			writeStatus(status);
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+		}
+
+		this.status = status;
+	}
+
+	/**
+	 * Writes the status to the database.
+	 *
+	 * @throws DataAccessException If the status could not be written.
+	 */
+	private void writeStatus(int status) {
 		long before = System.currentTimeMillis();
 		try {
 			log.info("Setting status of {} to {}({})", getId(), EtlStatus.toString(status), status);
 			rowstore.getJdbcTemplate().update(
 					"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid",
 					status, id);
-		} catch (DataAccessException e) {
-			log.error(e.getMessage());
+			this.status = status;
 		} finally {
 			log.debug("Setting status took {} ms", System.currentTimeMillis() - before);
 		}
+	}
 
-		this.status = status;
+	/**
+	 * Writes the status to the database and retries with backoff if this fails, e.g., because the database is
+	 * temporarily unreachable. Used for the final status of a load, which must not be lost.
+	 *
+	 * @return Returns true if the status was written.
+	 */
+	private boolean writeStatusWithRetry(int status) {
+		for (int attempt = 0; ; attempt++) {
+			try {
+				writeStatus(status);
+				return true;
+			} catch (DataAccessException e) {
+				if (attempt >= statusRetryDelaysMillis.length) {
+					log.error("Giving up setting status of {} to {}({}) after {} attempts",
+							getId(), EtlStatus.toString(status), status, attempt + 1, e);
+					return false;
+				}
+				long delay = statusRetryDelaysMillis[attempt];
+				log.warn("Unable to set status of {} to {}({}), retrying in {} ms: {}",
+						getId(), EtlStatus.toString(status), status, delay, e.getMessage());
+				try {
+					Thread.sleep(delay);
+				} catch (InterruptedException ie) {
+					Thread.currentThread().interrupt();
+					log.error("Interrupted while retrying to set status of {} to {}({})", getId(), EtlStatus.toString(status), status);
+					return false;
+				}
+			}
+		}
+	}
+
+	/**
+	 * Sets the delays between the attempts to write the final status of a load. Intended for tests.
+	 */
+	void setStatusRetryDelays(long... delaysMillis) {
+		this.statusRetryDelaysMillis = delaysMillis.clone();
 	}
 
 	/**
@@ -186,18 +241,20 @@ public class PgDataset implements Dataset {
 			throw new IllegalArgumentException("Argument must not be null");
 		}
 
-		String dataTable = getDataTable();
-		if (dataTable == null) {
-			log.error("Dataset has no data table assigned");
-			return false;
-		}
-
+		// The outcome is tracked locally: the final status must not depend on reading the status
+		// back from the database, which may be unreachable if the load failed because of an outage
+		boolean success = false;
 		try {
+			String dataTable = getDataTable();
+			if (dataTable == null) {
+				log.error("Dataset has no data table assigned");
+				return false;
+			}
+
 			setStatus(EtlStatus.PROCESSING);
 
 			if (!append) {
 				if (!truncateTable()) {
-					setStatus(EtlStatus.ERROR);
 					return false;
 				}
 			}
@@ -268,7 +325,6 @@ public class PgDataset implements Dataset {
 							log.error("Error occured when processing line {} of CSV: {}", lineCount, line);
 							log.info("Rolling back transaction");
 							conn.rollback();
-							setStatus(EtlStatus.ERROR);
 							return false;
 						}
 						PGobject jsonb = new PGobject();
@@ -294,8 +350,7 @@ public class PgDataset implements Dataset {
 
 				// we commit the transaction and free the resources of the statement
 				conn.commit();
-
-				setStatus(EtlStatus.AVAILABLE);
+				success = true;
 			} catch (SQLException e) {
 				SqlExceptionLogUtil.error(log, e);
 				try {
@@ -306,7 +361,6 @@ public class PgDataset implements Dataset {
                 } catch (SQLException e1) {
 					SqlExceptionLogUtil.error(log, e1);
 				}
-				setStatus(EtlStatus.ERROR);
 				return false;
 			} catch (CsvValidationException e) {
 				log.error(e.getMessage());
@@ -316,7 +370,6 @@ public class PgDataset implements Dataset {
 				} catch (SQLException e1) {
 					SqlExceptionLogUtil.error(log, e1);
 				}
-				setStatus(EtlStatus.ERROR);
 				return false;
 			} finally {
 				if (cr != null) {
@@ -338,15 +391,14 @@ public class PgDataset implements Dataset {
 				log.debug("Populating dataset took " + (new Date().getTime() - before.getTime()) + " ms");
 			}
 		} finally {
-			if (getStatus() == EtlStatus.PROCESSING) {
-				// something has gone wrong if the status is still "processing"
-				// at this point, so we set it to "error", just in case
-				setStatus(EtlStatus.ERROR);
-				return false;
+			// Also reached by exceptions, which propagate to the caller after the status has been set
+			if (!writeStatusWithRetry(success ? EtlStatus.AVAILABLE : EtlStatus.ERROR)) {
+				log.error("Dataset {} remains in status {}({})",
+						getId(), EtlStatus.toString(status), status);
 			}
 		}
 
-		return true;
+		return success;
 	}
 
 	private void createIndexes(Connection conn, Set<String> fields) throws SQLException {

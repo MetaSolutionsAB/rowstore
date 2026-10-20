@@ -91,8 +91,14 @@ public class EtlProcessor {
 			} else {
 				log.error("An error occurred while populating dataset {}", dataset.getId());
 			}
-		} catch (IOException e) {
-			log.error(e.getMessage());
+		} catch (IOException | RuntimeException e) {
+			log.error("Populating dataset {} failed", etlResource.getDataset().getId(), e);
+			// populate() normally sets the status itself, this covers failures outside its status handling
+			try {
+				etlResource.getDataset().setStatus(EtlStatus.ERROR);
+			} catch (RuntimeException e1) {
+				log.error("Unable to set status of dataset {} to error", etlResource.getDataset().getId(), e1);
+			}
 		} finally {
 			activeProcesses.decrementAndGet();
 			concurrencyLimiter.release();

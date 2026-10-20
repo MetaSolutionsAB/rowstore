@@ -197,6 +197,8 @@ Current limitations relevant to this area.
 | ETL-7.02 | Skip index for fields > 256 chars |
 | ETL-8.01 | Concurrency: Semaphore + AtomicInteger, busy-wait if PROCESSING |
 | ETL-9.01 | Temp file: deleteOnExit + explicit deletion |
+| ETL-10.01 | Final status from locally tracked outcome; exceptions logged with stack trace |
+| ETL-10.02 | Final status write retried with backoff (~1.5 minutes) |
 
 ### QUERY — Query Processing
 
