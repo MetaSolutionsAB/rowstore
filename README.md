@@ -312,7 +312,7 @@ server {
 }
 ```
 
-The example allows only the public API paths and denies everything else. If RowStore listens on another host, set `trustedproxies` to the proxy's address as seen by RowStore.
+The example allows only the public API paths and denies everything else. If RowStore listens on another host, set `trustedproxies` to the proxy's address as seen by RowStore. If a load balancer or CDN sits in front of nginx, configure nginx's real IP module (`set_real_ip_from <balancer addresses>; real_ip_header X-Forwarded-For; real_ip_recursive on;`) so that `$remote_addr` is the real client address, and keep `proxy_set_header X-Forwarded-For $remote_addr` instead of `$proxy_add_x_forwarded_for`. Note that `limit_except GET HEAD` also requires authentication for `OPTIONS`, so CORS preflight requests to `/dataset*` (needed only for the private API) get 401; this is acceptable under the contract above.
 
 ## Issue tracking
 
