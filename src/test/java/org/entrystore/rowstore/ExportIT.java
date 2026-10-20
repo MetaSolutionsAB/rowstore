@@ -500,6 +500,9 @@ class ExportIT extends BaseIntegrationTest {
                     ps.setInt(1, pid.get());
                     ps.execute();
                 }
+                // wait until the backend is gone, so that a following call cannot pick up its pid again
+                await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(100))
+                        .until(() -> !backendExists(db, pid.get()));
 
                 assertThatThrownBy(() -> body.transferTo(OutputStream.nullOutputStream()))
                         .as("Export as %s must end with an aborted connection, not a cleanly terminated body", accept)
@@ -510,10 +513,19 @@ class ExportIT extends BaseIntegrationTest {
 
     private int findExportBackend(Connection db, String table) throws Exception {
         try (PreparedStatement ps = db.prepareStatement(
-                "SELECT pid FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND query = ?")) {
+                "SELECT pid FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND state <> 'idle' AND query = ?")) {
             ps.setString(1, "SELECT data FROM " + table);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    private boolean backendExists(Connection db, int pid) throws Exception {
+        try (PreparedStatement ps = db.prepareStatement("SELECT 1 FROM pg_stat_activity WHERE pid = ?")) {
+            ps.setInt(1, pid);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
             }
         }
     }

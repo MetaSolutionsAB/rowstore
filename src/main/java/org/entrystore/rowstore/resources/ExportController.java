@@ -182,12 +182,14 @@ public class ExportController {
 
 		return outputStream -> {
 			if (!claimed.compareAndSet(false, true)) {
-				throw new IOException("Export of dataset " + id + " not started, request already completed");
+				log.debug("Export of dataset {} not started, request already completed", id);
+				return;
 			}
 			try (stream) {
 				rowWriter.write(stream.rs(), outputStream);
 			} catch (SQLException | RuntimeException e) {
-				log.error("Export of dataset {} failed while streaming, aborting response", id, e);
+				// the container logs the stack trace of the rethrown exception
+				log.error("Export of dataset {} failed while streaming, aborting response: {}", id, e.getMessage());
 				throw new IOException("Export of dataset " + id + " failed", e);
 			}
 		};
