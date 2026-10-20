@@ -360,11 +360,11 @@ state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 
 **Steps:**
 1. Create a dataset from CSV `A` (3 rows) and wait until it is available
 2. Create the roles `rowstore_reader_<x>` and `rowstore_owner_<x>`; make the owner role the owner of the data table,
-   grant `SELECT` on it to the reader role and `INSERT` to `PUBLIC`
+   grant `SELECT` on it to the reader role and `INSERT` to `PUBLIC`, and revoke `DELETE` from the owner role
 3. `PUT /dataset/{id}` with CSV `B` (2 rows) and wait until it is available
 4. Delete the dataset and drop the roles
 
 **Assertions:**
 1. Queries return the rows `B1`, `B2`
 2. The data table is owned by the owner role; the reader role has `SELECT` but not `UPDATE`
-   (`has_table_privilege`); `PUBLIC` has `INSERT`
+   (`has_table_privilege`); the owner role has `SELECT` but still not `DELETE`; `PUBLIC` has `INSERT`

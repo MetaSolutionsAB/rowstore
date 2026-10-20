@@ -266,6 +266,8 @@ class DatasetReplaceIT extends BaseIntegrationTest {
                 execute(db, "ALTER TABLE " + dataTable + " OWNER TO " + owner);
                 execute(db, "GRANT SELECT ON " + dataTable + " TO " + reader);
                 execute(db, "GRANT INSERT ON " + dataTable + " TO PUBLIC");
+                // an owner may revoke privileges from itself
+                execute(db, "REVOKE DELETE ON " + dataTable + " FROM " + owner);
 
                 given().spec(csvSpec).body(csv("B", 2)).put(urls.datasetUrl).then().statusCode(202);
                 waitForDatasetAvailable(urls.infoUrl);
@@ -276,6 +278,10 @@ class DatasetReplaceIT extends BaseIntegrationTest {
                 assertThat(queryStrings(db, "SELECT has_table_privilege('" + reader + "', '" + dataTable + "', 'SELECT')"))
                         .containsExactly("t");
                 assertThat(queryStrings(db, "SELECT has_table_privilege('" + reader + "', '" + dataTable + "', 'UPDATE')"))
+                        .containsExactly("f");
+                assertThat(queryStrings(db, "SELECT has_table_privilege('" + owner + "', '" + dataTable + "', 'SELECT')"))
+                        .containsExactly("t");
+                assertThat(queryStrings(db, "SELECT has_table_privilege('" + owner + "', '" + dataTable + "', 'DELETE')"))
                         .containsExactly("f");
                 assertThat(queryStrings(db, "SELECT count(*) FROM pg_class c, aclexplode(c.relacl) a " +
                         "WHERE c.relname = '" + dataTable + "' AND a.grantee = 0 AND a.privilege_type = 'INSERT'"))

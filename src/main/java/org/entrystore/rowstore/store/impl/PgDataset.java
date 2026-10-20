@@ -594,14 +594,23 @@ public class PgDataset implements Dataset {
 		for (String o : owner) {
 			executeDdl(stmt, "ALTER TABLE " + shadowTable + " OWNER TO " + o);
 		}
-		// the owner's own privileges are implicit
-		List<String> grants = queryForStrings(conn, "SELECT 'GRANT ' || a.privilege_type || ' ON " + shadowTable + " TO ' || " +
+		// Without explicit privileges (NULL ACL), both tables have the default privileges. Otherwise the privileges
+		// are copied exactly: all privileges of the shadow table are revoked (including the owner's and those from
+		// default privileges), and every recorded privilege is granted, including the owner's own, so that
+		// privileges the owner revoked from itself stay revoked
+		List<String> statements = queryForStrings(conn, "SELECT DISTINCT 'REVOKE ALL ON " + shadowTable + " FROM ' || " +
+				"CASE WHEN g = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(g)) END || ' CASCADE' " +
+				"FROM (SELECT 0::oid AS g UNION SELECT relowner FROM pg_class WHERE oid = '" + shadowTable + "'::regclass " +
+				"UNION SELECT a.grantee FROM pg_class s CROSS JOIN LATERAL aclexplode(s.relacl) a " +
+				"WHERE s.oid = '" + shadowTable + "'::regclass) g " +
+				"WHERE (SELECT relacl IS NOT NULL FROM pg_class WHERE oid = '" + dataTable + "'::regclass)");
+		statements.addAll(queryForStrings(conn, "SELECT 'GRANT ' || a.privilege_type || ' ON " + shadowTable + " TO ' || " +
 				"CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END || " +
 				"CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END " +
 				"FROM pg_class d CROSS JOIN LATERAL aclexplode(d.relacl) a " +
-				"WHERE d.oid = '" + dataTable + "'::regclass AND a.grantee <> d.relowner");
-		for (String grant : grants) {
-			executeDdl(stmt, grant);
+				"WHERE d.oid = '" + dataTable + "'::regclass"));
+		for (String statement : statements) {
+			executeDdl(stmt, statement);
 		}
 	}
 
