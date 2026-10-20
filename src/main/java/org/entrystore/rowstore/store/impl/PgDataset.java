@@ -43,6 +43,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.sql.Connection;
@@ -329,7 +330,8 @@ public class PgDataset implements Dataset {
 							withQuoteChar('"').
 							build();
 				}
-				LineTrackingReader lineReader = new LineTrackingReader(Files.newBufferedReader(csvFile.toPath(), DatasetUtil.detectCharset(csvFile)));
+				LineTrackingReader lineReader = new LineTrackingReader(new InputStreamReader(
+						Files.newInputStream(csvFile.toPath()), DatasetUtil.detectCharset(csvFile).newDecoder()));
 				cr = new CSVReaderBuilder(lineReader).
 						withSkipLines(0).
 						withCSVParser(csvParser).
