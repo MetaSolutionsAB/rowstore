@@ -205,7 +205,7 @@ Current limitations relevant to this area.
 | ETL-8.07 | Error in a job: remaining queued jobs of the dataset discarded, new worker for later jobs |
 | ETL-9.01 | Temp file: deleteOnExit + explicit deletion (after load, on discard, on early failure) |
 | ETL-10.01 | Final status from locally tracked outcome; exceptions logged with stack trace |
-| ETL-10.02 | Final status write retried with backoff (~1.5 minutes) |
+| ETL-10.02 | Final status write retried with backoff (96 s of delays plus connection timeouts) |
 
 ### QUERY — Query Processing
 
