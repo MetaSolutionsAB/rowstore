@@ -44,12 +44,15 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /**
@@ -323,6 +326,37 @@ class EtlProcessorTest {
         await().atMost(TIMEOUT).until(() -> started.contains("a3") && running.get() == 0);
         assertThat(started).containsExactly("a1", "task", "a3");
         await().atMost(TIMEOUT).until(() -> processor.getActiveEtlProcesses() == 0);
+    }
+
+    @Test
+    @DisplayName("TC-ETL-030: The future of an exclusive task completes when the task has run, exceptionally if it failed, and is cancelled if the task is discarded")
+    void exclusiveTask_futureReflectsOutcome() throws Exception {
+        processor = new EtlProcessor(rowStore(5));
+        FakeDataset a = new FakeDataset("a");
+        Load a1 = blockingLoad(a, "a1", true);
+
+        submit(a1);
+        awaitStarted(a1);
+        CompletableFuture<Void> succeeding = processor.runExclusively(a, () -> started.add("task"));
+        CompletableFuture<Void> failing = processor.runExclusively(a, () -> {
+            throw new IllegalStateException("simulated failure");
+        });
+        CompletableFuture<Void> erroring = processor.runExclusively(a, () -> {
+            throw new AssertionError("simulated error");
+        });
+        // discarded because the worker fails with the error of the previous task
+        CompletableFuture<Void> discarded = processor.runExclusively(a, () -> started.add("discarded"));
+        Thread.sleep(300);
+        assertThat(succeeding).isNotDone();
+
+        a1.release.countDown();
+        succeeding.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        assertThat(started).containsExactly("a1", "task");
+        assertThatThrownBy(failing::join).isInstanceOf(CompletionException.class).hasCauseInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(erroring::join).isInstanceOf(CompletionException.class).hasCauseInstanceOf(AssertionError.class);
+        await().atMost(TIMEOUT).until(discarded::isDone);
+        assertThat(discarded).isCancelled();
+        assertThat(started).containsExactly("a1", "task");
     }
 
     private Load load(FakeDataset dataset, String name, boolean append) throws IOException {

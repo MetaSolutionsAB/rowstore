@@ -20,12 +20,15 @@ import jakarta.annotation.PreDestroy;
 import org.entrystore.rowstore.etl.EtlProcessor;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.resources.VersionInfo;
+import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.Datasets;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStoreConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -35,6 +38,12 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A PostgreSQL-specific implementation of the RowStore interface.
@@ -129,6 +138,67 @@ public class PgRowStore implements RowStore {
 			log.warn("Dropped {} leftover shadow table(s): {}", dropped.size(), dropped);
 		}
 		return dropped;
+	}
+
+	/**
+	 * Starts the cleanup of column names (see {@link #cleanColumnNames()}) in the background after startup.
+	 */
+	@EventListener(ApplicationReadyEvent.class)
+	public void startColumnNameCleanup() {
+		Thread.ofVirtual().name("column-name-cleanup").start(() -> {
+			try {
+				cleanColumnNames();
+			} catch (RuntimeException e) {
+				log.error("Cleaning column names failed", e);
+			}
+		});
+	}
+
+	/**
+	 * Renames the columns of datasets whose stored column names are not clean, e.g., because they were stored before
+	 * 2.0 with a byte order mark or soft hyphens (see PgDataset#cleanColumnNames()). Called in the background after
+	 * startup. Each dataset is renamed as a task that runs exclusively for the dataset in the order of its ETL jobs
+	 * (EtlProcessor#runExclusively). Datasets are renamed one at a time, the next one only after the previous one has
+	 * finished, to limit the load on the database. Datasets that are clean are not touched, so a repeated run renames
+	 * nothing.
+	 *
+	 * @return Returns the IDs of the datasets whose columns were renamed.
+	 */
+	public List<String> cleanColumnNames() {
+		Set<Dataset> all = getDatasets().getAll();
+		if (all == null) {
+			log.error("Unable to clean column names, the datasets could not be listed");
+			return List.of();
+		}
+		List<String> cleaned = new ArrayList<>();
+		for (Dataset d : all) {
+			PgDataset dataset = (PgDataset) d;
+			try {
+				if (!dataset.hasUncleanColumnNames()) {
+					continue;
+				}
+				AtomicReference<Map<String, String>> renames = new AtomicReference<>(Map.of());
+				etlProcessor.runExclusively(dataset, () -> {
+					try {
+						renames.set(dataset.cleanColumnNames());
+					} catch (SQLException e) {
+						throw new IllegalStateException(e);
+					}
+				}).join();
+				if (!renames.get().isEmpty()) {
+					cleaned.add(dataset.getCanonicalId());
+				}
+			} catch (CancellationException | RejectedExecutionException e) {
+				log.warn("Stopped cleaning column names, the ETL processor is shut down");
+				break;
+			} catch (SQLException | DataAccessException | CompletionException e) {
+				log.error("Unable to clean column names of dataset {}", dataset.getId(), e);
+			}
+		}
+		if (!cleaned.isEmpty()) {
+			log.info("Cleaned column names of {} dataset(s): {}", cleaned.size(), cleaned);
+		}
+		return cleaned;
 	}
 
 	/**

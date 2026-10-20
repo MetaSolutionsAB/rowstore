@@ -155,12 +155,44 @@ public class RowStoreTestEnvironment {
      * The caller must close the connection.
      */
     public Connection openMaintenanceDatabaseConnection() throws SQLException {
+        return openDatabaseConnection("postgres");
+    }
+
+    /**
+     * Opens a JDBC connection to another database of the PostgreSQL container. The caller must close the connection.
+     */
+    public Connection openDatabaseConnection(String databaseName) throws SQLException {
         if (!started) {
             throw new IllegalStateException("Test environment is not started");
         }
         String url = "jdbc:postgresql://" + postgresContainer.getHost() + ":" +
-                postgresContainer.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + "/postgres";
+                postgresContainer.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + "/" + databaseName;
         return DriverManager.getConnection(url, postgresContainer.getUsername(), postgresContainer.getPassword());
+    }
+
+    /**
+     * Starts an additional RowStore server that uses another (existing) database of the PostgreSQL container, for
+     * tests that need to (re)start RowStore without affecting the shared server. The caller must close the context.
+     *
+     * @return Returns the context of the started server, whose base URL is http://localhost:{port}.
+     */
+    public ConfigurableApplicationContext startAdditionalRowStore(String databaseName, int port) {
+        if (!started) {
+            throw new IllegalStateException("Test environment is not started");
+        }
+        Path configFile = writeConfig(port, databaseName);
+        try {
+            return SpringApplication.run(RowStoreApplication.class,
+                    "--server.port=" + port,
+                    "--rowstore.config.uri=" + configFile.toUri(),
+                    "--spring.main.banner-mode=off");
+        } finally {
+            try {
+                Files.deleteIfExists(configFile);
+            } catch (IOException e) {
+                log.warn("Failed to delete temp config file", e);
+            }
+        }
     }
 
     /**
@@ -196,9 +228,13 @@ public class RowStoreTestEnvironment {
     }
 
     private void createConfig() {
+        tempConfigFile = writeConfig(serverPort, postgresContainer.getDatabaseName());
+    }
+
+    private Path writeConfig(int port, String databaseName) {
         try {
             JSONObject config = new JSONObject();
-            config.put("baseurl", "http://localhost:" + serverPort + "/");
+            config.put("baseurl", "http://localhost:" + port + "/");
             config.put("regexpqueries", "full");
             config.put("maxetlprocesses", 5);
             config.put("querytimeout", 30);
@@ -208,16 +244,17 @@ public class RowStoreTestEnvironment {
             database.put("type", "postgresql");
             database.put("host", postgresContainer.getHost());
             database.put("port", postgresContainer.getMappedPort(5432));
-            database.put("database", postgresContainer.getDatabaseName());
+            database.put("database", databaseName);
             database.put("user", postgresContainer.getUsername());
             database.put("password", postgresContainer.getPassword());
             database.put("ssl", false);
             config.put("database", database);
 
-            tempConfigFile = Files.createTempFile("rowstore-test-config-", ".json");
-            Files.writeString(tempConfigFile, config.toString(2));
+            Path configFile = Files.createTempFile("rowstore-test-config-", ".json");
+            Files.writeString(configFile, config.toString(2));
 
-            log.debug("Created temp config file: {}", tempConfigFile);
+            log.debug("Created temp config file: {}", configFile);
+            return configFile;
         } catch (IOException e) {
             throw new RuntimeException("Failed to create test configuration", e);
         }
@@ -236,7 +273,7 @@ public class RowStoreTestEnvironment {
         }
     }
 
-    private int findAvailablePort() {
+    public static int findAvailablePort() {
         try (ServerSocket socket = new ServerSocket(0)) {
             socket.setReuseAddress(true);
             return socket.getLocalPort();

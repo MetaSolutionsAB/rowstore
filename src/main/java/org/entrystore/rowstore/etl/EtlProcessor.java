@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -85,10 +86,16 @@ public class EtlProcessor {
 	/**
 	 * Runs a task exclusively for a dataset: after all previously submitted jobs of the dataset and never
 	 * concurrently with another job of the same dataset. Like a load, the task holds an ETL permit while running.
+	 *
+	 * @return Returns a future that is completed when the task has finished, exceptionally if the task threw an
+	 * exception, and that is cancelled if the task is discarded without running (e.g., at shutdown).
+	 * @throws RejectedExecutionException If the ETL processor is shut down.
 	 */
-	public void runExclusively(Dataset dataset, Runnable task) {
+	public CompletableFuture<Void> runExclusively(Dataset dataset, Runnable task) {
 		String datasetId = dataset.getCanonicalId();
-		enqueue(datasetId, new TaskJob(datasetId, task), false);
+		TaskJob job = new TaskJob(datasetId, task, new CompletableFuture<>());
+		enqueue(datasetId, job, false);
+		return job.done();
 	}
 
 	private void enqueue(String datasetId, Job job, boolean supersedesWaitingLoads) {
@@ -268,16 +275,23 @@ public class EtlProcessor {
 
 	}
 
-	private record TaskJob(String datasetId, Runnable task) implements Job {
+	private record TaskJob(String datasetId, Runnable task, CompletableFuture<Void> done) implements Job {
 
 		@Override
 		public void run() {
-			task.run();
+			try {
+				task.run();
+				done.complete(null);
+			} catch (Throwable t) {
+				done.completeExceptionally(t);
+				throw t;
+			}
 		}
 
 		@Override
 		public void discard(String reason) {
 			log.warn("Discarding queued task for dataset {}: {}", datasetId, reason);
+			done.cancel(false);
 		}
 
 	}

@@ -28,6 +28,9 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PushbackReader;
+import java.io.Reader;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -184,6 +187,26 @@ public class DatasetUtil {
 		}
 
 		return Charset.forName(name);
+	}
+
+	/**
+	 * Opens a reader that decodes a file with a charset and skips a byte order mark (U+FEFF) at the beginning of the
+	 * file. Java's decoders keep a byte order mark, except for the charsets that are defined to consume it (e.g.,
+	 * "UTF-16", but not "UTF-8", "UTF-16BE" or "UTF-16LE", which charset detection returns). Malformed input is
+	 * reported as an exception, like by Files.newBufferedReader(). The reader is not buffered.
+	 */
+	public static Reader newReaderSkippingBom(Path path, Charset charset) throws IOException {
+		PushbackReader reader = new PushbackReader(new InputStreamReader(Files.newInputStream(path), charset.newDecoder()));
+		try {
+			int first = reader.read();
+			if (first != -1 && first != ColumnNames.BYTE_ORDER_MARK) {
+				reader.unread(first);
+			}
+			return reader;
+		} catch (IOException | RuntimeException e) {
+			reader.close();
+			throw e;
+		}
 	}
 
 	public static void closeStatement(Statement stmt) {
