@@ -10,9 +10,9 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 ## SEC-1 Authentication
 
-> **SEC-1.01** An `ApiKeyFilter` exists in the codebase but is a **stub implementation**. It passes all requests through without authentication (`implements jakarta.servlet.Filter`).
+> **SEC-1.01** [REMOVED] (2026-10-20) The pass-through `ApiKeyFilter` stub was deleted: there is no application-level API key, authentication is done by the reverse proxy (SEC-9).
 
-> **SEC-1.02** No authentication is currently enforced on any endpoint. All API endpoints are publicly accessible.
+> **SEC-1.02** No authentication is enforced by the application. Authentication of the private API is the responsibility of the reverse proxy, see [SEC-9](#sec-9-reverse-proxy-contract).
 
 ## SEC-2 Authorization
 
@@ -77,9 +77,25 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-8.01** Uploaded CSV files are written to temp files marked with `deleteOnExit()` as a JVM shutdown safety net. Files are also explicitly deleted on early failure (before ETL queuing) and after successful processing.
 
+## SEC-9 Reverse Proxy Contract
+
+> **SEC-9.01** RowStore must always run behind a reverse proxy and must never be reachable directly by untrusted clients. The application has no authentication of its own (SEC-1.02); the security of a deployment depends on the reverse proxy fulfilling SEC-9.02 to SEC-9.04.
+
+> **SEC-9.02** The reverse proxy authenticates all requests with methods other than `GET` and `HEAD` (the private API: creating, replacing, appending to and deleting datasets, managing aliases). `GET` and `HEAD` requests form the public read API.
+
+> **SEC-9.03** The reverse proxy denies public access to these paths, which RowStore serves on the application port (8282) in 2.0, so blocking them at the proxy is the only protection (a separate management port is planned for 2.1, ROWS-108):
+> - `/actuator` and `/actuator/**` (exposed endpoints: `health`, `info`, `metrics`)
+> - `/swagger-ui.html` and `/swagger-ui/**` (springdoc Swagger UI)
+> - `/v3/api-docs`, `/v3/api-docs/**` and `/v3/api-docs.yaml` (springdoc OpenAPI description)
+> - `/status?jvm`, i.e. `/status` with a `jvm` query parameter in any form (JVM memory and processor details); `/status` without parameters is public
+>
+> Path rules must not be bypassable by path parameters: Tomcat and Spring ignore `;...` segments when routing (e.g. `/v3;x/api-docs` serves the OpenAPI description and `/status;x?jvm` the JVM details), so the proxy must reject or normalize request paths containing `;`.
+
+> **SEC-9.04** The reverse proxy is the only component that sets `X-Forwarded-For` towards RowStore, and its address is listed in `trustedproxies` ([CFG-3.11](06-configuration.md#cfg-3-application-options), [SEC-5.05](#sec-5-rate-limiting)). Otherwise the per-client-IP rate limit is keyed on the proxy address (proxy not trusted) or can be influenced by clients (clients connecting from a trusted address).
+
 ## Known Limitations
 
-- No authentication or authorization (all endpoints are public)
+- No application-level authentication or authorization; the reverse proxy is responsible (SEC-9)
 - No HTTPS termination (must be handled by a reverse proxy)
 - No CSRF protection
 
@@ -89,7 +105,8 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 - [Query Processing](05-querying.md#query-9-input-validation) — Input validation for query parameters
 - [Configuration](06-configuration.md#cfg-6-rate-limit-configuration) — Rate limit configuration options
 - [Glossary](12-glossary.md#glo-1-terms) — Rate Limit (Average), Rate Limit (Sliding Window), CORS
-- Source: `ApiKeyFilter.java`, `RateLimitFilter.java`, `TrustedProxyFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
+- [README Security section](../README.md#security) — Reverse proxy requirements and nginx example
+- Source: `RateLimitFilter.java`, `TrustedProxyFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
 
 ## Change Log
 
@@ -98,3 +115,4 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: CORS implemented, JSONP removed, new validations (table name, ReDoS, upload size, alias locking) |
 | 2026-10-20 | Added SEC-5.05 and SEC-5.06 (client address from `X-Forwarded-For` only via trusted proxies); SEC-5.03 updated |
+| 2026-10-20 | SEC-1.01 removed (ApiKeyFilter stub deleted), SEC-1.02 reworded; added SEC-9 (reverse proxy contract) |

@@ -29,7 +29,9 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 >
 > See [CFG-7](06-configuration.md#cfg-7-cli-options) for details.
 
-> **DEPL-1.04** [REMOVED] HTTP/2 and `useForwardedForHeader` — These were Jetty-specific. For reverse proxy support with Tomcat, use Spring Boot's `server.forward-headers-strategy=native` property.
+> **DEPL-1.04** [REMOVED] HTTP/2 and `useForwardedForHeader` — These were Jetty-specific. `X-Forwarded-For` from reverse proxies is evaluated according to `trustedproxies` ([CFG-3.11](06-configuration.md#cfg-3-application-options)); `server.forward-headers-strategy` is set to `none` and must not be changed, since Tomcat's `RemoteIpValve` would bypass `trustedproxies`.
+
+> **DEPL-1.05** RowStore must be deployed behind a reverse proxy that fulfills the contract in [SEC-9](07-security.md#sec-9-reverse-proxy-contract): authentication of non-GET/HEAD requests, blocking of `/actuator/**`, Swagger UI, OpenAPI description and `/status?jvm`, and setting `X-Forwarded-For`. The [README Security section](../README.md#security) contains a minimal nginx example.
 
 ## DEPL-2 Docker
 
@@ -103,6 +105,8 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > - `/actuator/info` — Application information
 >
 > A custom `RowStoreHealthIndicator` reports dataset count and active ETL processes.
+>
+> `/status?jvm` and the Actuator endpoints are served on the application port and must not be publicly reachable ([SEC-9.03](07-security.md#sec-9-reverse-proxy-contract)).
 
 ## DEPL-6 Logging
 
@@ -124,7 +128,8 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 
 - [System Architecture](01-system-architecture.md#arch-4-module-structure) — System overview
 - [Configuration](06-configuration.md#cfg-7-cli-options) — All configuration options
-- [Security](07-security.md#sec-5-rate-limiting) — Security considerations for deployment
+- [Security](07-security.md#sec-9-reverse-proxy-contract) — Reverse proxy contract
+- [README Security section](../README.md#security) — Reverse proxy requirements and nginx example
 - [Glossary](12-glossary.md#glo-1-terms) — Term definitions
 - Source: `RowStoreApplication.java`, `DataSourceConfig.java`, `RowStoreHealthIndicator.java`, `bitbucket-pipelines.yml`, `Dockerfile`
 
@@ -134,3 +139,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: executable JAR, in-repo Dockerfile, Flyway, Actuator, graceful shutdown |
+| 2026-10-20 | Added DEPL-1.05 (reverse proxy required, SEC-9); DEPL-1.04 and DEPL-5.03 notes updated |

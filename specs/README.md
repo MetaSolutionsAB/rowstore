@@ -115,7 +115,7 @@ Current limitations relevant to this area.
 | ARCH-4.01 | Single Maven module — executable JAR |
 | ARCH-4.02 | [REMOVED] standalone/jetty — replaced by Spring Boot embedded server |
 | ARCH-4.03 | [REMOVED] standalone/common — replaced by Spring Boot embedded server |
-| ARCH-5.01 | Filter chain: CorsFilter → ApiKeyFilter → RateLimitFilter → DispatcherServlet → Controllers |
+| ARCH-5.01 | Filter chain: TrustedProxyFilter → RateLimitFilter → CorsFilter → DispatcherServlet → Controllers |
 | ARCH-5.02 | Read path: GET → controller → PgDataset.query → PostgreSQL |
 | ARCH-5.03 | Write path: POST CSV → temp file → EtlProcessor.submit → virtual thread → PgDataset.populate |
 | ARCH-6.01 | Why JSONB (schemaless, per-column indexing) |
@@ -261,8 +261,8 @@ Current limitations relevant to this area.
 
 | ID | Description |
 |----|-------------|
-| SEC-1.01 | ApiKeyFilter is a stub — always passes through |
-| SEC-1.02 | No authentication enforced |
+| SEC-1.01 | [REMOVED] ApiKeyFilter stub — deleted, authentication by reverse proxy |
+| SEC-1.02 | No authentication in the application; reverse proxy authenticates (SEC-9) |
 | SEC-2.01 | No RBAC, no user management, no access control |
 | SEC-3.01 | Prepared statements for all data queries |
 | SEC-3.02 | escapeString() for dynamic DDL |
@@ -285,6 +285,10 @@ Current limitations relevant to this area.
 | SEC-6.01 | CORS: configurable allowed origins via cors.allowedorigins |
 | SEC-7.01 | [REMOVED] JSONP via _callback param — replaced by CORS |
 | SEC-8.01 | Temp files: deleteOnExit + explicit deletion |
+| SEC-9.01 | Always behind a reverse proxy, never directly reachable |
+| SEC-9.02 | Proxy authenticates all non-GET/HEAD requests |
+| SEC-9.03 | Proxy blocks /actuator/**, /swagger-ui*, /v3/api-docs*, /status?jvm and `;` path parameters |
+| SEC-9.04 | Proxy is the only X-Forwarded-For source and listed in trustedproxies |
 
 ### DEPL — Deployment
 
@@ -294,6 +298,7 @@ Current limitations relevant to this area.
 | DEPL-1.02 | Run: java -jar rowstore-\<version\>.jar --rowstore.config.uri=file:///path/to/config.json |
 | DEPL-1.03 | Spring Boot standard properties (--server.port, etc.) |
 | DEPL-1.04 | [REMOVED] HTTP/2 and useForwardedForHeader — Jetty-specific |
+| DEPL-1.05 | Reverse proxy required, contract in SEC-9 |
 | DEPL-2.01 | Docker image: metasolutions/rowstore |
 | DEPL-2.02 | Dockerfile in the RowStore repository |
 | DEPL-2.03 | Docker tags: version, major.minor, develop |

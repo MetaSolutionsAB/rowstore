@@ -126,7 +126,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 - No PATCH support for partial dataset updates
 - No bulk operations endpoint
-- No authentication on any endpoint (see [07-security.md](07-security.md))
+- No authentication in the application; the reverse proxy authenticates the private API (see [SEC-9](07-security.md#sec-9-reverse-proxy-contract))
 - No versioning in URL path (no `/v1/` prefix)
 - `_sort` parameter is recognized but not implemented
 
