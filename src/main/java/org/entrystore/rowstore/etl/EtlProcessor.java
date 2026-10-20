@@ -30,7 +30,9 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -92,8 +94,22 @@ public class EtlProcessor {
 	 * @throws RejectedExecutionException If the ETL processor is shut down.
 	 */
 	public CompletableFuture<Void> runExclusively(Dataset dataset, Runnable task) {
+		return callExclusively(dataset, () -> {
+			task.run();
+			return null;
+		});
+	}
+
+	/**
+	 * Like {@link #runExclusively(Dataset, Runnable)}, for a task with a result.
+	 *
+	 * @return Returns a future that is completed with the task's result, exceptionally if the task threw an
+	 * exception, and that is cancelled if the task is discarded without running (e.g., at shutdown).
+	 * @throws RejectedExecutionException If the ETL processor is shut down.
+	 */
+	public <T> CompletableFuture<T> callExclusively(Dataset dataset, Callable<T> task) {
 		String datasetId = dataset.getCanonicalId();
-		TaskJob job = new TaskJob(datasetId, task, new CompletableFuture<>());
+		TaskJob<T> job = new TaskJob<>(datasetId, task, new CompletableFuture<>());
 		enqueue(datasetId, job, false);
 		return job.done();
 	}
@@ -275,17 +291,21 @@ public class EtlProcessor {
 
 	}
 
-	private record TaskJob(String datasetId, Runnable task, CompletableFuture<Void> done) implements Job {
+	private record TaskJob<T>(String datasetId, Callable<T> task, CompletableFuture<T> done) implements Job {
 
 		@Override
 		public void run() {
+			T result;
 			try {
-				task.run();
-				done.complete(null);
-			} catch (Throwable t) {
-				done.completeExceptionally(t);
-				throw t;
+				result = task.call();
+			} catch (RuntimeException | Error e) {
+				done.completeExceptionally(e);
+				throw e;
+			} catch (Exception e) {
+				done.completeExceptionally(e);
+				throw new CompletionException(e);
 			}
+			done.complete(result);
 		}
 
 		@Override

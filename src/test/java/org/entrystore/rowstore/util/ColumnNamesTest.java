@@ -16,24 +16,34 @@
 
 package org.entrystore.rowstore.util;
 
+import com.opencsv.CSVParserBuilder;
+import com.opencsv.CSVReader;
+import com.opencsv.CSVReaderBuilder;
+import com.opencsv.ICSVParser;
+import com.opencsv.RFC4180ParserBuilder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import java.io.StringReader;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 
 /**
  * Tests the normalization of column labels and the cleaning of stored column names (ETL-4.04, ETL-4.07, ETL-11.02).
- * In the test data, {@code <BOM>} stands for U+FEFF, {@code <SHY>} for U+00AD and {@code <EM>} for U+2003.
+ * In the test data, {@code <BOM>} stands for U+FEFF, {@code <SHY>} for U+00AD, {@code <EM>} for U+2003 (em space),
+ * {@code <NBSP>} for U+00A0 (no-break space) and {@code <C1>} for U+0001.
  */
 class ColumnNamesTest {
 
+    private static final String BOM = String.valueOf((char) 0xFEFF);
+
     @ParameterizedTest(name = "[{index}] \"{0}\" -> \"{1}\"")
-    @DisplayName("TC-ETL-038: A label is normalized by removing byte order marks and soft hyphens, stripping and lower-casing")
+    @DisplayName("TC-ETL-038: A label is normalized by removing byte order marks and soft hyphens, trimming and lower-casing")
     @CsvSource(delimiter = '|', quoteCharacter = '\'', value = {
             "Name|name",
             "'  Name\t'|name",
@@ -41,6 +51,12 @@ class ColumnNamesTest {
             "Na<SHY>me|name",
             "<SHY>Na<BOM>me<SHY>|name",
             "<EM>Name<EM>|name",
+            // control characters are removed at the ends like by trim() in 1.x, also next to Unicode whitespace
+            "<C1>Name<C1>|name",
+            "<EM><C1>Name<C1><EM>|name",
+            "Na<C1>me|na<C1>me",
+            // no-break spaces are not whitespace for trim() or strip() and are kept, like in 1.x
+            "<NBSP>Name<NBSP>|<NBSP>name<NBSP>",
             "' <BOM> '|''",
             "<BOM>\"name\"|\"name\"",
             "'a b'|a b",
@@ -49,65 +65,178 @@ class ColumnNamesTest {
         assertThat(ColumnNames.normalize(decode(label))).isEqualTo(decode(expected));
     }
 
-    @ParameterizedTest(name = "[{index}] \"{0}\" -> \"{1}\"")
-    @DisplayName("TC-ETL-039: A stored column name is cleaned like the label is parsed now")
+    /**
+     * For each raw first label, the name stored by 1.x (byte order mark in front of the label, label trimmed and
+     * lower-cased) and the name of a fresh import by 2.0 (byte order mark skipped, label normalized) are determined
+     * with the actual parsers, configured as in PgDataset. The cleaned stored name must equal the name of 2.0.
+     */
+    @ParameterizedTest(name = "[{index}] {0}: {1} stored as {2} -> {3}")
+    @DisplayName("TC-ETL-039: A stored column name is cleaned to the name a fresh import of the same header yields with the configured parser")
     @CsvSource(delimiter = '|', quoteCharacter = '\'', value = {
-            // byte order mark and quoted first label, as stored by the default parser of 1.x
-            "<BOM>\"kopare_id\"|kopare_id",
-            // byte order mark and unquoted first label, or quoted first label with the legacy parser of 1.x
-            "<BOM>kopare_id|kopare_id",
-            // doubled quotes in a quoted label stand for one quote
-            "<BOM>\"a\"\"b\"|a\"b",
-            "<BOM>\"\"\"x\"\"\"|\"x\"",
-            // whitespace inside the quotes is stripped like by the label normalization
-            "<BOM>\" x \"|x",
-            "<BOM>\"ko<SHY>pare\"|kopare",
-            // a lone quote is not a quoted label
-            "<BOM>\"|\"",
-            "<BOM>\"\"|''",
+            // parser | raw first label | stored by 1.x | name in 2.0
+            "rfc|\"kopare_id\"|<BOM>\"kopare_id\"|kopare_id",
+            "rfc|\"Kopare_ID\"|<BOM>\"kopare_id\"|kopare_id",
+            "rfc|kopare_id|<BOM>kopare_id|kopare_id",
+            "rfc|\"a \"\"b\"\"\"|<BOM>\"a \"b\"\"|a \"b\"",
+            "rfc|\"a\"\"\"\"b\"|<BOM>\"a\"\"b\"|a\"\"b",
+            "rfc|\"a\"\"b\"|<BOM>\"a\"b\"|a\"b",
+            "rfc|\"\"\"x\"\"\"|<BOM>\"\"x\"\"|\"x\"",
+            "rfc|\"\"\"x\"|<BOM>\"\"x\"|\"x",
+            "rfc|\"\"\"a\"\"b\"\"\"|<BOM>\"\"a\"b\"\"|\"a\"b\"",
+            "rfc|\"x\"\"\"|<BOM>\"x\"\"|x\"",
+            "rfc|\" x \"|<BOM>\" x \"|x",
+            "rfc|\"ko<SHY>pare\"|<BOM>\"ko<SHY>pare\"|kopare",
+            "rfc|' \"x\"'|<BOM> \"x\"|\"x\"",
+            "rfc|x\"|<BOM>x\"|x\"",
+            "rfc|\"\"|<BOM>\"|''",
+            "legacy|\"kopare_id\"|<BOM>kopare_id|kopare_id",
+            "legacy|kopare_id|<BOM>kopare_id|kopare_id",
+            "legacy|\"a \"\"b\"\"\"|<BOM>a \"b\"|a \"b\"",
+            "legacy|\"a\"\"\"\"b\"|<BOM>a\"\"b|a\"\"b",
+            "legacy|\"a\"\"b\"|<BOM>a\"b|a\"b",
+            "legacy|\"\"\"x\"\"\"|<BOM>\"\"x\"|\"x\"",
+            "legacy|\"\"\"x\"|<BOM>\"\"x|\"x",
+            "legacy|\"\"\"a\"\"b\"\"\"|<BOM>\"\"a\"b\"|\"a\"b\"",
+            "legacy|\"\"\"\"|<BOM>\"\"|\"",
+            "legacy|\"\"\"\"\"\"|<BOM>\"\"\"|\"\"",
+            "legacy|\"\"x\"\"|<BOM>\"x\"|x\"",
+            "legacy|\"x\"\"\"|<BOM>x\"|x\"",
+            "legacy|' \"x\"'|<BOM> x|x",
+            "legacy|\" x \"|<BOM> x|x",
+            "legacy|\"\"|<BOM>\"|''",
+    })
+    void cleanStoredName_matchesFreshImport(String parser, String rawLabel, String stored, String expected) throws Exception {
+        boolean legacyParser = parser.equals("legacy");
+        String raw = decode(rawLabel);
+        assertThat(storedBy1x(raw, legacyParser)).isEqualTo(decode(stored));
+        assertThat(importedBy20(raw, legacyParser)).isEqualTo(decode(expected));
+
+        String cleaned = ColumnNames.cleanStoredName(decode(stored), legacyParser);
+        assertThat(cleaned).isEqualTo(decode(expected));
+        // a clean name stays as it is, so a repeated cleanup changes nothing
+        assertThat(ColumnNames.cleanStoredName(cleaned, legacyParser)).isEqualTo(cleaned);
+    }
+
+    /**
+     * Stored names that do not determine the raw header: the result is the name of the more likely header, which
+     * differs from the name of the less likely header given here (documented in ETL-11.02).
+     */
+    @ParameterizedTest(name = "[{index}] {0}: {1} stored as {2} -> {3}, not {4}")
+    @DisplayName("TC-ETL-042: Ambiguous stored column names are cleaned to the name of the more likely header")
+    @CsvSource(delimiter = '|', quoteCharacter = '\'', value = {
+            // parser | less likely raw first label | stored by 1.x | cleaned name | name of that header in 2.0
+            // <BOM>"x" stems from the plain quoted label "x" in the common case
+            "rfc|\"\"x\"\"|<BOM>\"x\"|x|\"x\"",
+            "rfc|\"\"\"\"|<BOM>\"\"|''|\"",
+            "rfc|\"\"\"\"\"\"|<BOM>\"\"\"|\"|\"\"",
+            // <BOM>x" stems from "x""" (x" in 2.0) as well
+            "legacy|'\"x\" '|<BOM>x\"|x\"|x",
+    })
+    void ambiguousStoredName_cleanedToMoreLikelyHeader(String parser, String rawLabel, String stored, String cleaned,
+                                                       String lessLikely) throws Exception {
+        boolean legacyParser = parser.equals("legacy");
+        String raw = decode(rawLabel);
+        assertThat(storedBy1x(raw, legacyParser)).isEqualTo(decode(stored));
+        assertThat(importedBy20(raw, legacyParser)).isEqualTo(decode(lessLikely));
+        assertThat(ColumnNames.cleanStoredName(decode(stored), legacyParser)).isEqualTo(decode(cleaned));
+    }
+
+    @ParameterizedTest(name = "[{index}] \"{0}\" -> \"{1}\"")
+    @DisplayName("TC-ETL-043: Stored column names without a byte order mark directly followed by a quote are only normalized")
+    @CsvSource(delimiter = '|', quoteCharacter = '\'', value = {
             "na<SHY>mn|namn",
             "<SHY>namn|namn",
             "<EM>namn|namn",
+            "<C1>namn|namn",
             // names without byte order mark that look quoted are not unquoted: the header """x""" yields "x"
             "\"x\"|\"x\"",
             "<SHY>\"x\"|\"x\"",
-            // a byte order mark that is not at the beginning does not unquote either
             "\"x\"<BOM>|\"x\"",
+            "<SHY><BOM>\"x\"|\"x\"",
             // clean names are unchanged
             "kopare_id|kopare_id",
-            "a b|a b",
+            "'a b'|a b",
             "''|''",
     })
-    void cleanStoredName(String name, String expected) {
-        String cleaned = ColumnNames.cleanStoredName(decode(name));
-        assertThat(cleaned).isEqualTo(decode(expected));
-        // a clean name stays as it is, so a repeated cleanup changes nothing
-        assertThat(ColumnNames.cleanStoredName(cleaned)).isEqualTo(cleaned);
+    void cleanStoredName_withoutBomQuote(String name, String expected) {
+        for (boolean legacyParser : new boolean[]{false, true}) {
+            assertThat(ColumnNames.cleanStoredName(decode(name), legacyParser)).isEqualTo(decode(expected));
+        }
     }
 
     @Test
     @DisplayName("TC-ETL-040: Renames are determined for unclean names only, and not at all if clean names would collide or be empty")
     void renamesForStoredNames() {
-        assertThat(ColumnNames.renamesForStoredNames(List.of("kopare_id", "namn"))).isEmpty();
-        assertThat(ColumnNames.renamesForStoredNames(List.of())).isEmpty();
-        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>\"kopare_id\""), decode("na<SHY>mn"), "ort")))
+        assertThat(ColumnNames.renamesForStoredNames(List.of("kopare_id", "namn"), false)).isEmpty();
+        assertThat(ColumnNames.renamesForStoredNames(List.of(), false)).isEmpty();
+        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>\"kopare_id\""), decode("na<SHY>mn"), "ort"), false))
                 .containsOnly(entry(decode("<BOM>\"kopare_id\""), "kopare_id"), entry(decode("na<SHY>mn"), "namn"));
+        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>kopare_id"), "ort"), true))
+                .containsOnly(entry(decode("<BOM>kopare_id"), "kopare_id"));
         // collision with an existing name
-        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>\"namn\""), "namn"))).isNull();
+        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>\"namn\""), "namn"), false)).isNull();
         // collision of two renamed names
-        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>namn"), decode("na<SHY>mn")))).isNull();
+        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>namn"), decode("na<SHY>mn")), false)).isNull();
         // empty clean name
-        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>"), "namn"))).isNull();
+        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>\""), "namn"), false)).isNull();
+    }
+
+    @Test
+    @DisplayName("TC-ETL-044: An append renames stored names to the labels they are cleaned to with exactly one candidate")
+    void renamesForLabels() {
+        // names equal to the labels need no renames
+        assertThat(ColumnNames.renamesForLabels(List.of("kopare_id", "namn"), Set.of("kopare_id", "namn"))).isEmpty();
+        // the name of either parser is accepted
+        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"kopare_id\""), decode("na<SHY>mn")), Set.of("kopare_id", "namn")))
+                .containsOnly(entry(decode("<BOM>\"kopare_id\""), "kopare_id"), entry(decode("na<SHY>mn"), "namn"));
+        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"x\""), "namn"), Set.of("x\"", "namn")))
+                .containsOnly(entry(decode("<BOM>\"x\""), "x\""));
+        // both candidates are labels: ambiguous
+        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"x\"")), Set.of("x", "x\""))).isNull();
+        // no candidate is a label
+        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"kopare_id\""), "namn"), Set.of("id", "namn"))).isNull();
+        // different number of names and labels
+        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>kopare_id")), Set.of("kopare_id", "namn"))).isNull();
+        // two names renamed to the same label, or renamed to an existing name
+        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>namn"), decode("na<SHY>mn")), Set.of("namn", "ort"))).isNull();
+        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>namn"), "namn"), Set.of("namn", "ort"))).isNull();
     }
 
     @Test
     @DisplayName("TC-ETL-041: Byte order marks and soft hyphens are escaped for logging")
     void escapeForLog() {
-        assertThat(ColumnNames.escapeForLog(decode("<BOM>\"na<SHY>mn\""))).isEqualTo("\\uFEFF\"na\\u00ADmn\"");
+        assertThat(ColumnNames.escapeForLog(decode("<BOM>\"na<SHY>mn\""))).isEqualTo("\\" + "uFEFF\"na\\" + "u00ADmn\"");
+    }
+
+    /**
+     * @return Returns the column name that 1.x stored for the first label of a file with byte order mark.
+     */
+    private static String storedBy1x(String rawLabel, boolean legacyParser) throws Exception {
+        return firstLabel(BOM + rawLabel + ",b\n1,2\n", legacyParser).trim().toLowerCase();
+    }
+
+    /**
+     * @return Returns the column name that 2.0 stores for the first label (the byte order mark is skipped).
+     */
+    private static String importedBy20(String rawLabel, boolean legacyParser) throws Exception {
+        return ColumnNames.normalize(firstLabel(rawLabel + ",b\n1,2\n", legacyParser));
+    }
+
+    private static String firstLabel(String csv, boolean legacyParser) throws Exception {
+        ICSVParser parser = legacyParser
+                ? new CSVParserBuilder().withSeparator(',').withQuoteChar('"').build()
+                : new RFC4180ParserBuilder().withSeparator(',').withQuoteChar('"').build();
+        try (CSVReader reader = new CSVReaderBuilder(new StringReader(csv)).withSkipLines(0).withCSVParser(parser).build()) {
+            return reader.readNext()[0];
+        }
     }
 
     private static String decode(String s) {
-        return s.replace("<BOM>", "\uFEFF").replace("<SHY>", "\u00AD").replace("<EM>", "\u2003");
+        return s.replace("<BOM>", BOM)
+                .replace("<SHY>", String.valueOf((char) 0x00AD))
+                .replace("<EM>", String.valueOf((char) 0x2003))
+                .replace("<NBSP>", String.valueOf((char) 0x00A0))
+                .replace("<C1>", String.valueOf((char) 0x0001));
     }
 
 }

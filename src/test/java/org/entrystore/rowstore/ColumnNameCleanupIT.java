@@ -37,6 +37,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -223,6 +225,81 @@ class ColumnNameCleanupIT extends BaseIntegrationTest {
             assertThat(rows(urls.datasetUrl, "beskrivning", "kort")).containsExactly(Map.of("kopare_id", "2", "beskrivning", "kort"));
         } finally {
             deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ETL-045: A dataset with a row that contains both an old and a new name is skipped by the cleanup and fails an append")
+    void collisionInLaterRow_datasetSkippedAndAppendFails() throws Exception {
+        DatasetUrls urls = createDatasetAndWait(bytes("namn,ort\nfirst,1\nleft,2\n"));
+        String table = dataTable(urls.datasetId);
+        try {
+            // as stored by 1.x for <BOM>namn,namn\nfirst\nleft,right: the first row only has the broken name
+            try (Connection conn = openDatabaseConnection();
+                 PreparedStatement first = conn.prepareStatement("UPDATE " + table + " SET data = jsonb_build_object(?::text, 'first') WHERE rownr = 1");
+                 PreparedStatement second = conn.prepareStatement("UPDATE " + table + " SET data = jsonb_build_object(?::text, 'left', 'namn', 'right') WHERE rownr = 2")) {
+                first.setString(1, BOM + "namn");
+                first.executeUpdate();
+                second.setString(1, BOM + "namn");
+                second.executeUpdate();
+            }
+            String rowVersions = rowVersions(urls.datasetId);
+            List<String> rows = queryList(TEST_DATABASE, "SELECT data::text FROM " + table + " ORDER BY rownr");
+
+            assertThat(rowStore().cleanColumnNames()).doesNotContain(urls.datasetId);
+            assertThat(rowVersions(urls.datasetId)).isEqualTo(rowVersions);
+
+            given().spec(csvSpec).body(bytes("namn\nnew\n")).post(urls.datasetUrl).then().statusCode(202);
+            waitForDatasetError(urls.infoUrl);
+            assertThat(queryList(TEST_DATABASE, "SELECT data::text FROM " + table + " ORDER BY rownr")).isEqualTo(rows);
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ETL-046: Queries are served while the cleanup waits for a reader of the data table to drop the old indexes")
+    void queriesServedWhileCleanupWaitsForReader() throws Exception {
+        DatasetUrls urls = createDatasetAndWait(bytes(CSV));
+        String table = dataTable(urls.datasetId);
+        try (Connection db = openDatabaseConnection(); Connection reader = openDatabaseConnection()) {
+            breakColumnNames(TEST_DATABASE, urls.datasetId, BROKEN_NAMES);
+            // holds an ACCESS SHARE lock on the data table like a streaming export
+            reader.setAutoCommit(false);
+            try (Statement stmt = reader.createStatement()) {
+                stmt.executeQuery("SELECT data FROM " + table).close();
+            }
+            CompletableFuture<List<String>> cleanup = CompletableFuture.supplyAsync(() -> rowStore().cleanColumnNames());
+            try {
+                await().atMost(MAX_WAIT).until(() -> waitingForLock(db, "LOCK TABLE " + table + " IN ACCESS EXCLUSIVE MODE"));
+                // the first attempt to lock the data table times out meanwhile
+                Thread.sleep(Duration.ofSeconds(4).toMillis());
+
+                long before = System.currentTimeMillis();
+                List<Map<String, Object>> rows = rows(urls.datasetUrl, "ort", "Göteborg");
+                assertThat(System.currentTimeMillis() - before).isLessThan(Duration.ofSeconds(10).toMillis());
+                // the renames are not committed yet
+                assertThat(rows).containsExactly(Map.of(BOM + "\"kopare_id\"", "1", "na" + SHY + "mn", "Anna", "ort", "Göteborg"));
+                assertThat(cleanup).isNotDone();
+            } finally {
+                reader.rollback();
+            }
+            assertThat(cleanup.get(30, TimeUnit.SECONDS)).contains(urls.datasetId);
+            assertClean(TEST_DATABASE, urls.datasetId);
+            assertQueriesUseCleanNames(urls);
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    private static boolean waitingForLock(Connection conn, String statementStart) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT count(*) > 0 FROM pg_stat_activity WHERE datname = current_database() " +
+                        "AND wait_event_type = 'Lock' AND starts_with(query, ?)")) {
+            ps.setString(1, statementStart);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getBoolean(1);
+            }
         }
     }
 
