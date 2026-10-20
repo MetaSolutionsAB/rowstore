@@ -43,6 +43,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -327,7 +328,8 @@ public class PgDataset implements Dataset {
 							withQuoteChar('"').
 							build();
 				}
-				cr = new CSVReaderBuilder(Files.newBufferedReader(csvFile.toPath(), DatasetUtil.detectCharset(csvFile))).
+				LineTrackingReader lineReader = new LineTrackingReader(Files.newBufferedReader(csvFile.toPath(), DatasetUtil.detectCharset(csvFile)));
+				cr = new CSVReaderBuilder(lineReader).
 						withSkipLines(0).
 						withCSVParser(csvParser).
 						build();
@@ -342,7 +344,31 @@ public class PgDataset implements Dataset {
 				}
 
 				stmt = conn.prepareStatement("INSERT INTO " + targetTable + " (data) VALUES (?)");
-				while ((line = cr.readNext()) != null) {
+				long emptyLineNumber = 0;
+				while (true) {
+					long linesBefore = cr.getLinesRead();
+					line = cr.readNext();
+					long linesRead = cr.getLinesRead();
+					if (linesRead == linesBefore) {
+						// end of file
+						break;
+					}
+					// An empty line (outside a quoted value) is not a record. The parsers do not report it reliably:
+					// RFC4180Parser returns null, which is not the end of the file, and CSVParser returns the same
+					// record as for a quoted empty value. Therefore the line itself is checked.
+					if (line == null || (linesRead == linesBefore + 1 && lineReader.getLastLine().isEmpty())) {
+						if (emptyLineNumber == 0) {
+							emptyLineNumber = linesRead;
+						}
+						continue;
+					}
+					// empty lines are only allowed at the end of the file
+					if (emptyLineNumber > 0) {
+						log.error("Line {} of CSV is empty, but it is followed by further rows", emptyLineNumber);
+						log.info("Rolling back transaction");
+						conn.rollback();
+						return false;
+					}
 					if (lineCount == 0) {
 						// We convert all column names to lower case,
 						// otherwise all queries must be case sensitive later
@@ -1007,6 +1033,29 @@ public class PgDataset implements Dataset {
 			}
 		}
 		return result;
+	}
+
+	/**
+	 * Remembers the last line that was read, so that empty lines can be detected.
+	 */
+	private static final class LineTrackingReader extends BufferedReader {
+
+		private String lastLine;
+
+		LineTrackingReader(Reader in) {
+			super(in);
+		}
+
+		@Override
+		public String readLine() throws IOException {
+			lastLine = super.readLine();
+			return lastLine;
+		}
+
+		String getLastLine() {
+			return lastLine;
+		}
+
 	}
 
 }

@@ -82,7 +82,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | `GET /dataset/{id}/export` | [06-export.md](tests/06-export.md) | ExportIT |
 > | `GET /dataset/{id}/html` | — | WebGuiIT |
 > | `GET /dataset/{id}/swagger` | — | SwaggerIT |
-> | CSV formats | [04-csv-formats.md](tests/04-csv-formats.md) | CsvParsingIT, DatasetEncodingIT, DatasetSemicolonIT, DatasetEmptyColumnIT, DatasetCorruptIT |
+> | CSV formats | [04-csv-formats.md](tests/04-csv-formats.md) | CsvParsingIT, CsvEmptyLineIT, CsvEmptyLineLegacyParserIT, DatasetEncodingIT, DatasetSemicolonIT, DatasetEmptyColumnIT, DatasetCorruptIT |
 > | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT |
 > | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT, RateLimitAverageIT, RateLimitPartialConfigIT, RateLimitZeroValueIT |
 > | CORS | — | CorsIT |
@@ -116,3 +116,4 @@ Covers the Java integration test suite and its relationship to the framework-agn
 | 2026-02-09 | Updated for Spring Boot migration: 22 IT classes, 141 test methods, expanded coverage matrix |
 | 2026-10-20 | Unit tests for ETL scheduling and populate status handling, ETL processing ITs |
 | 2026-10-20 | Atomic replace ITs and swap lock retry unit test |
+| 2026-10-20 | Empty line ITs for the default and the legacy parser |

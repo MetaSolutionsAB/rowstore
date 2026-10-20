@@ -192,6 +192,7 @@ Current limitations relevant to this area.
 | ETL-4.02 | Separator detection: semicolon if consistent in first 2 lines, else comma |
 | ETL-4.03 | Parser: RFC4180Parser (default) or CSVParser (legacy) |
 | ETL-4.04 | Column names: lowercase, trimmed, empty skipped |
+| ETL-4.05 | Empty lines: trailing ignored, otherwise the load fails (line number logged), both parsers alike |
 | ETL-5.01 | Batch insert every 200 rows, rollback on error |
 | ETL-6.01 | POST = append (validates column match) |
 | ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate) |

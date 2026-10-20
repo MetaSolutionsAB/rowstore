@@ -64,6 +64,8 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 > - Column names are **trimmed** of whitespace
 > - Empty column labels are **skipped** (not included in the dataset)
 
+> **ETL-4.05** Empty lines: a line without any characters outside a quoted value is an empty line, not a record. Empty lines at the end of the file are ignored. An empty line that is followed by further records, including an empty line directly after the header, fails the load: the line number of the first empty line is logged at ERROR level, the transaction is rolled back, and the status is set to ERROR; a failed replace keeps the previous data (ETL-6.03). Lines consisting of whitespace only are records, and empty lines inside a quoted multi-line value are part of the value. Both parsers (ETL-4.03) behave the same; since they do not report empty lines reliably (`RFC4180Parser` returns `null`, which must not be taken for the end of the file, and `CSVParser` returns the same record `[""]` as for a quoted empty value `""`), an empty line is detected as a record that consists of exactly one physical line which is empty. As intended consequence, a single-column CSV cannot express an empty value as an empty line between rows; the value must be quoted (`""`). In 1.x, the default parser silently dropped all rows after an empty line and the legacy parser loaded an empty line as a row.
+
 ## ETL-5 Batch Inserts
 
 > **ETL-5.01** Rows are inserted in batches of **200**. Auto-commit is disabled during populate. A `stmt.executeBatch()` call is issued every 200 rows and at the end of the file. On any error, the entire transaction is rolled back.
@@ -143,3 +145,4 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 | 2026-10-20 | Failure handling of loads (ETL-10) |
 | 2026-10-20 | Per-dataset job queues with ordering and coalescing, permits only for running jobs, stale PROCESSING takeover and startup reset, abnormal worker failures (ETL-8.02 to ETL-8.07, ETL-8.01 removed) |
 | 2026-10-20 | Atomic replace via shadow table, previous data served during and after a failed replace, swap lock timeout with retries, cleanup of leftover shadow tables (ETL-6.02 updated, ETL-6.03 to ETL-6.05) |
+| 2026-10-20 | Empty lines in CSV files: trailing ones ignored, others fail the load, same for both parsers (ETL-4.05) |

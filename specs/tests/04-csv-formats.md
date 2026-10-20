@@ -4,6 +4,11 @@
 
 Tests for various CSV format variations: different delimiters, encodings, and edge cases in CSV parsing.
 
+The empty line tests (TC-CSV-011 to TC-CSV-022) use inline CSV content. TC-CSV-011 to TC-CSV-016 run with the
+default parser (`CsvEmptyLineIT`), TC-CSV-017 to TC-CSV-022 repeat them with `legacyparser: true`
+(`CsvEmptyLineLegacyParserIT`, requires a separate RowStore instance and is skipped when testing an external
+instance). See ETL-4.05.
+
 ## Test Data Files
 
 | File | Encoding | Delimiter | Rows | Notes |
@@ -230,3 +235,77 @@ Note: Behavior depends on implementation (last wins or error).
 **Expected Response:**
 - Status: `200`
 - Dataset queryable despite edge case headers
+
+## Empty Line Tests
+
+In the CSV content below, `\n` denotes a line break.
+
+### TC-CSV-011: An empty line between rows fails the load and a failed replace keeps the previous data
+
+**Steps:**
+1. Create a dataset from `name,value\nA1,1\nA2,2\n` and wait until it is available
+2. `PUT /dataset/{id}` with `name,value\nB1,1\nB2,2\n\nB3,3\nB4,4\n`
+
+**Assertions:**
+1. The status becomes ERROR (4); the line number of the empty line (4) is logged at ERROR level
+2. Queries return exactly the rows `{name: A1, value: 1}`, `{name: A2, value: 2}`
+
+### TC-CSV-012: An empty line directly after the header fails the load
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `name,value\n\nA1,1\nA2,2\n`
+
+**Assertions:**
+1. The status becomes ERROR (4)
+
+### TC-CSV-013: Empty lines at the end of the file are ignored
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `name,value\nA1,1\nA2,2\n\n\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3)
+2. Queries return exactly the rows `{name: A1, value: 1}`, `{name: A2, value: 2}` (no rows for the empty lines)
+
+### TC-CSV-014: An empty line inside a quoted value is part of the value
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `name,value\n"first\n\nthird",1\nA2,2\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3)
+2. Queries return exactly the rows `{name: "first\n\nthird", value: 1}`, `{name: A2, value: 2}`
+
+### TC-CSV-015: A line consisting of whitespace only is a data row
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `name,value\nA1,1\n \nA2,2\n` (the third line is a single space)
+
+**Assertions:**
+1. The status becomes AVAILABLE (3)
+2. Queries return exactly the rows `{name: A1, value: 1}`, `{name: " "}`, `{name: A2, value: 2}`
+
+### TC-CSV-016: A quoted empty value in a single-column CSV is a data row
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `name\nA1\n""\nA2\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3)
+2. Queries return exactly the rows `{name: A1}`, `{name: ""}`, `{name: A2}`
+
+### TC-CSV-017 to TC-CSV-022: Empty lines with the legacy parser
+
+As TC-CSV-011 to TC-CSV-016 (in this order), with a RowStore instance configured with `legacyparser: true`. The
+results must be the same as with the default parser; in particular, a quoted empty value (TC-CSV-022) must not be
+taken for an empty line, although the legacy parser returns the same record for both.
