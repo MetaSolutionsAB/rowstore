@@ -115,7 +115,7 @@ Current limitations relevant to this area.
 | ARCH-4.01 | Single Maven module — executable JAR |
 | ARCH-4.02 | [REMOVED] standalone/jetty — replaced by Spring Boot embedded server |
 | ARCH-4.03 | [REMOVED] standalone/common — replaced by Spring Boot embedded server |
-| ARCH-5.01 | Filter chain: PathParameterFilter → TrustedProxyFilter → RateLimitFilter → CorsFilter → DispatcherServlet → Controllers |
+| ARCH-5.01 | Filter chain: PathParameterFilter → CorsFilter → TrustedProxyFilter → RateLimitFilter → DispatcherServlet → Controllers |
 | ARCH-5.02 | Read path: GET → controller → PgDataset.query → PostgreSQL |
 | ARCH-5.03 | Write path: POST CSV → temp file → EtlProcessor.submit → virtual thread → PgDataset.populate |
 | ARCH-6.01 | Why JSONB (schemaless, per-column indexing) |

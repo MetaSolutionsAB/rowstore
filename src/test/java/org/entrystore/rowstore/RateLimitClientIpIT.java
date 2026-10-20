@@ -16,6 +16,7 @@
 
 package org.entrystore.rowstore;
 
+import io.restassured.response.Response;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -69,6 +70,28 @@ class RateLimitClientIpIT {
         assertThat(successCount).as("At most the client IP limit may be admitted").isLessThanOrEqualTo(LIMIT);
         assertThat(rateLimitedCount).as("Random X-Forwarded-For values must not reset the client IP limit")
                 .isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("TC-CORS-007: Rate-limited responses (429) carry CORS headers and expose Retry-After")
+    void rateLimitedResponse_hasCorsHeaders() {
+        String baseUrl = ClientIpRateLimitExtension.getUntrustedBaseUrl();
+        Response rateLimited = null;
+        for (int i = 0; i < LIMIT + 1 && rateLimited == null; i++) {
+            Response response = given()
+                    .baseUri(baseUrl)
+                    .header("Origin", "http://example.com")
+            .when()
+                    .get("/datasets");
+            if (response.getStatusCode() == 429) {
+                rateLimited = response;
+            }
+        }
+
+        assertThat(rateLimited).as("Client IP limit should be exceeded").isNotNull();
+        assertThat(rateLimited.getHeader("Access-Control-Allow-Origin")).isEqualTo("*");
+        assertThat(rateLimited.getHeader("Access-Control-Expose-Headers")).contains("Retry-After");
+        assertThat(rateLimited.getHeader("Retry-After")).isNotEmpty();
     }
 
     @Test

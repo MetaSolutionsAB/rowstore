@@ -69,7 +69,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 ## SEC-6 CORS
 
-> **SEC-6.01** Cross-Origin Resource Sharing (CORS) is implemented via Spring's `CorsFilter`. Allowed origins are configurable via `cors.allowedorigins` in `rowstore.json` (default: `["*"]`, allowing all origins). The filter adds `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`, and `Access-Control-Allow-Headers` headers, and handles preflight `OPTIONS` requests.
+> **SEC-6.01** Cross-Origin Resource Sharing (CORS) is implemented via Spring's `CorsFilter`. Allowed origins are configurable via `cors.allowedorigins` in `rowstore.json` (default: `["*"]`, allowing all origins). The filter adds `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`, and `Access-Control-Allow-Headers` headers, and handles preflight `OPTIONS` requests. It runs before `RateLimitFilter`, so `429` responses also carry the CORS headers and expose `Retry-After`.
 
 ## SEC-7 JSONP
 
@@ -119,3 +119,4 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 | 2026-10-20 | Added SEC-5.05 and SEC-5.06 (client address from `X-Forwarded-For` only via trusted proxies); SEC-5.03 updated |
 | 2026-10-20 | SEC-1.01 removed (ApiKeyFilter stub deleted), SEC-1.02 reworded; added SEC-9 (reverse proxy contract) |
 | 2026-10-20 | Added SEC-4.11 (path parameters rejected); SEC-9.03 refers to it |
+| 2026-10-20 | SEC-6.01: CORS headers also on 429 responses |

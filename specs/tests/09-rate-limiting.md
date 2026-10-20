@@ -129,6 +129,19 @@ Rate limiting must be enabled in `rowstore.json`:
 4. `X-Forwarded-For: <random>, 10.0.0.2` returns `200`
 5. `X-Forwarded-For: <random>, 10.0.0.1, 127.0.0.1` returns `429` (trusted hop skipped, keyed on 10.0.0.1)
 
+### TC-CORS-007: Rate-limited responses carry CORS headers
+
+**Setup:** Environment of TC-RATE-009 (`clientip=5`, default `cors.allowedorigins`).
+
+**Request:**
+- Method: `GET`
+- URL: `/datasets` (until a `429` is returned, at most 6 times)
+- Header: `Origin: http://example.com`
+
+**Assertions:**
+1. A `429` response is returned
+2. It has `Access-Control-Allow-Origin: *`, `Access-Control-Expose-Headers` containing `Retry-After`, and a `Retry-After` header
+
 ### TC-RATE-011: Client address is resolved from X-Forwarded-For only via trusted proxies
 
 **Type:** Unit test (`TrustedProxyFilterTest`), no server needed. Specification: SEC-5.05, SEC-5.06.
