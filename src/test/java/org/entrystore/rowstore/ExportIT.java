@@ -40,6 +40,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -83,6 +84,9 @@ class ExportIT extends BaseIntegrationTest {
     private static final String EDGE_FILE = "dataset_export_edge.csv";
 
     private DatasetUrls edgeUrls;
+
+    /** Number of rows added by {@link #insertPaddingRows(Connection, String)}. */
+    private static final int PADDING_ROWS = 50000;
 
     @BeforeAll
     void createDataset() {
@@ -408,18 +412,65 @@ class ExportIT extends BaseIntegrationTest {
         DatasetUrls urls = createDatasetAndWait(loadTestData(EDGE_FILE));
         try (Connection db = RowStoreTestEnvironment.getInstance().openDatabaseConnection()) {
             String table = TestUtils.getDataTableName(db, urls.datasetId);
-            // About 50 MB of rows, far more than the server's write buffer and the socket buffers can hold.
-            // While the client pauses reading, the export is therefore blocked mid-stream with its database
-            // cursor open and has to fetch more rows from the database after the client resumes.
-            try (Statement st = db.createStatement()) {
-                st.executeUpdate("INSERT INTO " + table + " (data) SELECT jsonb_build_object(" +
-                        "'a', 'pad' || g, 'b', '', 'c', repeat('x', 1000)) FROM generate_series(1, 50000) g");
-            }
+            insertPaddingRows(db, table);
 
             assertExportAbortedOnBackendTermination(db, table, urls.datasetUrl, "application/json");
             assertExportAbortedOnBackendTermination(db, table, urls.datasetUrl, "text/csv");
         } finally {
             deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    @Test
+    @Order(13)
+    @DisplayName("TC-EXPORT-015: Export taking longer than 30 seconds is delivered completely")
+    void exportSlowerThan30Seconds_isComplete() throws Exception {
+        assumeTrue(RowStoreTestEnvironment.getInstance().isStarted(),
+                "Requires direct database access (embedded test environment)");
+
+        DatasetUrls urls = createDatasetAndWait(loadTestData(EDGE_FILE));
+        try (Connection db = RowStoreTestEnvironment.getInstance().openDatabaseConnection()) {
+            insertPaddingRows(db, TestUtils.getDataTableName(db, urls.datasetId));
+
+            HttpRequest request = HttpRequest.newBuilder(URI.create(urls.datasetUrl + "/export"))
+                    .header("Accept", "application/json")
+                    .build();
+            try (HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()) {
+                HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                assertThat(response.statusCode()).isEqualTo(200);
+
+                String body;
+                try (InputStream in = response.body()) {
+                    byte[] start = in.readNBytes(1024);
+                    // A slow client keeps the export open beyond the servlet container's default async
+                    // request timeout of 30 seconds, which must not cut off the export
+                    Thread.sleep(Duration.ofSeconds(35));
+                    byte[] rest = in.readAllBytes();
+                    body = new String(start, StandardCharsets.UTF_8) + new String(rest, StandardCharsets.UTF_8);
+                }
+
+                // compact descriptions instead of AssertJ printing a body of several MB on failure
+                assertThat(body.startsWith("[{") && body.endsWith("}]"))
+                        .as("Export of %d bytes must be a complete JSON array, but ends with: %s",
+                                body.length(), body.substring(Math.max(0, body.length() - 40)))
+                        .isTrue();
+                // 3 rows from the CSV file plus the padding rows, separated by ",\n"
+                assertThat(body.split(",\n", -1).length).isEqualTo(3 + PADDING_ROWS);
+            }
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    /**
+     * Inserts about 50 MB of rows, far more than the server's write buffer and the socket buffers can hold.
+     * While the client pauses reading, an export is therefore blocked mid-stream with its database cursor
+     * open and has to fetch more rows from the database after the client resumes.
+     */
+    private void insertPaddingRows(Connection db, String table) throws Exception {
+        try (Statement st = db.createStatement()) {
+            st.executeUpdate("INSERT INTO " + table + " (data) SELECT jsonb_build_object(" +
+                    "'a', 'pad' || g, 'b', '', 'c', repeat('x', 1000)) FROM generate_series(1, " + PADDING_ROWS + ") g");
         }
     }
 

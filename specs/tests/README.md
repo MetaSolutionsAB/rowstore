@@ -11,7 +11,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases | 21 |
 | `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases | 20 |
 | `05-querying.md` | Query functionality: filters, pagination, JSONP, regex modes | 24 |
-| `06-export.md` | JSON/CSV export endpoints | 14 |
+| `06-export.md` | JSON/CSV export endpoints | 15 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 10 |
 | `08-error-handling.md` | Error codes: 400, 404, 423, 424 | 13 |
 | `09-rate-limiting.md` | Rate limiting (429) - requires separate profile | 5 |

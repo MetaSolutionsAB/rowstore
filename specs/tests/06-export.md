@@ -7,7 +7,7 @@ Tests for the `/dataset/{id}/export` endpoint which provides JSON and CSV export
 ## Prerequisites
 
 - Dataset with known data (UTF-8 encoding, 5 rows)
-- Test data: `dataset1_utf8.csv`; `dataset_export_edge.csv` for TC-EXPORT-010 to TC-EXPORT-014
+- Test data: `dataset1_utf8.csv`; `dataset_export_edge.csv` for TC-EXPORT-010 to TC-EXPORT-015
 
 ## Test Cases
 
@@ -190,3 +190,18 @@ access). The data table of a `dataset_export_edge.csv` dataset is renamed as in 
 - Each failed export returns `500`
 - The final export returns `200` with all 3 rows (the pool is not exhausted by leaked connections)
 - Metric `hikaricp.connections.active` drops to `0` within 10 seconds
+
+### TC-EXPORT-015: Export taking longer than 30 seconds is delivered completely
+
+**Setup:** Requires direct database access (skipped when testing an external instance). A dataset is created from
+`dataset_export_edge.csv` and padded with 50,000 rows (about 50 MB) as in TC-EXPORT-013, so that the export is
+blocked mid-stream while the client pauses reading.
+
+**Steps:**
+1. Start the export with `Accept: application/json` over HTTP/1.1 and read the first 1024 bytes (status `200`)
+2. Pause reading for 35 seconds, i.e. longer than the servlet container's default async request timeout of 30 seconds
+3. Read the rest of the body
+
+**Assertions:**
+- The body is a complete JSON array (starts with `[{`, ends with `}]`)
+- It contains all 50,003 rows (rows separated by `,\n`)
