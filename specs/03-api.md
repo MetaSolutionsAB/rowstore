@@ -50,9 +50,16 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.10** `GET /dataset/{id}/export` — Exports the full dataset. Content negotiation determines format:
 > - `Accept: application/json` → JSON array, streamed, flushed every 10,000 rows
-> - `Accept: text/csv` → CSV file, multi-threaded writing, flushed every 10,000 rows
+> - `Accept: text/csv` → CSV file, streamed, flushed every 10,000 rows
 >
 > Sets `Content-Disposition` header with filename. Returns 404 if not found, 424 if status is CREATED.
+>
+> CSV rows have one cell per header column in header order; cells missing in a stored row are exported as empty values.
+> If the rows cannot be read from the database, 500 is returned. A failure after streaming has started (status and
+> headers already sent) aborts the connection without completing the response, e.g. a JSON export lacks the closing `]`.
+> Exports have no overall time limit, as in 1.x: the async request timeout is disabled (`spring.mvc.async.request-timeout=-1`),
+> so slow clients or large datasets are not cut off after the servlet container's default of 30 seconds. A client that
+> makes no reading progress for the connector's `connectionTimeout` (Tomcat default 60 seconds) is disconnected.
 
 > **API-3.11** `GET /dataset/{id}/swagger` — Returns a dynamically generated OpenAPI specification for the dataset, with query parameters derived from column names and server configuration.
 

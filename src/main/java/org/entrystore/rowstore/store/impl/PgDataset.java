@@ -27,6 +27,7 @@ import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.QueryResult;
 import org.entrystore.rowstore.store.RowStore;
+import org.entrystore.rowstore.store.RowStream;
 import org.entrystore.rowstore.util.ColumnNames;
 import org.entrystore.rowstore.util.DatasetUtil;
 import org.entrystore.rowstore.util.Hashing;
@@ -966,17 +967,22 @@ public class PgDataset implements Dataset {
 		return new QueryResult(result, limit, offset, resultCount, queryTime);
 	}
 
-	public ResultSet streamAll() {
-		Connection conn = null;
+	/**
+	 * @see Dataset#streamAll()
+	 */
+	@Override
+	public RowStream streamAll() throws SQLException {
+		Connection conn = rowstore.getQueryConnection();
+		PreparedStatement stmt = null;
 		try {
-			conn = rowstore.getQueryConnection();
+			// cursor-based fetching (instead of loading all rows into memory) requires a transaction
 			conn.setAutoCommit(false);
-			PreparedStatement stmnt = conn.prepareStatement("SELECT data FROM " + getDataTable(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-			stmnt.setFetchSize(1000);
-			return stmnt.executeQuery();
-		} catch (SQLException e) {
-			log.warn(e.getMessage());
-			return null;
+			stmt = conn.prepareStatement("SELECT data FROM " + getDataTable(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+			stmt.setFetchSize(1000);
+			return new RowStream(conn, stmt, stmt.executeQuery());
+		} catch (SQLException | RuntimeException e) {
+			new RowStream(conn, stmt, null).close();
+			throw e;
 		}
 	}
 
