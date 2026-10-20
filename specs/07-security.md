@@ -46,6 +46,8 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-4.10** **Alias row locking**: Alias mutation operations (PUT, POST, DELETE) use `SELECT ... FOR UPDATE` on the dataset row to prevent concurrent modification and ensure consistency.
 
+> **SEC-4.11** **Path parameters**: Requests whose request path (the raw URI before `?`) contains `;` are rejected with **400 Bad Request** by `PathParameterFilter`, the first filter in the chain, so this also covers Actuator and springdoc endpoints and happens before rate limiting. RowStore uses no path parameters (neither did 1.x), but Tomcat and Spring ignore `;...` segments when routing: without this check `/v3;x/api-docs` or `/status;x?jvm` would bypass path rules of the reverse proxy (SEC-9.03), and `/dataset/{id};1`, `/dataset/{id};2`, … would each get their own per-dataset rate limit bucket. An encoded semicolon (`%3B`) is not a delimiter and is part of the path segment (e.g. an unknown dataset ID, 404).
+
 ## SEC-5 Rate Limiting
 
 > **SEC-5.01** **Sliding window** (`type: "slidingwindow"`): Uses a Guava `Cache` with `expireAfterWrite` set to the `timerange`. Each request adds a timestamped entry. When the count within the window exceeds the limit, requests are rejected with **429 Too Many Requests** and a `Retry-After` header indicating when the oldest entry expires (oldest entry time + timerange + 1ms).
@@ -89,7 +91,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 > - `/v3/api-docs`, `/v3/api-docs/**` and `/v3/api-docs.yaml` (springdoc OpenAPI description)
 > - `/status?jvm`, i.e. `/status` with a `jvm` query parameter in any form (JVM memory and processor details); `/status` without parameters is public
 >
-> Path rules must not be bypassable by path parameters: Tomcat and Spring ignore `;...` segments when routing (e.g. `/v3;x/api-docs` serves the OpenAPI description and `/status;x?jvm` the JVM details), so the proxy must reject or normalize request paths containing `;`.
+> Path rules must not be bypassable by path parameters: Tomcat and Spring ignore `;...` segments when routing (e.g. `/v3;x/api-docs` would serve the OpenAPI description and `/status;x?jvm` the JVM details). RowStore rejects such requests itself ([SEC-4.11](#sec-4-input-validation)); the proxy should still reject request paths containing `;` as defence in depth.
 
 > **SEC-9.04** The reverse proxy is the only component that sets `X-Forwarded-For` towards RowStore, and its address is listed in `trustedproxies` ([CFG-3.11](06-configuration.md#cfg-3-application-options), [SEC-5.05](#sec-5-rate-limiting)). Otherwise the per-client-IP rate limit is keyed on the proxy address (proxy not trusted) or can be influenced by clients (clients connecting from a trusted address).
 
@@ -106,7 +108,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 - [Configuration](06-configuration.md#cfg-6-rate-limit-configuration) — Rate limit configuration options
 - [Glossary](12-glossary.md#glo-1-terms) — Rate Limit (Average), Rate Limit (Sliding Window), CORS
 - [README Security section](../README.md#security) — Reverse proxy requirements and nginx example
-- Source: `RateLimitFilter.java`, `TrustedProxyFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
+- Source: `PathParameterFilter.java`, `RateLimitFilter.java`, `TrustedProxyFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
 
 ## Change Log
 
@@ -116,3 +118,4 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 | 2026-02-09 | Updated for Spring Boot migration: CORS implemented, JSONP removed, new validations (table name, ReDoS, upload size, alias locking) |
 | 2026-10-20 | Added SEC-5.05 and SEC-5.06 (client address from `X-Forwarded-For` only via trusted proxies); SEC-5.03 updated |
 | 2026-10-20 | SEC-1.01 removed (ApiKeyFilter stub deleted), SEC-1.02 reworded; added SEC-9 (reverse proxy contract) |
+| 2026-10-20 | Added SEC-4.11 (path parameters rejected); SEC-9.03 refers to it |

@@ -58,11 +58,12 @@ Covers the system from a structural and architectural perspective. For detailed 
 > **ARCH-5.01** The request processing chain:
 > ```
 > HTTP Request (from the reverse proxy, see SEC-9)
->   → TrustedProxyFilter (client address from X-Forwarded-For if the peer is a trusted proxy)
->     → RateLimitFilter (optional, if configured)
->       → CorsFilter (CORS headers)
->         → DispatcherServlet
->           → Controller handler method
+>   → PathParameterFilter (400 for ";" in the request path, SEC-4.11)
+>     → TrustedProxyFilter (client address from X-Forwarded-For if the peer is a trusted proxy)
+>       → RateLimitFilter (optional, if configured)
+>         → CorsFilter (CORS headers)
+>           → DispatcherServlet
+>             → Controller handler method
 > ```
 > The `RateLimitFilter` is only active when rate limiting is enabled (timerange > 0 AND (global > 0 OR dataset > 0)). Because `CorsFilter` runs after it, `429` responses carry no CORS headers. There is no authentication filter; authentication is done by the reverse proxy ([SEC-9](07-security.md#sec-9-reverse-proxy-contract)).
 
@@ -100,3 +101,4 @@ Covers the system from a structural and architectural perspective. For detailed 
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot 3.5.10 migration (Java 25, Tomcat, HikariCP, Flyway, virtual threads) |
 | 2026-10-20 | ARCH-5.01: ApiKeyFilter removed, TrustedProxyFilter added, actual filter order documented |
+| 2026-10-20 | ARCH-5.01: PathParameterFilter added |

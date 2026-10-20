@@ -115,7 +115,7 @@ Current limitations relevant to this area.
 | ARCH-4.01 | Single Maven module — executable JAR |
 | ARCH-4.02 | [REMOVED] standalone/jetty — replaced by Spring Boot embedded server |
 | ARCH-4.03 | [REMOVED] standalone/common — replaced by Spring Boot embedded server |
-| ARCH-5.01 | Filter chain: TrustedProxyFilter → RateLimitFilter → CorsFilter → DispatcherServlet → Controllers |
+| ARCH-5.01 | Filter chain: PathParameterFilter → TrustedProxyFilter → RateLimitFilter → CorsFilter → DispatcherServlet → Controllers |
 | ARCH-5.02 | Read path: GET → controller → PgDataset.query → PostgreSQL |
 | ARCH-5.03 | Write path: POST CSV → temp file → EtlProcessor.submit → virtual thread → PgDataset.populate |
 | ARCH-6.01 | Why JSONB (schemaless, per-column indexing) |
@@ -276,6 +276,7 @@ Current limitations relevant to this area.
 | SEC-4.08 | ReDoS protection: isSafeRegex() validates length and pattern complexity |
 | SEC-4.09 | Upload size limit: maxuploadsize (default 100 MB) |
 | SEC-4.10 | Alias row locking: SELECT FOR UPDATE prevents concurrent modification |
+| SEC-4.11 | Path parameters (";" in the request path) rejected with 400 |
 | SEC-5.01 | Sliding window: Guava Cache, Retry-After header |
 | SEC-5.02 | Average: Guava RateLimiter, no Retry-After |
 | SEC-5.03 | Scopes: global, per-dataset, per-client-IP |
@@ -287,7 +288,7 @@ Current limitations relevant to this area.
 | SEC-8.01 | Temp files: deleteOnExit + explicit deletion |
 | SEC-9.01 | Always behind a reverse proxy, never directly reachable |
 | SEC-9.02 | Proxy authenticates all non-GET/HEAD requests |
-| SEC-9.03 | Proxy blocks /actuator/**, /swagger-ui*, /v3/api-docs*, /status?jvm and `;` path parameters |
+| SEC-9.03 | Proxy blocks /actuator/**, /swagger-ui*, /v3/api-docs*, /status?jvm (and `;` paths, defence in depth) |
 | SEC-9.04 | Proxy is the only X-Forwarded-For source and listed in trustedproxies |
 
 ### DEPL — Deployment

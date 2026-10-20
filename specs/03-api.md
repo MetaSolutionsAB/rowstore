@@ -97,7 +97,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 > - **204 No Content** — Successful alias update or dataset deletion with no response body
 
 > **API-6.02** Client error statuses:
-> - **400 Bad Request** — Invalid parameters, empty filter values, non-numeric limit/offset, invalid alias format
+> - **400 Bad Request** — Invalid parameters, empty filter values, non-numeric limit/offset, invalid alias format, path parameters (`;` in the request path, [SEC-4.11](07-security.md#sec-4-input-validation))
 > - **404 Not Found** — Dataset or alias not found
 > - **415 Unsupported Media Type** — Non-CSV content type for upload endpoints
 

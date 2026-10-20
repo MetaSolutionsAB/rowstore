@@ -262,7 +262,7 @@ RowStore provides a public REST API for data retrieval (`GET` and `HEAD` request
 The reverse proxy MUST:
 
 - authenticate all requests with methods other than `GET` and `HEAD`;
-- deny public access to `/actuator` and `/actuator/**`, `/swagger-ui.html` and `/swagger-ui/**`, `/v3/api-docs` and `/v3/api-docs/**` (including `/v3/api-docs.yaml`), and `/status?jvm` (any `/status` request with a `jvm` parameter; plain `/status` is public). In RowStore 2.0 these are served on the application port (8282), so blocking them at the proxy is the only protection. Request paths containing `;` must be rejected, since path parameters are ignored when routing (e.g. `/v3;x/api-docs` serves the OpenAPI description);
+- deny public access to `/actuator` and `/actuator/**`, `/swagger-ui.html` and `/swagger-ui/**`, `/v3/api-docs` and `/v3/api-docs/**` (including `/v3/api-docs.yaml`), and `/status?jvm` (any `/status` request with a `jvm` parameter; plain `/status` is public). In RowStore 2.0 these are served on the application port (8282), so blocking them at the proxy is the only protection. RowStore rejects request paths containing `;` with 400 (path parameters would otherwise bypass such path rules, e.g. `/v3;x/api-docs`); the proxy should reject them as well, as defence in depth;
 - set `X-Forwarded-For` and be listed in `trustedproxies` (see [Configuration](#properties)), so that the per-client rate limit applies to the real client and cannot be influenced by clients.
 
 CORS: by default all origins are allowed (`*`). This is acceptable only under the contract above: the read API is public anyway, and RowStore never sends `Access-Control-Allow-Credentials`, so web pages of other origins cannot use a browser's proxy credentials to read responses of the private API. To allow only known web applications to call RowStore from browsers, list their origins in `rowstore.json`, e.g. `"cors": { "allowedorigins": ["https://app.example.com"] }`.
@@ -278,8 +278,8 @@ server {
     listen 80;
     server_name rowstore.example.com;
 
-    # Path parameters (";") are not used by RowStore, but are ignored when routing,
-    # which would bypass the location rules below (e.g. /v3;x/api-docs)
+    # Path parameters (";") would bypass the location rules below (e.g. /v3;x/api-docs);
+    # RowStore rejects them too, this is defence in depth
     if ($request_uri ~ "^[^?]*;") {
         return 400;
     }
