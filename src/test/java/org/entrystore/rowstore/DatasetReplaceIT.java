@@ -251,6 +251,43 @@ class DatasetReplaceIT extends BaseIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("TC-ETL-029: A replace keeps the owner and the privileges of the data table")
+    void replace_keepsOwnerAndPrivileges() throws SQLException {
+        DatasetUrls urls = createDatasetAndWait(csv("A", 3));
+        String dataTable = dataTable(urls);
+        String suffix = urls.datasetId.replace("-", "").substring(0, 12);
+        String reader = "rowstore_reader_" + suffix;
+        String owner = "rowstore_owner_" + suffix;
+        try (Connection db = openDatabaseConnection()) {
+            execute(db, "CREATE ROLE " + reader + " NOLOGIN");
+            execute(db, "CREATE ROLE " + owner + " NOLOGIN");
+            try {
+                execute(db, "ALTER TABLE " + dataTable + " OWNER TO " + owner);
+                execute(db, "GRANT SELECT ON " + dataTable + " TO " + reader);
+                execute(db, "GRANT INSERT ON " + dataTable + " TO PUBLIC");
+
+                given().spec(csvSpec).body(csv("B", 2)).put(urls.datasetUrl).then().statusCode(202);
+                waitForDatasetAvailable(urls.infoUrl);
+                assertThat(names(urls.datasetUrl)).containsExactly("B1", "B2");
+
+                assertThat(queryStrings(db, "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE relname = '" +
+                        dataTable + "'")).containsExactly(owner);
+                assertThat(queryStrings(db, "SELECT has_table_privilege('" + reader + "', '" + dataTable + "', 'SELECT')"))
+                        .containsExactly("t");
+                assertThat(queryStrings(db, "SELECT has_table_privilege('" + reader + "', '" + dataTable + "', 'UPDATE')"))
+                        .containsExactly("f");
+                assertThat(queryStrings(db, "SELECT count(*) FROM pg_class c, aclexplode(c.relacl) a " +
+                        "WHERE c.relname = '" + dataTable + "' AND a.grantee = 0 AND a.privilege_type = 'INSERT'"))
+                        .containsExactly("1");
+            } finally {
+                deleteDataset(urls.datasetUrl);
+                execute(db, "DROP ROLE " + reader);
+                execute(db, "DROP ROLE " + owner);
+            }
+        }
+    }
+
     /**
      * Creates the shadow table in an open transaction, so that the creation of the same table by a load waits
      * until the transaction is rolled back.

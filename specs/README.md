@@ -195,9 +195,9 @@ Current limitations relevant to this area.
 | ETL-4.05 | Empty lines: trailing ignored, otherwise the load fails (line number logged), both parsers alike |
 | ETL-5.01 | Batch insert every 200 rows, rollback on error |
 | ETL-6.01 | POST = append (validates column match) |
-| ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate) |
+| ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate); owner and privileges kept |
 | ETL-6.03 | Replace status: PROCESSING, AVAILABLE or ERROR; previous data served until replaced and kept on failure |
-| ETL-6.04 | Swap lock: lock_timeout 3 s per attempt, bounded retries with backoff; replica query cancellation |
+| ETL-6.04 | Swap lock: four 3 s lock_timeout probes with short delays, then an unbounded wait; timeouts to configure; replica query cancellation |
 | ETL-6.05 | Leftover shadow tables dropped at next replace, on delete and at startup |
 | ETL-7.01 | text_pattern_ops index per column, escapeString for DDL |
 | ETL-7.02 | Skip index for fields > 256 chars |

@@ -9,13 +9,13 @@ load fails or the database is unreachable, and atomic replaces. See [04-etl-pipe
 
 TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027 and TC-ETL-028 are unit tests (`EtlProcessorTest`,
 `PgDatasetPopulateTest`, `PgDatasetSwapLockTest`) that use fakes instead of a database. TC-ETL-010 to TC-ETL-014
-and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026 integration tests of replaces
-(`DatasetReplaceIT`).
+and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026 and TC-ETL-029 integration tests of
+replaces (`DatasetReplaceIT`).
 
 ## Prerequisites
 
 - Unit tests: none
-- Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013, TC-ETL-014 and TC-ETL-020 to TC-ETL-026
+- Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013, TC-ETL-014, TC-ETL-020 to TC-ETL-026 and TC-ETL-029
   additionally require direct database access (superuser) and are skipped when testing an external instance
 
 ## Test Data
@@ -123,17 +123,18 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 1. The ERROR status write is attempted exactly three times (initial attempt and two retries)
 2. `populate()` still throws the original exception
 
-### TC-ETL-027: A timed out lock for replacing the data table is retried within a savepoint, bounded
+### TC-ETL-027: A timed out lock for replacing the data table is retried within a savepoint, the last attempt without timeout
 
 **Setup:** `PgDataset.lockDataTableForReplace()` with a fake connection whose `LOCK TABLE` statements fail with SQL
-state `55P03` (lock timeout); three retry delays of 1 ms configured.
+state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 1 ms configured.
 
 **Assertions:**
 1. If two attempts fail, each attempt is `SAVEPOINT`, `SET LOCAL lock_timeout = '3s'`, `LOCK TABLE <dataTable> IN
    ACCESS EXCLUSIVE MODE`, a failed attempt is followed by `ROLLBACK TO SAVEPOINT`, and the third attempt succeeds
    (returns true)
-2. If all attempts fail, the lock is attempted four times (initial attempt and three retries), each failure is
-   rolled back to its savepoint, and false is returned (the load then fails, ETL-6.04)
+2. If all attempts with a timeout fail, there are three of them (one per delay), each rolled back to its savepoint,
+   and the last attempt is `SAVEPOINT`, `SET LOCAL lock_timeout = '0'`, `LOCK TABLE ...`, which waits and succeeds
+   (returns true; there is no giving up on lock timeouts, ETL-6.04)
 
 ### TC-ETL-028: A lock for replacing the data table that fails for another reason is not retried
 
@@ -353,3 +354,17 @@ state `55P03` (lock timeout); three retry delays of 1 ms configured.
 **Assertions:**
 1. The response is `204` and the dataset is gone (`404`)
 2. Neither `<dataTable>` nor `<dataTable>_new` exists
+
+### TC-ETL-029: A replace keeps the owner and the privileges of the data table
+
+**Steps:**
+1. Create a dataset from CSV `A` (3 rows) and wait until it is available
+2. Create the roles `rowstore_reader_<x>` and `rowstore_owner_<x>`; make the owner role the owner of the data table,
+   grant `SELECT` on it to the reader role and `INSERT` to `PUBLIC`
+3. `PUT /dataset/{id}` with CSV `B` (2 rows) and wait until it is available
+4. Delete the dataset and drop the roles
+
+**Assertions:**
+1. Queries return the rows `B1`, `B2`
+2. The data table is owned by the owner role; the reader role has `SELECT` but not `UPDATE`
+   (`has_table_privilege`); `PUBLIC` has `INSERT`

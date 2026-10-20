@@ -93,15 +93,16 @@ public class PgDataset implements Dataset {
 	private long[] statusRetryDelaysMillis = {1000, 5000, 15000, 30000, 45000};
 
 	/**
-	 * Maximum time an attempt to lock the data table for a replace waits, see lockDataTableForReplace().
+	 * Maximum time an attempt to lock the data table for a replace waits, except the last attempt, which waits
+	 * without a timeout, see lockDataTableForReplace().
 	 */
 	static final String SWAP_LOCK_TIMEOUT = "3s";
 
 	/**
-	 * Delays between the attempts to lock the data table for a replace: seven attempts over about 1.5 minutes,
-	 * including the time each attempt waits for the lock.
+	 * Delays between the attempts to lock the data table for a replace: four attempts with a timeout and a last one
+	 * without. The delays are short because the load's transaction is idle meanwhile (idle_in_transaction_session_timeout).
 	 */
-	private long[] swapRetryDelaysMillis = {1000, 2000, 5000, 10000, 15000, 30000};
+	private long[] swapRetryDelaysMillis = {1000, 2000, 5000, 5000};
 
 	/**
 	 * SQL state of a lock that could not be acquired within lock_timeout.
@@ -424,9 +425,9 @@ public class PgDataset implements Dataset {
 				log.debug("Executing: " + stmt);
 				stmt.executeBatch();
 
-				List<String> createdIndexes = createIndexes(conn, targetTable, labels);
-
-				if (!append && !replaceDataTable(conn, targetTable, createdIndexes)) {
+				if (append) {
+					createIndexes(conn, targetTable, labels);
+				} else if (!replaceDataTable(conn, targetTable, createIndexes(conn, targetTable, labels))) {
 					log.info("Rolling back transaction");
 					conn.rollback();
 					return false;
@@ -552,7 +553,7 @@ public class PgDataset implements Dataset {
 	 * would have if they had been created for the data table, so that the next replace does not collide with them.
 	 *
 	 * @param shadowIndexes The names of the indexes created for the shadow table.
-	 * @return Returns false if the data table could not be locked, see {@link #lockDataTableForReplace(Connection)}.
+	 * @return Returns false if interrupted while waiting to lock the data table, see {@link #lockDataTableForReplace(Connection)}.
 	 */
 	private boolean replaceDataTable(Connection conn, String shadowTable, List<String> shadowIndexes) throws SQLException {
 		long before = System.currentTimeMillis();
@@ -561,6 +562,7 @@ public class PgDataset implements Dataset {
 				return false;
 			}
 			try (Statement stmt = conn.createStatement()) {
+				copyOwnerAndPrivileges(conn, stmt, shadowTable);
 				executeDdl(stmt, "DROP TABLE " + dataTable);
 				executeDdl(stmt, "ALTER TABLE " + shadowTable + " RENAME TO " + dataTable);
 				for (String index : shadowIndexes) {
@@ -580,36 +582,60 @@ public class PgDataset implements Dataset {
 	}
 
 	/**
+	 * Gives the shadow table the owner and the table privileges of the data table, which would otherwise be lost when
+	 * the shadow table replaces the data table (e.g., SELECT granted to a separate user of a read replica).
+	 */
+	private void copyOwnerAndPrivileges(Connection conn, Statement stmt, String shadowTable) throws SQLException {
+		List<String> owner = queryForStrings(conn, "SELECT quote_ident(pg_get_userbyid(d.relowner)) " +
+				"FROM pg_class d, pg_class s WHERE d.oid = '" + dataTable + "'::regclass " +
+				"AND s.oid = '" + shadowTable + "'::regclass AND d.relowner <> s.relowner");
+		for (String o : owner) {
+			executeDdl(stmt, "ALTER TABLE " + shadowTable + " OWNER TO " + o);
+		}
+		// the owner's own privileges are implicit
+		List<String> grants = queryForStrings(conn, "SELECT 'GRANT ' || a.privilege_type || ' ON " + shadowTable + " TO ' || " +
+				"CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END || " +
+				"CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END " +
+				"FROM pg_class d CROSS JOIN LATERAL aclexplode(d.relacl) a " +
+				"WHERE d.oid = '" + dataTable + "'::regclass AND a.grantee <> d.relowner");
+		for (String grant : grants) {
+			executeDdl(stmt, grant);
+		}
+	}
+
+	/**
 	 * Locks the data table exclusively for replacing it, within the load's transaction. The lock has to wait for
 	 * readers of the data table, e.g., a long streaming export, and while it waits, it blocks new queries of the
-	 * data table. Therefore each attempt waits at most {@link #SWAP_LOCK_TIMEOUT}, and the attempts are retried
-	 * with backoff.
+	 * data table. Therefore the first attempts wait at most {@link #SWAP_LOCK_TIMEOUT} each and are retried after a
+	 * delay, so that queries are not blocked for longer than that at a time. The last attempt waits without a
+	 * timeout, so that a replace eventually succeeds even if the data table is read for a long time (e.g., by a
+	 * backup); meanwhile new queries of the data table wait as well.
 	 *
-	 * @return Returns true if the lock was acquired, false if all attempts timed out or if interrupted.
-	 * @throws SQLException If locking failed for another reason than a lock timeout.
+	 * After the lock has been acquired, the attempt's lock_timeout stays in force until the end of the transaction.
+	 * This is harmless, since the remaining statements only touch the locked data table, objects that depend on it,
+	 * and the shadow table, which was created in the same transaction.
+	 *
+	 * @return Returns true if the lock was acquired, false if interrupted while waiting for the next attempt.
+	 * @throws SQLException If locking failed for another reason than a lock timeout of an attempt with a timeout.
 	 */
 	boolean lockDataTableForReplace(Connection conn) throws SQLException {
 		for (int attempt = 0; ; attempt++) {
+			boolean lastAttempt = attempt >= swapRetryDelaysMillis.length;
 			Savepoint savepoint = conn.setSavepoint();
 			try (Statement stmt = conn.createStatement()) {
-				executeDdl(stmt, "SET LOCAL lock_timeout = '" + SWAP_LOCK_TIMEOUT + "'");
+				executeDdl(stmt, "SET LOCAL lock_timeout = '" + (lastAttempt ? "0" : SWAP_LOCK_TIMEOUT) + "'");
 				executeDdl(stmt, "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
 				return true;
 			} catch (SQLException e) {
-				if (!LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+				if (lastAttempt || !LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
 					throw e;
 				}
 				// also reverts SET LOCAL
 				conn.rollback(savepoint);
 			}
-			if (attempt >= swapRetryDelaysMillis.length) {
-				log.error("Unable to replace data table {} of dataset {}, it was in use during {} attempts",
-						dataTable, getId(), attempt + 1);
-				return false;
-			}
 			long delay = swapRetryDelaysMillis[attempt];
-			log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to replace it in {} ms",
-					dataTable, getId(), delay);
+			log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to replace it in {} ms{}",
+					dataTable, getId(), delay, attempt == swapRetryDelaysMillis.length - 1 ? " without a lock timeout" : "");
 			try {
 				Thread.sleep(delay);
 			} catch (InterruptedException e) {
@@ -630,6 +656,16 @@ public class PgDataset implements Dataset {
 	private static void executeDdl(Statement stmt, String sql) throws SQLException {
 		log.debug("Executing: " + sql);
 		stmt.execute(sql);
+	}
+
+	private static List<String> queryForStrings(Connection conn, String sql) throws SQLException {
+		List<String> result = new ArrayList<>();
+		try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
+			while (rs.next()) {
+				result.add(rs.getString(1));
+			}
+		}
+		return result;
 	}
 
 	private static String queryForIdentifier(Connection conn, String sql) throws SQLException {

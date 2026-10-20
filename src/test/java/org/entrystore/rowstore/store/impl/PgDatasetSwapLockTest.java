@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests the retries of {@link PgDataset#lockDataTableForReplace(Connection)} when the lock of the data table times
- * out, e.g., because of a long streaming export. The waiting itself is covered by DatasetReplaceIT (TC-ETL-023).
+ * out, e.g., because of a long streaming export, and that the last attempt waits without a timeout. The waiting itself is covered by DatasetReplaceIT (TC-ETL-023).
  */
 class PgDatasetSwapLockTest {
 
@@ -50,9 +50,11 @@ class PgDatasetSwapLockTest {
 
     private String lockFailureState = "55P03";
 
+    private boolean lockTimeout;
+
     @Test
-    @DisplayName("TC-ETL-027: A timed out lock for replacing the data table is retried within a savepoint, bounded")
-    void timedOutLock_isRetriedWithinSavepointAndBounded() throws SQLException {
+    @DisplayName("TC-ETL-027: A timed out lock for replacing the data table is retried within a savepoint, the last attempt without timeout")
+    void timedOutLock_isRetriedWithinSavepoint_lastAttemptWithoutTimeout() throws SQLException {
         PgDataset dataset = newDataset();
         dataset.setSwapRetryDelays(1, 1, 1);
 
@@ -65,12 +67,14 @@ class PgDatasetSwapLockTest {
                 "ROLLBACK TO SAVEPOINT",
                 "SAVEPOINT", "SET LOCAL lock_timeout = '3s'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
 
-        // one attempt plus one retry per delay, then the replace is given up
+        // one attempt with a timeout per delay, then an attempt that waits until it gets the lock
         executed.clear();
         failingLocks = Integer.MAX_VALUE;
-        assertThat(dataset.lockDataTableForReplace(connection())).isFalse();
-        assertThat(executed.stream().filter(s -> s.startsWith("LOCK TABLE"))).hasSize(4);
-        assertThat(executed.stream().filter(s -> s.equals("ROLLBACK TO SAVEPOINT"))).hasSize(4);
+        assertThat(dataset.lockDataTableForReplace(connection())).isTrue();
+        assertThat(executed.stream().filter(s -> s.equals("SET LOCAL lock_timeout = '3s'"))).hasSize(3);
+        assertThat(executed.stream().filter(s -> s.equals("ROLLBACK TO SAVEPOINT"))).hasSize(3);
+        assertThat(executed.subList(executed.size() - 3, executed.size())).containsExactly(
+                "SAVEPOINT", "SET LOCAL lock_timeout = '0'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
     }
 
     @Test
@@ -106,7 +110,11 @@ class PgDatasetSwapLockTest {
                     if (method.getName().equals("execute")) {
                         String sql = (String) args[0];
                         executed.add(sql);
-                        if (sql.startsWith("LOCK TABLE") && failingLocks > 0) {
+                        if (sql.startsWith("SET LOCAL lock_timeout")) {
+                            lockTimeout = !sql.endsWith("'0'");
+                        }
+                        // without a lock timeout, a lock request waits until it is granted
+                        if (sql.startsWith("LOCK TABLE") && lockTimeout && failingLocks > 0) {
                             failingLocks--;
                             throw new SQLException("Simulated lock failure", lockFailureState);
                         }
