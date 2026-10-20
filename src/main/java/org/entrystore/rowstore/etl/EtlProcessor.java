@@ -41,8 +41,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Manages the ETL-queue. Accepts and submits ETL-requests to the processing pipeline.
  *
  * Jobs are queued per dataset and run one at a time per dataset, in submission order, on a virtual thread that
- * exists while the dataset has jobs. A job acquires a semaphore permit only when it is about to run, so the
- * number of concurrent loads is limited without waiting jobs blocking the loads of other datasets.
+ * exists while the dataset has jobs. Datasets are identified by their canonical ID. A semaphore permit is acquired
+ * only for the job that is next in line for its dataset, so the number of concurrent loads is limited without
+ * waiting jobs blocking the loads of other datasets.
  *
  * @author Hannes Ebner
  */
@@ -57,8 +58,8 @@ public class EtlProcessor {
 	private final AtomicInteger activeProcesses = new AtomicInteger(0);
 
 	/**
-	 * Jobs that have not started yet, per dataset ID. A dataset has an entry as long as a worker is active for it;
-	 * the worker removes the entry when no jobs are left. Guarded by itself.
+	 * Jobs that have not started yet, per canonical dataset ID. A dataset has an entry as long as a worker is active
+	 * for it; the worker removes the entry when no jobs are left. Guarded by itself.
 	 */
 	private final Map<String, Deque<Job>> waitingJobs = new HashMap<>();
 
@@ -76,7 +77,7 @@ public class EtlProcessor {
 	 * (no append) discards the loads of the same dataset that have not started yet, since it supersedes them.
 	 */
 	public void submit(EtlResource etlResource) {
-		String datasetId = etlResource.getDataset().getId();
+		String datasetId = etlResource.getDataset().getCanonicalId();
 		log.info("Submitting dataset {} to ETL processing", datasetId);
 		enqueue(datasetId, new LoadJob(etlResource), !etlResource.isAppending());
 	}
@@ -85,7 +86,8 @@ public class EtlProcessor {
 	 * Runs a task exclusively for a dataset: after all previously submitted jobs of the dataset and never
 	 * concurrently with another job of the same dataset. Like a load, the task holds an ETL permit while running.
 	 */
-	public void runExclusively(String datasetId, Runnable task) {
+	public void runExclusively(Dataset dataset, Runnable task) {
+		String datasetId = dataset.getCanonicalId();
 		enqueue(datasetId, new TaskJob(datasetId, task), false);
 	}
 
@@ -122,34 +124,50 @@ public class EtlProcessor {
 
 	/**
 	 * Runs the jobs of a dataset one after another until its queue is empty.
+	 *
+	 * The worker waits for a permit while its next job is still in the queue, so that the job can be discarded by a
+	 * subsequent replace until it starts. A permit is held from just before the head of the queue is taken until
+	 * that job has finished; a worker never holds more than one permit.
+	 *
+	 * If the worker fails abnormally (e.g., an Error thrown by a job), the dataset's remaining jobs are discarded and
+	 * its entry is removed, so that subsequently submitted jobs get a new worker.
 	 */
 	private void runJobs(String datasetId) {
-		while (true) {
-			Job job;
-			synchronized (waitingJobs) {
-				job = waitingJobs.get(datasetId).pollFirst();
+		try {
+			while (true) {
+				synchronized (waitingJobs) {
+					if (waitingJobs.get(datasetId).isEmpty()) {
+						waitingJobs.remove(datasetId);
+						return;
+					}
+				}
+				concurrencyLimiter.acquire();
+				Job job;
+				synchronized (waitingJobs) {
+					// not expected to be empty: a replace removes queued loads but adds itself
+					job = waitingJobs.get(datasetId).pollFirst();
+				}
 				if (job == null) {
-					waitingJobs.remove(datasetId);
-					return;
+					concurrencyLimiter.release();
+					continue;
+				}
+				activeProcesses.incrementAndGet();
+				try {
+					job.run();
+				} catch (RuntimeException e) {
+					log.error("ETL job for dataset {} failed", datasetId, e);
+				} finally {
+					activeProcesses.decrementAndGet();
+					concurrencyLimiter.release();
 				}
 			}
-			try {
-				concurrencyLimiter.acquire();
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				job.discard("the ETL processor was interrupted");
-				discardAll(datasetId, "the ETL processor was interrupted");
-				return;
-			}
-			activeProcesses.incrementAndGet();
-			try {
-				job.run();
-			} catch (RuntimeException e) {
-				log.error("ETL job for dataset {} failed", datasetId, e);
-			} finally {
-				activeProcesses.decrementAndGet();
-				concurrencyLimiter.release();
-			}
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			discardAll(datasetId, "the ETL processor was interrupted");
+		} catch (RuntimeException | Error e) {
+			log.error("ETL worker for dataset {} failed", datasetId, e);
+			discardAll(datasetId, "the ETL worker failed");
+			throw e;
 		}
 	}
 

@@ -240,7 +240,7 @@ class EtlProcessorTest {
 
         submit(a1);
         awaitStarted(a1);
-        processor.runExclusively(a.getId(), () -> {
+        processor.runExclusively(a, () -> {
             assertThat(a.running.get()).isZero();
             started.add("task");
         });
@@ -251,6 +251,78 @@ class EtlProcessorTest {
         a1.release.countDown();
         await().atMost(TIMEOUT).until(() -> started.size() == 3 && running.get() == 0);
         assertThat(started).containsExactly("a1", "task", "a2");
+    }
+
+    @Test
+    @DisplayName("TC-ETL-015: Different spellings of the same dataset ID share one queue")
+    void differentSpellingsOfDatasetId_shareOneQueue() throws Exception {
+        processor = new EtlProcessor(rowStore(5));
+        String id = "5e2f8a3c-0d1b-4c7e-9f6a-1b2c3d4e5f60";
+        Load a1 = blockingLoad(new FakeDataset(id, id), "a1", true);
+        Load a2 = load(new FakeDataset(id.toUpperCase(), id), "a2", true);
+        Load a3 = load(new FakeDataset("myalias", id), "a3", true);
+
+        submit(a1);
+        awaitStarted(a1);
+        submit(a2);
+        submit(a3);
+        Thread.sleep(300);
+        assertThat(started).containsExactly("a1");
+
+        a1.release.countDown();
+        await().atMost(TIMEOUT).until(() -> started.size() == 3 && running.get() == 0);
+        assertThat(started).containsExactly("a1", "a2", "a3");
+        assertThat(maxRunning.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("TC-ETL-016: A load waiting for a permit can still be discarded by a replace")
+    void loadWaitingForPermit_isDiscardedByReplace() throws Exception {
+        processor = new EtlProcessor(rowStore(1));
+        FakeDataset a = new FakeDataset("a");
+        Load b1 = blockingLoad(new FakeDataset("b"), "b1", true);
+        Load a1 = load(a, "a1", true);
+        Load a2 = load(a, "a2", false);
+
+        submit(b1);
+        awaitStarted(b1);
+        // a1 is next in line for dataset a but no permit is available
+        submit(a1);
+        Thread.sleep(300);
+        submit(a2);
+
+        assertThat(a1.file).doesNotExist();
+        b1.release.countDown();
+        await().atMost(TIMEOUT).until(() -> started.size() == 2 && running.get() == 0);
+        assertThat(started).containsExactly("b1", "a2");
+    }
+
+    @Test
+    @DisplayName("TC-ETL-017: An Error thrown by a job does not stop subsequent jobs of the dataset")
+    void errorThrownByJob_doesNotStopSubsequentJobs() throws Exception {
+        processor = new EtlProcessor(rowStore(1));
+        FakeDataset a = new FakeDataset("a");
+        Load a1 = blockingLoad(a, "a1", true);
+        Load a2 = load(a, "a2", true);
+        Load a3 = load(a, "a3", true);
+
+        submit(a1);
+        awaitStarted(a1);
+        processor.runExclusively(a, () -> {
+            started.add("task");
+            throw new AssertionError("simulated error");
+        });
+        submit(a2);
+        a1.release.countDown();
+
+        // the worker failed: the jobs queued behind the task are discarded
+        await().atMost(TIMEOUT).until(() -> !a2.file.exists());
+        assertThat(started).containsExactly("a1", "task");
+
+        submit(a3);
+        await().atMost(TIMEOUT).until(() -> started.contains("a3") && running.get() == 0);
+        assertThat(started).containsExactly("a1", "task", "a3");
+        await().atMost(TIMEOUT).until(() -> processor.getActiveEtlProcesses() == 0);
     }
 
     private Load load(FakeDataset dataset, String name, boolean append) throws IOException {
@@ -325,13 +397,19 @@ class EtlProcessorTest {
      */
     private final class FakeDataset implements Dataset {
         final String id;
+        final String canonicalId;
         final List<Integer> statuses = new CopyOnWriteArrayList<>();
         final AtomicInteger running = new AtomicInteger();
         final AtomicInteger maxRunning = new AtomicInteger();
         volatile int status = EtlStatus.ACCEPTED_DATA;
 
         FakeDataset(String id) {
+            this(id, id);
+        }
+
+        FakeDataset(String id, String canonicalId) {
             this.id = id;
+            this.canonicalId = canonicalId;
         }
 
         @Override
@@ -363,6 +441,7 @@ class EtlProcessorTest {
         }
 
         @Override public String getId() { return id; }
+        @Override public String getCanonicalId() { return canonicalId; }
         @Override public int getStatus() { return status; }
         @Override public void setStatus(int status) { this.status = status; statuses.add(status); }
         @Override public Date getCreationDate() { return new Date(); }

@@ -173,7 +173,7 @@ Current limitations relevant to this area.
 | API-6.02 | Client errors: 400, 404, 415 |
 | API-6.03 | Constraints: 423, 424, 429 |
 | API-6.04 | Server errors: 500, 503 |
-| API-6.05 | Database failure while looking up a dataset → 500, not 404 |
+| API-6.05 | Database connectivity failure → 503, not 404 |
 | API-7.01 | [REMOVED] _callback wraps JSON in function call — JSONP removed |
 | API-8.01 | Server header: RowStore |
 | API-9.01 | Per-dataset OpenAPI spec from column names |
@@ -196,13 +196,14 @@ Current limitations relevant to this area.
 | ETL-6.02 | PUT = truncate + reload |
 | ETL-7.01 | text_pattern_ops index per column, escapeString for DDL |
 | ETL-7.02 | Skip index for fields > 256 chars |
-| ETL-8.01 | [REMOVED] Busy-wait if PROCESSING — superseded by ETL-8.02 to ETL-8.06 |
-| ETL-8.02 | Per-dataset job queue: one job at a time per dataset, in submission order |
+| ETL-8.01 | [REMOVED] Busy-wait if PROCESSING — superseded by ETL-8.02 to ETL-8.07 |
+| ETL-8.02 | Per-dataset job queue (canonical ID): one job at a time per dataset, in submission order |
 | ETL-8.03 | Replace discards queued (not started) loads of the same dataset |
-| ETL-8.04 | Semaphore permit only for running jobs; activeEtlProcesses counts running jobs |
+| ETL-8.04 | Semaphore permit only for the next job of a dataset; activeEtlProcesses counts running jobs |
 | ETL-8.05 | Stale PROCESSING taken over via conditional UPDATE (one instance per database) |
 | ETL-8.06 | Startup reset: PROCESSING → ERROR, ACCEPTED_DATA untouched |
-| ETL-9.01 | Temp file: deleteOnExit + explicit deletion |
+| ETL-8.07 | Error in a job: remaining queued jobs of the dataset discarded, new worker for later jobs |
+| ETL-9.01 | Temp file: deleteOnExit + explicit deletion (after load, on discard, on early failure) |
 | ETL-10.01 | Final status from locally tracked outcome; exceptions logged with stack trace |
 | ETL-10.02 | Final status write retried with backoff (~1.5 minutes) |
 

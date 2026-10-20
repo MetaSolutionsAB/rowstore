@@ -71,6 +71,8 @@ public class PgDataset implements Dataset {
 
 	private String id;
 
+	private String canonicalId;
+
 	private int status;
 
 	private Date created;
@@ -122,6 +124,7 @@ public class PgDataset implements Dataset {
 		}
 		this.rowstore = rowstore;
 		this.id = id;
+		this.canonicalId = id;
 		this.status = status;
 		this.created = created;
 		this.dataTable = dataTable;
@@ -133,6 +136,14 @@ public class PgDataset implements Dataset {
 	@Override
 	public String getId() {
 		return id;
+	}
+
+	/**
+	 * @see Dataset#getCanonicalId()
+	 */
+	@Override
+	public String getCanonicalId() {
+		return canonicalId;
 	}
 
 	/**
@@ -665,6 +676,7 @@ public class PgDataset implements Dataset {
 			log.debug("Loading dataset {} from database", getId());
 			Map<String, Object> row = rowstore.getJdbcTemplate().queryForMap(
 					"SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", getId());
+			this.canonicalId = row.get("id").toString();
 			this.status = (int) row.get("status");
 			this.created = (java.sql.Timestamp) row.get("created");
 			String loadedTable = (String) row.get("data_table");
@@ -682,7 +694,8 @@ public class PgDataset implements Dataset {
 				log.info(se.getMessage().replaceFirst("ERROR: ", ""));
 				throw new IllegalArgumentException(e);
 			}
-			// any other failure must not be mistaken for an unknown dataset
+			// any other failure must not be mistaken for an unknown dataset; connectivity failures
+			// (DataAccessResourceFailureException) are mapped to 503 by DatabaseExceptionHandler
 			if (cause instanceof SQLException se) {
 				SqlExceptionLogUtil.error(log, se);
 			} else {
@@ -800,7 +813,9 @@ public class PgDataset implements Dataset {
 					(rs, rowNum) -> (UUID) rs.getObject("dataset_id"), alias);
 			return results.isEmpty() ? null : results.get(0).toString();
 		} catch (DataAccessResourceFailureException e) {
-			// an unreachable database must not be mistaken for an unknown alias
+			// An unreachable database must not be mistaken for an unknown alias (mapped to 503). Unlike in
+			// initFromDb(), other failures are still treated as an unknown alias because the alias is
+			// unvalidated user input, which may be rejected by the database (e.g., invalid byte sequences).
 			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());

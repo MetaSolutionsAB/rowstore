@@ -86,7 +86,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT |
 > | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT, RateLimitAverageIT, RateLimitPartialConfigIT, RateLimitZeroValueIT |
 > | CORS | — | CorsIT |
-> | ETL processing | [10-etl-processing.md](tests/10-etl-processing.md) | EtlProcessingIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest) |
+> | ETL processing | [11-etl-processing.md](tests/11-etl-processing.md) | EtlProcessingIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest) |
 
 ## TEST-9 Framework-Agnostic Specs
 

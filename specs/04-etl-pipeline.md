@@ -86,27 +86,29 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 
 ## ETL-8 Concurrency Control
 
-> **ETL-8.01** [REMOVED] Busy-waiting (polling every 5 seconds while holding a permit) for a dataset in PROCESSING state. Superseded by per-dataset queues, see ETL-8.02 to ETL-8.06.
+> **ETL-8.01** [REMOVED] Busy-waiting (polling every 5 seconds while holding a permit) for a dataset in PROCESSING state. Superseded by per-dataset queues, see ETL-8.02 to ETL-8.07.
 
-> **ETL-8.02** Jobs are queued per dataset (in memory). Jobs of the same dataset run one at a time, strictly in submission order, on a virtual thread that exists while the dataset has queued jobs. For example, a PUT followed by several append POSTs is applied in exactly that order. `EtlProcessor.runExclusively(datasetId, task)` runs other work under the same per-dataset ordering and exclusion.
+> **ETL-8.02** Jobs are queued per dataset (in memory). Jobs of the same dataset run one at a time, strictly in submission order, on a virtual thread that exists while the dataset has queued jobs. For example, a PUT followed by several append POSTs is applied in exactly that order. Datasets are identified by their canonical ID (the lowercase UUID as stored), so uploads via different spellings of the ID (e.g., upper case) or via an alias share one queue; responses keep the requested spelling. `EtlProcessor.runExclusively(dataset, task)` runs other work under the same per-dataset ordering and exclusion.
 
 > **ETL-8.03** A replace (PUT, no append) discards all loads of the same dataset that are queued but have not started, since it supersedes them. Their temp files are deleted and the discarding is logged at INFO level. A running load is never interrupted, and tasks submitted with `runExclusively` are not discarded.
 
-> **ETL-8.04** A job acquires a `Semaphore` permit only when it is about to run, i.e., when no other job of its dataset is running. Jobs waiting for their dataset hold no permit and do not block loads of other datasets. The total number of concurrent jobs stays limited by `maxetlprocesses`. `activeProcesses` (exposed as `activeEtlProcesses` by `/status` and the health indicator) counts running jobs only.
+> **ETL-8.04** A `Semaphore` permit is acquired only for the job that is next in line for its dataset, i.e., when no other job of its dataset is running. Jobs waiting behind another job of their dataset hold no permit and do not block loads of other datasets. While waiting for a permit, the next job stays in the queue and can still be discarded by a replace (ETL-8.03); the permit is held from just before that job is taken from the queue until it has finished, so a dataset never holds more than one permit. The total number of concurrent jobs stays limited by `maxetlprocesses`. `activeProcesses` (exposed as `activeEtlProcesses` by `/status` and the health indicator) counts running jobs only.
 
 > **ETL-8.05** A database must not be used by more than one RowStore instance. Therefore a dataset in PROCESSING that is not being loaded by this instance is stale (e.g., left behind by a database outage) and is taken over by the next load without waiting: the transition to PROCESSING is a conditional `UPDATE datasets SET status = 2 WHERE id = ? AND status <> 2`; if no row is updated, a WARN is logged and the load proceeds.
 
-> **ETL-8.06** At startup, all datasets in PROCESSING are set to ERROR, and their IDs are logged at WARN level, since their loads were interrupted (e.g., by a crash). Datasets in ACCEPTED_DATA are left unchanged.
+> **ETL-8.06** At startup, all datasets in PROCESSING are set to ERROR, and their IDs are logged at WARN level, since their loads were interrupted (e.g., by a crash). Datasets in ACCEPTED_DATA are left unchanged, even if their queued load was lost by the restart or their status could not be updated at the start of a load because of a database outage (ETL-10.02); they are processed again by the next upload.
+
+> **ETL-8.07** If a job fails abnormally with an `Error` (e.g., `OutOfMemoryError`, or an `AssertionError` thrown by a task), the error is logged, the remaining queued jobs of the dataset are discarded (temp files deleted), and the dataset's queue is removed, so that jobs submitted later for the dataset are processed by a new worker.
 
 ## ETL-9 Temp File Lifecycle
 
-> **ETL-9.01** Uploaded CSV content is written to a temp file named `RowStore-*.csv` via `File.createTempFile()`. The file is marked with `deleteOnExit()` as a safety net. It is explicitly deleted after successful processing or on early failure (before queuing). Upload size is enforced by `maxuploadsize` (default 100 MB).
+> **ETL-9.01** Uploaded CSV content is written to a temp file named `RowStore-*.csv` via `File.createTempFile()`. The file is marked with `deleteOnExit()` as a safety net. It is explicitly deleted after its load has finished, whether successful or not, when its queued load is discarded (ETL-8.03, ETL-8.07, shutdown), or on early failure (before queuing). Upload size is enforced by `maxuploadsize` (default 100 MB).
 
 ## ETL-10 Failure Handling
 
 > **ETL-10.01** `populate()` tracks the outcome of a load locally and sets the final status (AVAILABLE on success, ERROR otherwise) from it, without reading the status back from the database. Exceptions that are not handled inside `populate()` (e.g., I/O errors, runtime exceptions) still set ERROR and then propagate to the `EtlProcessor`, which logs them with stack trace, makes a further best-effort attempt to set ERROR, and continues with the next job.
 
-> **ETL-10.02** The final status write of a load is retried with backoff if it fails, e.g., because the database is unreachable: up to six attempts with delays of 1, 5, 15, 30 and 45 seconds (about 1.5 minutes). If all attempts fail, the dataset remains in PROCESSING until it is loaded again (ETL-8.05) or RowStore is restarted (ETL-8.06).
+> **ETL-10.02** The final status write of a load is retried with backoff if it fails, e.g., because the database is unreachable: up to six attempts with delays of 1, 5, 15, 30 and 45 seconds, i.e., 96 seconds of delays plus the time each attempt needs to fail (up to the configured connect and login timeouts, 5 seconds each by default). During this time the job keeps its ETL permit and the dataset's further jobs wait. If all attempts fail, the dataset remains in its previous status: PROCESSING (taken over by the next load, ETL-8.05, or reset at the next startup, ETL-8.06), or ACCEPTED_DATA if the outage already prevented the transition to PROCESSING.
 
 ## Known Limitations
 
@@ -132,4 +134,4 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: virtual threads + Semaphore replace queue polling, HikariCP unwrap for BaseConnection |
 | 2026-10-20 | Failure handling of loads (ETL-10) |
-| 2026-10-20 | Per-dataset job queues with ordering and coalescing, permits only for running jobs, stale PROCESSING takeover and startup reset (ETL-8.02 to ETL-8.06, ETL-8.01 removed) |
+| 2026-10-20 | Per-dataset job queues with ordering and coalescing, permits only for running jobs, stale PROCESSING takeover and startup reset, abnormal worker failures (ETL-8.02 to ETL-8.07, ETL-8.01 removed) |

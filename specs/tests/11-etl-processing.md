@@ -6,8 +6,9 @@ Tests for the scheduling and failure handling of ETL loads: per-dataset ordering
 permits only for running loads, takeover of stale PROCESSING datasets, startup reset, and status handling when a
 load fails or the database is unreachable. See [04-etl-pipeline.md](../04-etl-pipeline.md) (ETL-8, ETL-10).
 
-TC-ETL-001 to TC-ETL-009 are unit tests (`EtlProcessorTest`, `PgDatasetPopulateTest`) that use fake datasets whose
-loads are controlled by the test. TC-ETL-010 to TC-ETL-014 are integration tests (`EtlProcessingIT`).
+TC-ETL-001 to TC-ETL-009 and TC-ETL-015 to TC-ETL-017 are unit tests (`EtlProcessorTest`, `PgDatasetPopulateTest`)
+that use fake datasets whose loads are controlled by the test. TC-ETL-010 to TC-ETL-014 and TC-ETL-018 are
+integration tests (`EtlProcessingIT`).
 
 ## Prerequisites
 
@@ -120,6 +121,41 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 1. The ERROR status write is attempted exactly three times (initial attempt and two retries)
 2. `populate()` still throws the original exception
 
+### TC-ETL-015: Different spellings of the same dataset ID share one queue
+
+**Steps:**
+1. Submit load A1 for a dataset via its lowercase ID and keep it running
+2. Submit load A2 via the upper case spelling of the ID and load A3 via an alias (same canonical ID)
+3. Release A1
+
+**Assertions:**
+1. A2 and A3 do not start while A1 is running
+2. The loads run in the order A1, A2, A3, never concurrently
+
+### TC-ETL-016: A load waiting for a permit can still be discarded by a replace
+
+**Steps:**
+1. `maxetlprocesses = 1`. Submit load B1 of dataset B and keep it running (occupies the only permit)
+2. Submit append load A1 of dataset A (next in line for A, waiting for a permit)
+3. Submit replace load A2 of dataset A
+4. Release B1
+
+**Assertions:**
+1. The temp file of A1 is deleted when A2 is submitted; A1 never runs
+2. The loads run in the order B1, A2
+
+### TC-ETL-017: An Error thrown by a job does not stop subsequent jobs of the dataset
+
+**Steps:**
+1. `maxetlprocesses = 1`. Submit load A1 of dataset A and keep it running
+2. Run a task exclusively for dataset A that throws an `AssertionError`, then submit append load A2
+3. Release A1; after the task has failed, submit load A3
+
+**Assertions:**
+1. A2, queued behind the failing task, is discarded (temp file deleted) and never runs
+2. A3 runs (a new worker is started for dataset A); the order is A1, task, A3
+3. No permit is leaked (`activeEtlProcesses` returns to 0)
+
 ## Integration tests
 
 ### TC-ETL-010: A dataset stuck in processing does not block a new upload
@@ -166,7 +202,7 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 6. Allow connections again
 
 **Assertions:**
-1. Step 5 returns `500`, not `404` (see API-6.05)
+1. Step 5 returns `503`, not `404` (see API-6.05)
 2. While connections are disallowed, the status in the database is still PROCESSING (2)
 3. After connections are allowed again, the status becomes ERROR (4) within 30 seconds (the status write is
    retried, see ETL-10.02)
@@ -181,3 +217,15 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 **Assertions:**
 1. The returned IDs contain the first dataset but not the second one
 2. The first dataset has status ERROR (4), the second one still ACCEPTED_DATA (1)
+
+### TC-ETL-018: Uploads via different spellings of a dataset ID and via an alias are applied in submission order
+
+**Steps:**
+1. Create a dataset from CSV `X` (1 row), wait until it is available, and set an alias for it
+2. Without waiting in between: `PUT` CSV `A` (20000 rows) via the lowercase ID, `POST` CSV `B` (2 rows) via the
+   upper case ID, `POST` CSV `C` (2 rows) via the alias
+
+**Assertions:**
+1. All uploads return `202`; the response to the upper case request contains the ID in upper case (as requested)
+2. Eventually the dataset is available and has 20004 rows
+3. Ordered by row number, the last rows are `A20000`, `B1`, `B2`, `C1`, `C2`

@@ -16,6 +16,7 @@
 
 package org.entrystore.rowstore;
 
+import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 import org.awaitility.core.ConditionTimeoutException;
 import org.entrystore.rowstore.store.impl.PgRowStore;
@@ -35,10 +36,11 @@ import java.util.List;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.equalTo;
 
 /**
  * Integration tests for the scheduling and failure handling of ETL loads.
- * Specification: 10-etl-processing.md
+ * Specification: 11-etl-processing.md
  */
 @DisplayName("ETL Processing Tests")
 class EtlProcessingIT extends BaseIntegrationTest {
@@ -120,15 +122,17 @@ class EtlProcessingIT extends BaseIntegrationTest {
             int loaderPid = await().atMost(MAX_WAIT).until(() -> blockedTruncatePid(db, dataTable), pid -> pid > 0);
 
             try {
-                // simulate an outage: no new connections, and the loader's connection is lost
+                // simulate an outage: no new connections, and the loader's connection is lost. This relies on the
+                // default test environment using the unpooled PGSimpleDataSource: idle pooled connections would
+                // survive ALLOW_CONNECTIONS false and the status could be written during the "outage".
                 try (Statement stmt = maintenance.createStatement()) {
                     stmt.execute("ALTER DATABASE \"" + database + "\" WITH ALLOW_CONNECTIONS false");
                     stmt.execute("SELECT pg_terminate_backend(" + loaderPid + ")");
                 }
                 locker.rollback();
 
-                // an unreachable database is not reported as an unknown dataset
-                given().spec(jsonSpec).get(urls.infoUrl).then().statusCode(500);
+                // an unreachable database is reported as such, not as an unknown dataset
+                given().spec(jsonSpec).get(urls.infoUrl).then().statusCode(503);
                 // the loader cannot set the error status while the database is unreachable
                 assertThat(queryString(db, "SELECT status FROM datasets WHERE id = '" + urls.datasetId + "'"))
                         .isEqualTo(String.valueOf(ETL_STATUS_PROCESSING));
@@ -154,7 +158,9 @@ class EtlProcessingIT extends BaseIntegrationTest {
             setStatus(processing.datasetId, ETL_STATUS_PROCESSING);
             setStatus(accepted.datasetId, ETL_STATUS_ACCEPTED_DATA);
 
-            // invoked by PgRowStore's constructor at startup
+            // invoked by PgRowStore's constructor at startup. It resets all datasets in PROCESSING of the shared
+            // test database, which relies on test classes not running concurrently; a dataset of another test that
+            // is being loaded would still end up with its correct final status, which is written unconditionally.
             List<String> reset = RowStoreTestEnvironment.getInstance().getBean(PgRowStore.class).resetInterruptedLoads();
 
             assertThat(reset).contains(processing.datasetId).doesNotContain(accepted.datasetId);
@@ -165,6 +171,34 @@ class EtlProcessingIT extends BaseIntegrationTest {
             setStatus(accepted.datasetId, ETL_STATUS_AVAILABLE);
             deleteDataset(processing.datasetUrl);
             deleteDataset(accepted.datasetUrl);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ETL-018: Uploads via different spellings of a dataset ID and via an alias are applied in submission order")
+    void uploadsViaDifferentIdSpellingsAndAlias_areAppliedInSubmissionOrder() throws SQLException {
+        DatasetUrls urls = createDatasetAndWait(csv("X", 1));
+        String alias = "etlorder" + urls.datasetId.replace("-", "").substring(0, 12);
+        try {
+            given().contentType(ContentType.JSON).body("[\"" + alias + "\"]")
+                    .put(urls.datasetUrl + "/aliases").then().statusCode(204);
+            String upperCaseUrl = urls.datasetUrl.replace(urls.datasetId, urls.datasetId.toUpperCase());
+            String aliasUrl = urls.datasetUrl.replace(urls.datasetId, alias);
+
+            int replaceRows = 20000;
+            given().spec(csvSpec).body(csv("A", replaceRows)).put(urls.datasetUrl).then().statusCode(202);
+            // the response keeps the requested spelling of the ID
+            given().spec(csvSpec).body(csv("B", 2)).post(upperCaseUrl).then().statusCode(202)
+                    .body("id", equalTo(urls.datasetId.toUpperCase()));
+            given().spec(csvSpec).body(csv("C", 2)).post(aliasUrl).then().statusCode(202);
+
+            await().atMost(MAX_WAIT).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
+                assertThat(resultCount(urls.datasetUrl)).isEqualTo(replaceRows + 4);
+                assertThat(status(urls.infoUrl)).isEqualTo(ETL_STATUS_AVAILABLE);
+            });
+            assertThat(names(urls.datasetUrl, replaceRows - 1)).containsExactly("A" + replaceRows, "B1", "B2", "C1", "C2");
+        } finally {
+            awaitLoadsFinishedAndDelete(urls);
         }
     }
 
