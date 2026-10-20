@@ -155,12 +155,11 @@ public class PgDataset implements Dataset {
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 		}
-
-		this.status = status;
 	}
 
 	/**
-	 * Writes the status to the database.
+	 * Writes the status to the database. The status field is only updated if this succeeds, so that it is the last
+	 * status known to be stored.
 	 *
 	 * @throws DataAccessException If the status could not be written.
 	 */
@@ -415,8 +414,8 @@ public class PgDataset implements Dataset {
 		} finally {
 			// Also reached by exceptions, which propagate to the caller after the status has been set
 			if (!writeStatusWithRetry(success ? EtlStatus.AVAILABLE : EtlStatus.ERROR)) {
-				log.error("Dataset {} remains in status {}({}) until it is loaded again or RowStore is restarted",
-						getId(), EtlStatus.toString(status), status);
+				log.error("Dataset {} keeps its last known status {}({}) until it is loaded again{}", getId(),
+						EtlStatus.toString(status), status, status == EtlStatus.PROCESSING ? " or RowStore is restarted" : "");
 			}
 		}
 
