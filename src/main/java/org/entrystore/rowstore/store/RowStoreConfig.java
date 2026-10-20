@@ -150,7 +150,10 @@ public class RowStoreConfig {
 		if (!obj.has(key)) {
 			throw missingKey(qualifiedKey);
 		}
-		return obj.getString(key);
+		if (!(obj.get(key) instanceof String value)) {
+			throw wrongType(qualifiedKey, "a string");
+		}
+		return value;
 	}
 
 	private static JSONObject requiredObject(JSONObject obj, String key) {

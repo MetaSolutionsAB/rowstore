@@ -192,18 +192,19 @@ class RowStoreConfigTest {
             "cors.allowedorigins    | [1]",
             "database               | \"localhost\"",
             "queryDatabase          | true",
-            "baseurl                | 42"
+            "baseurl                | 42",
+            "database.password      | 12345",
+            "queryDatabase.host     | 5"
     })
     @DisplayName("TC-CFG-005: Key with wrong type fails instead of silently using defaults")
     void wrongType_failsNamingKey(String key, String jsonValue) {
         JSONObject json = new JSONObject(FULL_CONFIG);
         put(json, key, new JSONObject("{\"v\": " + jsonValue + "}").get("v"));
 
-        String leafKey = key.substring(key.lastIndexOf('.') + 1);
         assertThatThrownBy(() -> new RowStoreConfig(json))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageStartingWith("rowstore.json")
-                .hasMessageContaining(leafKey);
+                .hasMessageContaining("'" + key + "'");
     }
 
     @ParameterizedTest(name = "{0} = {1}")
