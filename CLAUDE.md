@@ -50,7 +50,7 @@ Docker 29+ compatibility is handled via `-Dapi.version=1.44` in the Maven plugin
 # Run all tests (no manual setup required)
 mvn verify
 
-# Run unit tests only (Maven Surefire, *Test.java; none exist yet, see below)
+# Run unit tests only (Maven Surefire, *Test.java, no Docker needed)
 mvn test
 
 # Build without running integration tests
@@ -72,10 +72,11 @@ mvn verify -Drowstore.baseUrl=http://localhost:8282
 Tests that need direct database access (`BaseIntegrationTest.openDatabaseConnection()`) are skipped in that mode.
 
 Integration test classes follow the `*IT.java` naming convention (Maven Failsafe), unit tests `*Test.java` (Maven Surefire).
-`mvn test` runs only the Surefire unit tests; currently all tests are `*IT.java` integration tests, so it runs
-nothing yet (the first unit tests are added by a later change).
+`mvn test` runs only the unit tests (e.g. `RowStoreConfigTest`, `EtlProcessorTest`, `TrustedProxyFilterTest`,
+`ColumnNamesTest`); they use fakes or mocks instead of a database. `mvn verify` runs both.
 Most ITs extend `BaseIntegrationTest` (shared environment from `RowStoreTestEnvironment`); ITs that need a
 differently configured server extend `ConfigurableTestBase` with a dedicated extension (e.g. `RateLimitExtension`).
+Test CSV files are in `src/test/resources/data/`.
 
 ### Test Specifications
 
@@ -97,7 +98,8 @@ All packages are below `org.entrystore.rowstore` in `src/main/java`.
 **Configuration** (`config/`):
 - `RowStoreConfigLoader` - Bridges `rowstore.json` into Spring: loads the file and exposes it as a `RowStoreConfig` bean (not `application.properties`)
 - `DataSourceConfig` - Creates the primary and the read-only query `DataSource` programmatically from `rowstore.json` (`PGSimpleDataSource` by default, HikariCP when `connectionPoolMax` > 0) and runs Flyway migrations programmatically (Spring's DataSource and Flyway auto-configuration are disabled)
-- `CorsConfig` - CORS filter with origins from `cors.allowedorigins`
+- `CorsConfig` - CORS filter (`FilterRegistrationBean`) with origins from `cors.allowedorigins`
+- `DatabaseExceptionHandler` - Maps database connectivity failures in controllers to 503 (instead of 404/500)
 - `RowStoreHealthIndicator` - Actuator health check (database connectivity, dataset count, active ETL processes)
 - `CustomErrorController` - Error responses for `/error`
 
@@ -110,28 +112,40 @@ All packages are below `org.entrystore.rowstore` in `src/main/java`.
 
 **Store Layer** (`store/`, implementations in `store/impl/`):
 - `RowStore` (interface) / `PgRowStore` (impl) - Main service facade
-- `Dataset` (interface) / `PgDataset` (impl) - Dataset operations (query, populate, aliases)
+- `Dataset` (interface) / `PgDataset` (impl) - Dataset operations (query, populate, aliases, export stream)
 - `Datasets` (interface) / `PgDatasets` (impl) - Dataset CRUD management
-- `RowStoreConfig` - JSON configuration parsing
+- `RowStoreConfig` - JSON configuration parsing and fail-fast validation (invalid `rowstore.json` prevents startup)
 - `QueryResult` - Query result envelope
+- `RowStream` - Closeable cursor over all rows of a dataset, used by the streamed export
+
+`PgDataset.populate()` loads a CSV in a single transaction. An append inserts into the data table; a replace (PUT)
+loads into a shadow table `<dataTable>_new` and swaps it for the data table at the end of the same transaction, so
+the previous data is served during the load and kept if it fails (see ETL-6 in `specs/04-etl-pipeline.md`).
+At startup, `PgRowStore` sets datasets left in PROCESSING to ERROR, drops leftover shadow tables, and starts a
+background cleanup of column names stored before 2.0 with a byte order mark or soft hyphens (ETL-11).
 
 **ETL Layer** (`etl/`):
-- `EtlProcessor` - Async CSV processing on virtual threads, concurrency limited by a `Semaphore` (`maxetlprocesses`)
+- `EtlProcessor` - Per-dataset job queues: loads of a dataset run one at a time in submission order on a virtual
+  thread, a replace discards the dataset's queued (not yet started) loads, and a `Semaphore` (`maxetlprocesses`)
+  limits the number of running loads; `runExclusively()` runs other tasks (column name cleanup) in the same order
 - `EtlResource` - ETL job wrapper
 - `EtlStatus` - Status constants (CREATED=0, ACCEPTED_DATA=1, PROCESSING=2, AVAILABLE=3, ERROR=4)
 
-**Filters** (`filters/`):
-- `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
-- `ApiKeyFilter` - No-op stub that passes all requests through; it performs no authentication
+**Filters** (`filters/`), in this order (CORS is registered in `CorsConfig`):
+1. `PathParameterFilter` - Rejects request paths containing `;` (path parameters) with 400
+2. `CorsFilter` - CORS headers, also on responses of the filters below (e.g. 429)
+3. `TrustedProxyFilter` - Takes the client address from `X-Forwarded-For` only for peers listed in `trustedproxies`
+4. `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
 
 **Utilities** (`util/`):
-- `DatasetUtil` - Dataset URL building, charset detection, regex heuristics and safety checks
+- `DatasetUtil` - Dataset URL building, charset detection, byte order mark skipping, regex heuristics and safety checks
+- `ColumnNames` - Normalization of CSV labels and stored column names (lowercase, strip, byte order marks and soft hyphens removed)
 - `Hashing` - Hash helpers
 
 ### Security Model
 
-RowStore does not authenticate requests. It is meant to run behind a reverse proxy, which is responsible for
-authentication and for restricting write access. CORS (`CorsConfig`) replaces the JSONP support of RowStore 1.x.
+RowStore has no application-level authentication; it must run behind a reverse proxy that authenticates all
+non-GET/HEAD requests and blocks Actuator, Swagger UI, `/v3/api-docs` and `/status?jvm` (contract in the Security section of `README.md`).
 
 ### Database Schema
 
@@ -149,7 +163,7 @@ Queries support regex matching (configurable via `regexpqueries`: disabled/simpl
 
 ### Configuration
 
-Set via `rowstore.json` (see resolution order above). Key settings: `baseurl`, `regexpqueries`, `maxetlprocesses`, `querytimeout`, `querymaxlimit`, `maxuploadsize`, `database`, `queryDatabase` (read replica), `cors`, `ratelimit`. See `specs/06-configuration.md` for all options.
+Set via `rowstore.json` (see resolution order above). Key settings: `baseurl`, `regexpqueries`, `maxetlprocesses`, `querytimeout`, `querymaxlimit`, `maxuploadsize`, `legacyparser`, `database`, `queryDatabase` (read replica), `cors`, `ratelimit`, `trustedproxies`. See `specs/06-configuration.md` for all options.
 
 ## Specification Requirement IDs
 
