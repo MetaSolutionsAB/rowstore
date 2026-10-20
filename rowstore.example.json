@@ -1,0 +1,15 @@
+{
+  "baseurl": "http://localhost:8282/",
+  "regexpqueries": "full",
+  "maxetlprocesses": 5,
+  "querymaxlimit": 100,
+  "loglevel": "info",
+  "database": {
+    "host": "localhost",
+    "port": 15432,
+    "database": "rowstore",
+    "user": "rowstore",
+    "password": "rowstore",
+    "ssl": false
+  }
+}

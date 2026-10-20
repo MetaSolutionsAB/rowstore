@@ -23,7 +23,8 @@ ROWSTORE_CONFIG_URI=file:///path/to/rowstore.json java -jar target/rowstore-<ver
 Configuration is resolved in this order (see `RowStoreConfigLoader`): `--rowstore.config.uri` property,
 `ROWSTORE_CONFIG_URI` environment variable, `rowstore.json` on the classpath. The default HTTP port is 8282
 (`server.port` in `src/main/resources/application.properties`, override with `--server.port=<port>`).
-An example configuration is in `src/main/resources/rowstore.json_example`.
+An example configuration is in `src/main/resources/rowstore.json_example`. For local runs, `docker compose up -d`
+starts PostgreSQL 16 (`docker-compose.yml`) matching `rowstore.example.json` (see Quickstart in `README.md`).
 
 Docker image (the `Dockerfile` copies `target/rowstore-*.jar`, so build the JAR first):
 
