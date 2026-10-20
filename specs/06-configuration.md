@@ -12,6 +12,14 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-1.01** Configuration is specified as a JSON file. The file must be valid JSON with a single root object.
 
+> **CFG-1.02** The configuration is validated at startup and RowStore refuses to start if it is invalid. The first error log line names the offending key (e.g. `rowstore.json: missing required key 'database.host'`). Startup fails when:
+> - a required key is missing: `baseurl`, `database`, `database.host`, `database.database`, `database.user`, `database.password` (and the same four keys in `queryDatabase` when that block is present); an empty password is allowed
+> - `database`, `queryDatabase`, `ratelimit` or `cors` is present but not a JSON object, or `cors.allowedorigins` is present but not an array of strings
+> - a value cannot be read as the expected type (e.g. `baseurl` is not a string)
+> - `querymaxlimit` or `maxuploadsize` is not greater than 0
+>
+> Unknown keys are ignored.
+
 ## CFG-2 Resolution Order
 
 > **CFG-2.01** The configuration file is resolved in this order:
@@ -40,11 +48,11 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-3.06** `querytimeout` (int, default `-1`) — Query timeout in seconds. When > 0, applied via `setQueryTimeout()` on the JDBC statement. Timed-out queries return 503. See [QUERY-7.01](05-querying.md#query-7-query-timeout).
 
-> **CFG-3.07** `querymaxlimit` (int, default `100`) — Maximum value allowed for the `_limit` query parameter. Client-requested limits exceeding this value are capped. See [QUERY-3.01](05-querying.md#query-3-special-parameters).
+> **CFG-3.07** `querymaxlimit` (int, default `100`) — Maximum value allowed for the `_limit` query parameter. Client-requested limits exceeding this value are capped. Must be greater than 0. See [QUERY-3.01](05-querying.md#query-3-special-parameters).
 
-> **CFG-3.08** `exportpagesize` (int, default `100000`) — Number of rows fetched per internal database query during export operations. Controls memory usage for large exports.
+> **CFG-3.08** [REMOVED] `exportpagesize` — Was never used by the export implementation. The key is ignored if present.
 
-> **CFG-3.09** `maxuploadsize` (long, default `104857600`) — Maximum CSV upload size in bytes (default 100 MB). Uploads exceeding this limit are rejected. See [SEC-4.09](07-security.md#sec-4-input-validation).
+> **CFG-3.09** `maxuploadsize` (long, default `104857600`) — Maximum CSV upload size in bytes (default 100 MB). Uploads exceeding this limit are rejected. Must be greater than 0. See [SEC-4.09](07-security.md#sec-4-input-validation).
 
 > **CFG-3.10** `cors.allowedorigins` (JSON array, default `["*"]`) — List of allowed origins for CORS. When set to `["*"]`, all origins are permitted. See [SEC-6.01](07-security.md#sec-6-cors).
 
@@ -119,7 +127,6 @@ Covers the JSON configuration file format, all application and database options,
 >     "legacyparser": false,
 >     "querytimeout": 30,
 >     "querymaxlimit": 500,
->     "exportpagesize": 50000,
 >     "maxuploadsize": 209715200,
 >     "cors": {
 >         "allowedorigins": ["https://example.com", "https://app.example.com"]
@@ -160,7 +167,7 @@ Covers the JSON configuration file format, all application and database options,
 ## Known Limitations
 
 - No hot-reload of configuration (requires restart)
-- No configuration validation at startup beyond JSON parsing (missing required fields cause runtime errors)
+- Validation covers required keys, block types and positive limits only (CFG-1.02); a scalar value of the wrong type for an optional key (e.g. `"querytimeout": "abc"`) still falls back to the default
 - Database password is stored in plaintext (no vault or secrets manager integration)
 - No support for environment variable substitution within the JSON config file
 
@@ -179,3 +186,4 @@ Covers the JSON configuration file format, all application and database options,
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |
+| 2026-10-20 | Added CFG-1.02 (fail fast on invalid config), CFG-3.08 removed (exportpagesize unused) |

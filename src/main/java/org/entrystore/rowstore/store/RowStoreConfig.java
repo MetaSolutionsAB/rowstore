@@ -19,8 +19,6 @@ package org.entrystore.rowstore.store;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,8 +29,6 @@ import java.util.List;
  * @author Hannes Ebner
  */
 public class RowStoreConfig {
-
-	private final static Logger log = LoggerFactory.getLogger(RowStoreConfig.class);
 
 	private String logLevel;
 
@@ -54,13 +50,9 @@ public class RowStoreConfig {
 
 	private int rateLimitRequestsClientIP = -1;
 
-	private boolean rateLimitEnabled = false;
-
 	private int queryTimeout = -1;
 
 	private int queryMaxLimit = -1;
-
-	private int exportPageSize = -1;
 
 	private long maxUploadSize = 104857600; // 100 MB default
 
@@ -70,80 +62,125 @@ public class RowStoreConfig {
 
 	private Database queryDatabase;
 
+	/**
+	 * @throws IllegalStateException if the configuration is invalid, with a message naming the offending key
+	 */
 	public RowStoreConfig(JSONObject config) {
 		try {
-			// Base URL
-			baseURL = config.getString("baseurl");
-
-			// Support for RegExp pattern matching
-			String regExpSupportStr = config.optString("regexpqueries", "false");
-			if ("simple".equalsIgnoreCase(regExpSupportStr)) {
-				regExpSupport = Dataset.REGEXP_QUERY_SIMPLE;
-			} else if ("full".equalsIgnoreCase(regExpSupportStr) || "true".equalsIgnoreCase(regExpSupportStr)) {
-				regExpSupport = Dataset.REGEXP_QUERY_FULL;
-			} else {
-				regExpSupport = Dataset.REGEXP_QUERY_DISABLED;
-			}
-
-			// ETL
-			maxEtlProcesses = config.optInt("maxetlprocesses", 5);
-
-			// Logging
-			logLevel = config.optString("loglevel", "info");
-
-			// Parser
-			legacyParserEnabled = config.optBoolean("legacyparser", false);
-
-			// Database
-			database = new Database(config.getJSONObject("database"));
-			if (config.has("queryDatabase")) {
-				queryDatabase = new Database(config.getJSONObject("queryDatabase"));
-			} else {
-				queryDatabase = database;
-			}
-
-			// Rate limitation
-			if (config.has("ratelimit")) {
-				JSONObject rateLimitConfig = config.getJSONObject("ratelimit");
-				rateLimitType = rateLimitConfig.optString("type", "slidingwindow");
-				rateLimitTimeRange = rateLimitConfig.optInt("timerange", -1);
-				rateLimitRequestsGlobal = rateLimitConfig.optInt("global", -1);
-				rateLimitRequestsDataset = rateLimitConfig.optInt("dataset", -1);
-				rateLimitRequestsClientIP = rateLimitConfig.optInt("clientip", -1);
-				if (rateLimitTimeRange > 0 && (rateLimitRequestsGlobal > 0 || rateLimitRequestsDataset > 0)) {
-					rateLimitEnabled = true;
-				}
-			}
-
-			// Query time out
-			queryTimeout = config.optInt("querytimeout", -1);
-
-			// Maximum size of reponse size limit (i.e. "_limit" in the URL parameters)
-			queryMaxLimit = config.optInt("querymaxlimit", 100);
-
-			// Page size for queries when exporting
-			exportPageSize = config.optInt("exportpagesize", 100000);
-
-			// Max upload size in bytes (default 100 MB)
-			maxUploadSize = config.optLong("maxuploadsize", 104857600);
-
-			// CORS allowed origins
-			if (config.has("cors")) {
-				JSONObject corsConfig = config.getJSONObject("cors");
-				if (corsConfig.has("allowedorigins")) {
-					JSONArray origins = corsConfig.getJSONArray("allowedorigins");
-					List<String> originList = new ArrayList<>();
-					for (int i = 0; i < origins.length(); i++) {
-						originList.add(origins.getString(i));
-					}
-					if (!originList.isEmpty()) {
-						corsAllowedOrigins = originList;
-					}
-				}
-			}
+			parse(config);
 		} catch (JSONException e) {
-			log.error(e.getMessage());
+			throw new IllegalStateException("rowstore.json invalid: " + e.getMessage(), e);
 		}
+	}
+
+	private void parse(JSONObject config) {
+		// Base URL
+		baseURL = requiredString(config, "baseurl", "baseurl");
+
+		// Support for RegExp pattern matching
+		String regExpSupportStr = config.optString("regexpqueries", "false");
+		if ("simple".equalsIgnoreCase(regExpSupportStr)) {
+			regExpSupport = Dataset.REGEXP_QUERY_SIMPLE;
+		} else if ("full".equalsIgnoreCase(regExpSupportStr) || "true".equalsIgnoreCase(regExpSupportStr)) {
+			regExpSupport = Dataset.REGEXP_QUERY_FULL;
+		} else {
+			regExpSupport = Dataset.REGEXP_QUERY_DISABLED;
+		}
+
+		// ETL
+		maxEtlProcesses = config.optInt("maxetlprocesses", 5);
+
+		// Logging
+		logLevel = config.optString("loglevel", "info");
+
+		// Parser
+		legacyParserEnabled = config.optBoolean("legacyparser", false);
+
+		// Database
+		database = new Database(requiredObject(config, "database"), "database");
+		JSONObject queryDatabaseConfig = optionalObject(config, "queryDatabase");
+		queryDatabase = queryDatabaseConfig != null ? new Database(queryDatabaseConfig, "queryDatabase") : database;
+
+		// Rate limitation
+		JSONObject rateLimitConfig = optionalObject(config, "ratelimit");
+		if (rateLimitConfig != null) {
+			rateLimitType = rateLimitConfig.optString("type", "slidingwindow");
+			rateLimitTimeRange = rateLimitConfig.optInt("timerange", -1);
+			rateLimitRequestsGlobal = rateLimitConfig.optInt("global", -1);
+			rateLimitRequestsDataset = rateLimitConfig.optInt("dataset", -1);
+			rateLimitRequestsClientIP = rateLimitConfig.optInt("clientip", -1);
+		}
+
+		// Query time out
+		queryTimeout = config.optInt("querytimeout", -1);
+
+		// Maximum size of reponse size limit (i.e. "_limit" in the URL parameters)
+		queryMaxLimit = config.optInt("querymaxlimit", 100);
+		if (queryMaxLimit <= 0) {
+			throw new IllegalStateException("rowstore.json: 'querymaxlimit' must be greater than 0");
+		}
+
+		// Max upload size in bytes (default 100 MB)
+		maxUploadSize = config.optLong("maxuploadsize", 104857600);
+		if (maxUploadSize <= 0) {
+			throw new IllegalStateException("rowstore.json: 'maxuploadsize' must be greater than 0");
+		}
+
+		// CORS allowed origins
+		JSONObject corsConfig = optionalObject(config, "cors");
+		if (corsConfig != null && corsConfig.has("allowedorigins")) {
+			JSONArray origins = corsConfig.optJSONArray("allowedorigins");
+			if (origins == null) {
+				throw wrongType("cors.allowedorigins", "an array of strings");
+			}
+			List<String> originList = new ArrayList<>();
+			for (int i = 0; i < origins.length(); i++) {
+				if (!(origins.get(i) instanceof String origin)) {
+					throw wrongType("cors.allowedorigins", "an array of strings");
+				}
+				originList.add(origin);
+			}
+			if (!originList.isEmpty()) {
+				corsAllowedOrigins = originList;
+			}
+		}
+	}
+
+	private static String requiredString(JSONObject obj, String key, String qualifiedKey) {
+		if (!obj.has(key)) {
+			throw missingKey(qualifiedKey);
+		}
+		return obj.getString(key);
+	}
+
+	private static JSONObject requiredObject(JSONObject obj, String key) {
+		if (!obj.has(key)) {
+			throw missingKey(key);
+		}
+		return optionalObject(obj, key);
+	}
+
+	/**
+	 * @return the JSON object for the key, or null if the key is not present
+	 * @throws IllegalStateException if the key is present but not a JSON object
+	 */
+	private static JSONObject optionalObject(JSONObject obj, String key) {
+		if (!obj.has(key)) {
+			return null;
+		}
+		JSONObject result = obj.optJSONObject(key);
+		if (result == null) {
+			throw wrongType(key, "a JSON object");
+		}
+		return result;
+	}
+
+	private static IllegalStateException missingKey(String qualifiedKey) {
+		return new IllegalStateException("rowstore.json: missing required key '" + qualifiedKey + "'");
+	}
+
+	private static IllegalStateException wrongType(String qualifiedKey, String expected) {
+		return new IllegalStateException("rowstore.json: '" + qualifiedKey + "' must be " + expected);
 	}
 
 	public String getLogLevel() {
@@ -162,10 +199,6 @@ public class RowStoreConfig {
 
 	public int getRegexpQuerySupport() {
 		return regExpSupport;
-	}
-
-	public boolean isRateLimitEnabled() {
-		return rateLimitEnabled;
 	}
 
 	public int getRateLimitTimeRange() {
@@ -194,10 +227,6 @@ public class RowStoreConfig {
 
 	public int getQueryMaxLimit() {
 		return queryMaxLimit;
-	}
-
-	public int getExportPageSize() {
-		return exportPageSize;
 	}
 
 	public Database getDatabase() {
@@ -245,13 +274,16 @@ public class RowStoreConfig {
 		Database() {
 		}
 
-		public Database(JSONObject dbConfig) {
+		/**
+		 * @param name the key of the block in rowstore.json, used in error messages
+		 */
+		public Database(JSONObject dbConfig, String name) {
 			setType(dbConfig.optString("type", "postgresql"));
-			setHost(dbConfig.getString("host"));
+			setHost(requiredString(dbConfig, "host", name + ".host"));
 			setPort(dbConfig.optInt("port", 5432));
-			setName(dbConfig.getString("database"));
-			setUser(dbConfig.getString("user"));
-			setPassword(dbConfig.getString("password"));
+			setName(requiredString(dbConfig, "database", name + ".database"));
+			setUser(requiredString(dbConfig, "user", name + ".user"));
+			setPassword(requiredString(dbConfig, "password", name + ".password"));
 			setSsl(dbConfig.optBoolean("ssl", false));
 			setConnectionPoolInit(dbConfig.optInt("connectionPoolInit", -1));
 			setConnectionPoolMax(dbConfig.optInt("connectionPoolMax", -1));
