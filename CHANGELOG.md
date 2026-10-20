@@ -1,5 +1,78 @@
 # ROWSTORE CHANGELOG
 
+## 2.0 (unreleased)
+
+RowStore 2.0 is a rewrite of the application layer on Spring Boot. The REST API (paths, parameters, JSON responses) and the `rowstore.json` format stay compatible with 1.x, except for the changes listed in the upgrade notes below.
+
+- Migration from Restlet to Spring Boot 3.5 with embedded Tomcat; a single Maven module builds an executable JAR, which replaces the WAR file and the standalone Jetty distribution
+- Java 25 with virtual threads for request handling and ETL processing
+- JSONP (`_callback`) removed, replaced by CORS with configurable origins (`cors.allowedorigins`)
+- Database schema of the administrative tables managed by Flyway; existing 1.x databases are adopted at the first start
+- HikariCP connection pooling (replacing `PGPoolingDataSource`) when `connectionPoolMax` > 0, for `database` and `queryDatabase`; no connection pool by default
+- New option `maxuploadsize` limits the size of CSV uploads (default 100 MB, HTTP 413 above)
+- Spring Boot Actuator endpoints (`/actuator/health`, `/actuator/info`, `/actuator/metrics`) and OpenAPI documentation (`/v3/api-docs`, `/swagger-ui.html`)
+- Unit tests and Testcontainers-based integration tests replace the JavaScript test suite
+
+### Improvement
+
+[ROWS-91](https://metasolutions.atlassian.net/browse/ROWS-91) Remove UTF-8 BOM etc. from column names
+
+[ROWS-112](https://metasolutions.atlassian.net/browse/ROWS-112) Use BIGSERIAL for rownr in new and shadow data tables
+
+[ROWS-122](https://metasolutions.atlassian.net/browse/ROWS-122) Rewrite CLAUDE.md for the Spring Boot single-module layout
+
+### Task
+
+[ROWS-104](https://metasolutions.atlassian.net/browse/ROWS-104) Remove the ApiKeyFilter stub and document the reverse-proxy security contract
+
+[ROWS-107](https://metasolutions.atlassian.net/browse/ROWS-107) Documentation truth pass for 2.0: README, CLAUDE.md and CHANGELOG
+
+[ROWS-143](https://metasolutions.atlassian.net/browse/ROWS-143) Run a one-off dependency vulnerability scan before tagging 2.0 (pending, to be run on the release candidate)
+
+### Bug
+
+[ROWS-101](https://metasolutions.atlassian.net/browse/ROWS-101) Export corrupts rows with duplicate cell values, fails on sparse rows, and leaks a connection on DB error
+
+[ROWS-102](https://metasolutions.atlassian.net/browse/ROWS-102) Fail fast on invalid or incomplete rowstore.json instead of silently degrading
+
+[ROWS-103](https://metasolutions.atlassian.net/browse/ROWS-103) Client-supplied X-Forwarded-For bypasses per-client-IP rate limiting
+
+[ROWS-105](https://metasolutions.atlassian.net/browse/ROWS-105) populate() swallows in-flight exceptions with a return inside finally
+
+[ROWS-106](https://metasolutions.atlassian.net/browse/ROWS-106) set-version.sh writes VERSION.txt to the removed webapp module path
+
+[ROWS-114](https://metasolutions.atlassian.net/browse/ROWS-114) PUT replace is not atomic: dataset is empty during re-import and data is lost if the import fails
+
+[ROWS-138](https://metasolutions.atlassian.net/browse/ROWS-138) An empty line in a CSV silently drops every row after it, and the load reports success
+
+[ROWS-139](https://metasolutions.atlassian.net/browse/ROWS-139) Swagger endpoint returns invalid JSON or fails when a column name contains a backslash, double quote or dollar sign
+
+[ROWS-140](https://metasolutions.atlassian.net/browse/ROWS-140) A DB outage during a load leaves a dataset stuck in PROCESSING, and the endless wait for it blocks every other upload
+
+[ROWS-141](https://metasolutions.atlassian.net/browse/ROWS-141) Datasource settings from 1.7 and develop lost in the Spring migration (SSL mode, driver timeouts with HikariCP, read-only query connections)
+
+[ROWS-144](https://metasolutions.atlassian.net/browse/ROWS-144) Path parameters (';') bypass proxy path rules and the per-dataset rate limit
+
+[ROWS-145](https://metasolutions.atlassian.net/browse/ROWS-145) Rate-limited responses (429) carry no CORS headers, so browsers cannot read Retry-After
+
+### Upgrade notes
+
+Changes visible to operators and clients when upgrading from 1.7:
+
+- **Deployment:** RowStore is started with `java -jar rowstore-<version>.jar --rowstore.config.uri=file:///path/to/rowstore.json` (or the environment variable `ROWSTORE_CONFIG_URI`); the port is set with `--server.port=<port>` (default 8282). The WAR file, the standalone start script `bin/rowstore <config> [port]` and the options `-l/--log-level` and `--connector-params` (`ROWSTORE_CONNECTOR_PARAMS`) are gone. The Docker image reads `/srv/rowstore/rowstore.json`. Java 25 is required.
+- **Reverse proxy required:** there is no application-level authentication (the `ApiKeyFilter` stub was removed). The reverse proxy must authenticate all requests other than `GET`/`HEAD` and block `/actuator/**`, `/swagger-ui*`, `/v3/api-docs*` and `/status?jvm`, which are served on the application port until a separate management port is introduced in 2.1 ([ROWS-108](https://metasolutions.atlassian.net/browse/ROWS-108)). See the Security section of the README.
+- **JSONP removed:** responses are never wrapped in a callback; like any parameter that is not a column name, `_callback` makes a dataset query fail with HTTP 400. Browser clients of other origins use CORS (`cors.allowedorigins`, default all origins).
+- **Delete:** `DELETE /dataset/{id}` returns 204 No Content instead of 200 OK.
+- **Fail-fast configuration:** configurations that 1.x tolerated now prevent the startup, with an error naming the offending key: missing `baseurl`, `database` or `database.host`/`database`/`user`/`password` (also in `queryDatabase`, if present), these keys with a non-string value, `database`/`queryDatabase`/`ratelimit`/`cors` that are not JSON objects, `cors.allowedorigins` or `trustedproxies` that are not arrays of strings, `trustedproxies` entries that are not IP addresses or CIDR ranges, and `querymaxlimit` or `maxuploadsize` not greater than 0. `exportpagesize` was never used and is ignored.
+- **Database connection:** `"ssl": false` now disables SSL explicitly (`sslmode=disable`; 1.7 used the driver default `prefer`), so a server that requires SSL refuses the connection. The driver timeouts `socketTimeout`, `connectTimeout` and `loginTimeout` are applied with and without connection pool; 0 means unlimited. Connection pooling is configured with `connectionPoolMax` (HikariCP) and is off by default.
+- **Column names of existing datasets:** column names that 1.x stored with a byte order mark or soft hyphens (e.g. `\ufeff"kopare_id"` instead of `kopare_id`) are renamed automatically in the background after the first start, one dataset at a time; datasets whose cleaned names would collide are skipped and logged. Queries, `/info`, Swagger and exports then use the cleaned names; queries by the old names stop working. New uploads always yield cleaned names.
+- **Empty lines in CSV files:** an empty line between rows (or directly after the header) now fails the load (status 4, "Error"); 1.7 silently dropped all following rows (default parser) or loaded an empty row (legacy parser). Trailing empty lines are ignored, whitespace-only lines are rows, and an empty value in a single-column CSV must be quoted (`""`).
+- **Replace (PUT):** the previous data is served until the replace is complete and is kept if the replace fails (status 4 with the previous data). The database needs disk space for the old and the new data during a replace. Like 1.x, the replace waits for long-running readers of the dataset's table (e.g. `pg_dump`), and new queries of the dataset wait behind it.
+- **Upload order:** uploads to the same dataset are processed one after another in the order of arrival; a replace discards the dataset's uploads that are still waiting. `activeEtlProcesses` in `/status` counts only running loads. Datasets left in status 2 ("Processing") by a crash are set to 4 ("Error") at startup.
+- **Database outages:** requests that cannot reach the database get HTTP 503 instead of 404.
+- **Per-client rate limit:** `X-Forwarded-For` is only evaluated for requests from trusted proxies (`trustedproxies`, default: loopback and private address ranges). A reverse proxy on a public IP address must be listed in `trustedproxies`, otherwise all clients share the proxy's limit.
+- **Path parameters:** request paths containing `;` are rejected with HTTP 400.
+
 ## 1.7 (2025-07-01)
 
 ### Improvement
