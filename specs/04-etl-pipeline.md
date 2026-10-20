@@ -61,10 +61,15 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 
 > **ETL-4.04** Column name normalization:
 > - All column names are converted to **lowercase**
-> - Column names are **trimmed** of whitespace
+> - Column names are **stripped** of leading and trailing whitespace (`String.strip()`, i.e., Unicode whitespace; 1.x used `trim()`, which only removes characters up to U+0020)
+> - Byte order marks and soft hyphens are removed (ETL-4.07)
 > - Empty column labels are **skipped** (not included in the dataset)
 
 > **ETL-4.05** Empty lines: a line without any characters outside a quoted value is an empty line, not a record. Empty lines at the end of the file are ignored. An empty line that is followed by further records, including an empty line directly after the header, fails the load: the line number of the first empty line is logged at ERROR level, the transaction is rolled back, and the status is set to ERROR; a failed replace keeps the previous data (ETL-6.03). Lines consisting of whitespace only are records, and empty lines inside a quoted multi-line value are part of the value. Both parsers (ETL-4.03) behave the same; since they do not report empty lines reliably (`RFC4180Parser` returns `null`, which must not be taken for the end of the file, and `CSVParser` returns the same record `[""]` as for a quoted empty value `""`), an empty line is detected as a record that consists of exactly one physical line which is empty. As intended consequence, a single-column CSV cannot express an empty value as an empty line between rows; the value must be quoted (`""`). In 1.x, the default parser silently dropped all rows after an empty line and the legacy parser loaded an empty line as a row.
+
+> **ETL-4.06** Byte order mark: a byte order mark (U+FEFF) at the beginning of the file is skipped before the text reaches the CSV parser, and the separator detection (ETL-4.02) reads the same text without it. Java's decoders keep the byte order mark for the charsets that charset detection (ETL-4.01) returns for such files (UTF-8, UTF-16LE, UTF-16BE), so it is skipped after decoding: exactly one U+FEFF as first character. Without this, the label of the first column started with the byte order mark, and since the default parser only treats a value as quoted if it starts with a quote, a quoted first label kept its quotes: the header `<BOM>"kopare_id",...` was stored as the column name `<BOM>"kopare_id"` (the legacy parser stored `<BOM>kopare_id`). Now both parsers yield `kopare_id`. A first line consisting of a byte order mark only is an empty line (ETL-4.05). Malformed input is still reported as an error of the load.
+
+> **ETL-4.07** Label sanitizing: as a second line of defence, byte order marks (U+FEFF) and soft hyphens (U+00AD) are removed anywhere in a label before it is stripped and converted to lowercase (ETL-4.04). Values are not changed. The comparison of an append with the stored column names (ETL-6.01) uses the sanitized labels. As a consequence, column names that contained these characters in 1.x differ from those of the same CSV file loaded by 2.0; existing datasets are renamed accordingly (ETL-11), which changes their column names as visible in queries, `/info`, `/swagger` and exports.
 
 ## ETL-5 Batch Inserts
 
@@ -72,7 +77,7 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 
 ## ETL-6 Append vs Replace
 
-> **ETL-6.01** **POST** to an existing dataset appends rows. The uploaded CSV's column structure must match the existing dataset's columns (validated before processing).
+> **ETL-6.01** **POST** to an existing dataset appends rows. The uploaded CSV's column structure must match the existing dataset's columns (validated before processing). If the stored column names differ from the labels only because they were stored before 2.0 without cleaning, they are renamed with the append (ETL-11.04).
 
 > **ETL-6.02** **PUT** to an existing dataset replaces all existing rows with the rows of the new CSV. Column structure may differ from the previous upload. The data table is not truncated: within one transaction, the new rows are loaded into a shadow table `<dataTable>_new` (created with the same DDL as data tables, see DOM-4.03 and DOM-6.02, after dropping a table of that name if one exists), its indexes are created (ETL-7.01, with the field sizes of the new data, ETL-7.02), and then the data table is dropped (with its indexes and sequence) and the shadow table is renamed to the data table. The shadow table's indexes, primary key (`<dataTable>_pkey`) and sequence (`<dataTable>_rownr_seq`) are renamed to the names they would have if they had been created for the data table, so that repeated replaces do not collide with leftover names. The data table name stored in `datasets.data_table` never changes. A data table created before 2.0 with `rownr SERIAL` thereby becomes `BIGSERIAL` on its first replace. There is no `TRUNCATE` and no `RESTART IDENTITY`: row numbers of the new data start at 1. Before the data table is dropped, the shadow table gets the data table's owner (if it differs from the RowStore database user) and its table privileges (e.g., `SELECT` granted to a separate read-only user), which a new table would otherwise lack. If the data table has explicit privileges (a non-NULL ACL), they are copied exactly: all privileges on the shadow table are revoked (from `PUBLIC`, the owner and every other grantee) and each recorded privilege is granted, including the owner's own, so that privileges the owner revoked from itself stay revoked; with a NULL ACL, both tables have the default privileges. Table privileges are copied, column-level privileges are not; the copied privileges are granted by the owner, so the owner is recorded as their grantor. Until the commit, the previous data table and the shadow table (each with its indexes) coexist, so a replace temporarily needs disk space for both (in 1.x, the previous data was freed first). Objects created by operators that depend on a data table, e.g., views, make the `DROP TABLE` fail, so the replace ends in ERROR (keeping the previous data); RowStore itself creates no such objects.
 
@@ -91,13 +96,13 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 > ```
 > Column names are escaped via `BaseConnection.escapeString()` (accessed via `Connection.unwrap()` through the HikariCP proxy) to prevent SQL injection in DDL.
 
-> **ETL-7.02** Columns where any field value exceeds **256 characters** are not indexed. Field sizes are tracked per column during insertion using a `columnSize` HashMap.
+> **ETL-7.02** Columns where any field value exceeds **256 characters** are not indexed. Field sizes are tracked per column during insertion using a `columnSize` HashMap. For columns renamed by the cleanup of column names (ETL-11.03), the field size is determined with `max(length(data->>'<column>'))` over the data table.
 
 ## ETL-8 Concurrency Control
 
 > **ETL-8.01** [REMOVED] Busy-waiting (polling every 5 seconds while holding a permit) for a dataset in PROCESSING state. Superseded by per-dataset queues, see ETL-8.02 to ETL-8.07.
 
-> **ETL-8.02** Jobs are queued per dataset (in memory). Jobs of the same dataset run one at a time, strictly in submission order, on a virtual thread that exists while the dataset has queued jobs. For example, a PUT followed by several append POSTs is applied in exactly that order. Datasets are identified by their canonical ID (the lowercase UUID as stored), so uploads via different spellings of the ID (e.g., upper case) or via an alias share one queue; responses keep the requested spelling. `EtlProcessor.runExclusively(dataset, task)` runs other work under the same per-dataset ordering and exclusion.
+> **ETL-8.02** Jobs are queued per dataset (in memory). Jobs of the same dataset run one at a time, strictly in submission order, on a virtual thread that exists while the dataset has queued jobs. For example, a PUT followed by several append POSTs is applied in exactly that order. Datasets are identified by their canonical ID (the lowercase UUID as stored), so uploads via different spellings of the ID (e.g., upper case) or via an alias share one queue; responses keep the requested spelling. `EtlProcessor.runExclusively(dataset, task)` runs other work under the same per-dataset ordering and exclusion; it returns a future that is completed when the task has finished (exceptionally if the task failed) and cancelled if the task is discarded without running (ETL-8.07, shutdown).
 
 > **ETL-8.03** A replace (PUT, no append) discards all loads of the same dataset that are queued but have not started, since it supersedes them. Their temp files are deleted and the discarding is logged at INFO level. A running load is never interrupted, and tasks submitted with `runExclusively` are not discarded.
 
@@ -119,6 +124,20 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 
 > **ETL-10.02** The final status write of a load is retried with backoff if it fails, e.g., because the database is unreachable: up to six attempts with delays of 1, 5, 15, 30 and 45 seconds, i.e., 96 seconds of delays plus the time each attempt needs to fail (up to the configured connect and login timeouts, 5 seconds each by default). During this time the job keeps its ETL permit and the dataset's further jobs wait. If all attempts fail, the dataset remains in its previous status: PROCESSING (taken over by the next load, ETL-8.05, or reset at the next startup, ETL-8.06), or ACCEPTED_DATA if the outage already prevented the transition to PROCESSING.
 
+## ETL-11 Cleanup of Column Names Stored Before 2.0
+
+> **ETL-11.01** After startup (Spring `ApplicationReadyEvent`), a background task on a virtual thread cleans the column names of existing datasets without delaying the startup. A dataset is affected if one of its column names (the keys of its first row, as returned by `/info`) is not clean, i.e., differs from its cleaned name (ETL-11.02); in practice these are names with a byte order mark or soft hyphens (ETL-4.06, ETL-4.07). Datasets in CREATED, datasets without a data table, and datasets whose data table does not exist are skipped. `PgRowStore.cleanColumnNames()` runs the cleanup and returns the IDs of the renamed datasets. There is no configuration option.
+
+> **ETL-11.02** Cleaning rule for a stored column name: remove U+FEFF and U+00AD anywhere and strip whitespace; if the original name started with U+FEFF and the remainder is enclosed in double quotes (at least two characters), remove the enclosing quotes and replace doubled quotes `""` by `"` (this is what the default parser now yields for the header without the byte order mark); then strip and convert to lowercase as in ETL-4.04. Names without a leading byte order mark that merely look quoted are not unquoted (the header `"""x"""` legitimately yields the name `"x"`). The cleaned name of a clean name is the name itself. The rule is implemented once (`ColumnNames`) and shares the label sanitizing of ETL-4.07.
+
+> **ETL-11.03** Each affected dataset is renamed by a task that runs exclusively for the dataset (`EtlProcessor.runExclusively`, ETL-8.02), so it never runs concurrently with a load of the dataset and keeps its order with the dataset's jobs. Datasets are processed one at a time: the next dataset is submitted only after the previous one has finished, to limit the load on the database. Per dataset, in one transaction: the column names are read again; all renamed keys of all rows are replaced in one `UPDATE` (rows without any of the keys are not touched, and a row without a key gets no new key); the per-column index of each old name (ETL-7.01, named after the MD5 of the old name) is dropped and the index of each new name is created with the canonical naming and the size rule of ETL-7.02. The status is not changed; queries keep working and see the old names until the commit (MVCC). The renames are logged at INFO level, with byte order marks and soft hyphens written as `\uFEFF` and `\u00AD`. A failure is logged at ERROR level and the cleanup continues with the next dataset; it stops when the ETL processor is shut down.
+
+> **ETL-11.04** An append (POST) to an affected dataset that arrives before the cleanup has renamed it does not fail: if the stored column names differ from the labels of the uploaded CSV only by the cleaning rule (i.e., the cleaned stored names equal the labels), the columns are renamed as in ETL-11.03 within the append's transaction before the rows are inserted, and the rename is logged at INFO level. A failed append rolls the rename back as well.
+
+> **ETL-11.05** If a cleaned name would be empty or would collide with another column name of the dataset (an existing name or another cleaned name), the dataset is skipped with a WARN that lists its column names, and its data is not changed. Such a dataset keeps its column names until it is replaced (PUT), which stores clean names; an append to it fails as before (column mismatch).
+
+> **ETL-11.06** The cleanup is idempotent: a renamed dataset has clean names, so a repeated cleanup (e.g., at the next startup) finds nothing and changes no rows. A replace (PUT) of an affected dataset also yields clean names by itself (ETL-4.06, ETL-4.07). Affected column names change as a result (e.g., `<BOM>"kopare_id"` becomes `kopare_id`), so clients that queried such datasets by the broken name must use the clean name; this is to be mentioned in the release notes.
+
 ## Known Limitations
 
 - No progress reporting during ETL processing (no percentage or row count updates)
@@ -127,6 +146,7 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 - No retry mechanism for failed ETL jobs
 - The ETL queue is held in memory only: queued loads are lost on restart and their datasets remain in ACCEPTED_DATA
 - Column structure validation for append mode happens during processing, not at upload time
+- The cleanup of column names (ETL-11) only considers the keys of the first row, like `/info`; a column whose key is missing in the first row (a short first row) is not detected
 
 ## References
 
@@ -148,3 +168,4 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 | 2026-10-20 | Empty lines in CSV files: trailing ones ignored, others fail the load, same for both parsers (ETL-4.05) |
 | 2026-10-20 | Replace: last swap lock attempt waits without timeout, short delays between attempts, owner and privileges kept, disk usage and dependent objects documented (ETL-6.02, ETL-6.04) |
 | 2026-10-20 | Replace: exact copy of explicit table privileges, ETL permit and querytimeout during the swap wait (ETL-6.02, ETL-6.04) |
+| 2026-10-20 | Byte order mark skipped and labels sanitized (ETL-4.06, ETL-4.07, ETL-4.04 updated), cleanup of column names stored before 2.0 (ETL-11), future returned by runExclusively (ETL-8.02) |

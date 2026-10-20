@@ -309,3 +309,84 @@ In the CSV content below, `\n` denotes a line break.
 As TC-CSV-011 to TC-CSV-016 (in this order), with a RowStore instance configured with `legacyparser: true`. The
 results must be the same as with the default parser; in particular, a quoted empty value (TC-CSV-022) must not be
 taken for an empty line, although the legacy parser returns the same record for both.
+
+## Byte Order Mark and Soft Hyphen Tests
+
+`<BOM>` denotes U+FEFF (in UTF-8 the bytes `EF BB BF`), `<SHY>` a soft hyphen U+00AD, and `\n` a line break. See
+ETL-4.06 and ETL-4.07. TC-CSV-023 to TC-CSV-029 run with the default parser (`CsvBomIT`), TC-CSV-030 to TC-CSV-036
+repeat them in the same order with `legacyparser: true` (`CsvBomLegacyParserIT`, requires a separate RowStore instance
+and is skipped when testing an external instance); the results must be the same.
+
+### TC-CSV-023: A UTF-8 byte order mark before a quoted first label yields clean column names
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body (UTF-8): `<BOM>"kopare_id",namn\n1,Anna\n2,Bo\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3)
+2. `columnnames` of `/dataset/{id}/info` are exactly `kopare_id`, `namn`
+3. `GET /dataset/{id}?kopare_id=1` returns exactly `{kopare_id: 1, namn: Anna}`
+4. The query parameters of `/dataset/{id}/swagger` contain `kopare_id` and `namn`, and no parameter name contains
+   U+FEFF or a quote
+
+### TC-CSV-024: A UTF-8 byte order mark before an unquoted first label yields clean column names
+
+As TC-CSV-023 with the body `<BOM>kopare_id,namn\n1,Anna\n2,Bo\n`.
+
+### TC-CSV-025: A semicolon-separated CSV with a UTF-8 byte order mark is parsed with the detected separator
+
+As TC-CSV-023 with the body `<BOM>"kopare_id";"namn"\n1;Anna\n2;Bo\n`.
+
+### TC-CSV-026: A UTF-16LE byte order mark before a quoted first label yields clean column names
+
+As TC-CSV-023 with the body `"kopare_id",namn\n1,Anna\n2,Bo\n` encoded as UTF-16LE with the byte order mark `FF FE`
+(charset detection returns UTF-16LE, whose decoder keeps the byte order mark).
+
+### TC-CSV-027: Soft hyphens are removed from labels and kept in values
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `ko<SHY>pare_id,na<SHY>mn<SHY>\n1,An<SHY>na\n`
+
+**Assertions:**
+1. `columnnames` are exactly `kopare_id`, `namn`
+2. `GET /dataset/{id}?kopare_id=1` returns exactly `{kopare_id: 1, namn: An<SHY>na}`
+
+### TC-CSV-028: An append with byte order mark and quoted first label matches the column names
+
+**Steps:**
+1. Create a dataset from `<BOM>"kopare_id",namn\n1,Anna\n2,Bo\n` and wait until it is available
+2. `POST /dataset/{id}` with `<BOM>"kopare_id",namn\n3,Cecilia\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3) and `rowcount` = 3
+2. `columnnames` are exactly `kopare_id`, `namn`; `?kopare_id=3` returns `{kopare_id: 3, namn: Cecilia}`
+
+### TC-CSV-029: A first line consisting of a byte order mark only is an empty line
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `<BOM>\nkopare_id,namn\n1,Anna\n`
+
+**Assertions:**
+1. The status becomes ERROR (4), as for an empty first line followed by rows (ETL-4.05)
+
+### TC-CSV-030 to TC-CSV-036: Byte order marks and soft hyphens with the legacy parser
+
+As TC-CSV-023 to TC-CSV-029 (in this order), with a RowStore instance configured with `legacyparser: true`.
+
+### TC-CSV-037 to TC-CSV-040: Reader that skips a byte order mark (unit tests)
+
+Unit tests of `DatasetUtil.newReaderSkippingBom()` (`DatasetUtilBomReaderTest`), no RowStore instance needed:
+
+- **TC-CSV-037:** a leading byte order mark is skipped for UTF-8, UTF-16LE and UTF-16BE
+- **TC-CSV-038:** text without a leading byte order mark is read unchanged, including a U+FEFF later in the text; of
+  two leading byte order marks only the first is skipped
+- **TC-CSV-039:** an empty file and a file consisting of a byte order mark only are read as empty text; `<BOM>\n`
+  is read as `\n`
+- **TC-CSV-040:** malformed input is reported as `MalformedInputException`, both in the first character (when the
+  reader is opened) and later in the file

@@ -4,19 +4,23 @@
 
 Tests for the scheduling and failure handling of ETL loads: per-dataset ordering, coalescing of queued loads,
 permits only for running loads, takeover of stale PROCESSING datasets, startup reset, status handling when a
-load fails or the database is unreachable, and atomic replaces. See [04-etl-pipeline.md](../04-etl-pipeline.md)
-(ETL-6, ETL-8, ETL-10).
+load fails or the database is unreachable, atomic replaces, and the cleanup of column names stored before 2.0.
+See [04-etl-pipeline.md](../04-etl-pipeline.md) (ETL-6, ETL-8, ETL-10, ETL-11).
 
 TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027 and TC-ETL-028 are unit tests (`EtlProcessorTest`,
 `PgDatasetPopulateTest`, `PgDatasetSwapLockTest`) that use fakes instead of a database. TC-ETL-010 to TC-ETL-014
 and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026 and TC-ETL-029 integration tests of
-replaces (`DatasetReplaceIT`).
+replaces (`DatasetReplaceIT`). TC-ETL-030 is a unit test (`EtlProcessorTest`), TC-ETL-031 to TC-ETL-037 are
+integration tests of the column name cleanup (`ColumnNameCleanupIT`), and TC-ETL-038 to TC-ETL-041 unit tests of the
+cleaning rule (`ColumnNamesTest`).
 
 ## Prerequisites
 
 - Unit tests: none
 - Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013, TC-ETL-014, TC-ETL-020 to TC-ETL-026 and TC-ETL-029
-  additionally require direct database access (superuser) and are skipped when testing an external instance
+  additionally require direct database access (superuser) and are skipped when testing an external instance; so do
+  TC-ETL-031 to TC-ETL-037, which also call into the RowStore application (TC-ETL-035 additionally starts separate
+  RowStore instances on a separate database)
 
 ## Test Data
 
@@ -368,3 +372,141 @@ state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 
 1. Queries return the rows `B1`, `B2`
 2. The data table is owned by the owner role; the reader role has `SELECT` but not `UPDATE`
    (`has_table_privilege`); the owner role has `SELECT` but still not `DELETE`; `PUBLIC` has `INSERT`
+
+## Exclusive tasks (unit test)
+
+### TC-ETL-030: The future of an exclusive task completes when the task has run, exceptionally if it failed, and is cancelled if the task is discarded
+
+**Steps:**
+1. Submit load A1 of dataset A and keep it running
+2. Run four tasks exclusively for dataset A: one that succeeds, one that throws an `IllegalStateException`, one that
+   throws an `AssertionError`, and one that succeeds
+3. Release A1
+
+**Assertions:**
+1. The future of the first task is not done while A1 is running, and completes normally afterwards
+2. The futures of the second and third task complete exceptionally with the thrown exception as cause
+3. The fourth task is discarded because the worker failed with the error (ETL-8.07): its future is cancelled and the
+   task does not run
+
+## Cleanup of column names stored before 2.0 (integration tests)
+
+`<BOM>` denotes U+FEFF and `<SHY>` U+00AD. The test datasets are created from
+`kopare_id,namn,ort\n1,Anna,Göteborg\n2,Bo,Mölndal\n`. A dataset stored by 1.x is simulated by rewriting the keys of
+all rows via JDBC and renaming the indexes of the renamed keys to the canonical names of the broken names
+(`<dataTable>_jsonidx_<md5(name)[0..8]>`), by default `kopare_id` to `<BOM>"kopare_id"` and `namn` to `na<SHY>mn`
+("broken names"). "Clean" means: the keys of the rows are exactly `kopare_id`, `namn`, `ort`, the `_jsonidx_` indexes
+of the data table are exactly the canonical ones for these names, and the first two rows are unchanged apart from the
+names.
+
+### TC-ETL-031: The cleanup renames broken column names and their indexes and keeps the data and the status
+
+**Steps:**
+1. Create a dataset, give it broken names
+2. Invoke the cleanup (`PgRowStore.cleanColumnNames()`, also run in the background after startup)
+
+**Assertions:**
+1. The returned IDs contain the dataset
+2. The status is still AVAILABLE and `rowcount` = 2
+3. The dataset is clean; `columnnames` are the clean names; `?kopare_id=1` and `?namn=Bo` return the expected rows
+
+### TC-ETL-032: A repeated cleanup changes nothing
+
+**Steps:**
+1. Create a dataset, give it broken names, invoke the cleanup
+2. Invoke the cleanup again
+
+**Assertions:**
+1. The second run does not return the dataset
+2. No row was updated by the second run (`xmin` of all rows unchanged) and the dataset is clean
+
+### TC-ETL-033: A dataset whose cleaned column names would collide is skipped, other datasets are cleaned
+
+**Steps:**
+1. Create two datasets; rename `ort` of the first one to `<BOM>"namn"` (whose cleaned name `namn` exists) and give
+   the second one broken names
+2. Invoke the cleanup
+
+**Assertions:**
+1. The returned IDs contain the second dataset but not the first; a WARN is logged for the first
+2. The first dataset is unchanged: no row updated, keys and index names as before, status AVAILABLE
+3. The second dataset is clean
+
+### TC-ETL-034: An append to a dataset with broken column names renames the columns with the append
+
+**Steps:**
+1. Create a dataset, give it broken names
+2. `POST /dataset/{id}` with `<BOM>"kopare_id",namn,ort\n3,Cecilia,Partille\n` (before any cleanup)
+
+**Assertions:**
+1. The status becomes AVAILABLE (3) and `rowcount` = 3 (without ETL-11.04: ERROR because of a column mismatch)
+2. The dataset is clean, queries by the clean names return the old and the appended rows
+3. A subsequent cleanup does not return the dataset
+
+### TC-ETL-035: The cleanup runs in the background after startup
+
+**Steps:**
+1. Create a separate database and start a RowStore instance on it; create a dataset and wait until it is available;
+   stop the instance
+2. Give the dataset broken names via JDBC
+3. Start another RowStore instance on the database
+
+**Assertions:**
+1. Within 30 seconds after the start, the dataset is clean (without any further request)
+
+### TC-ETL-036: A dataset whose data table is missing is skipped without failing the cleanup
+
+**Steps:**
+1. Create two datasets; drop the data table of the first one and give the second one broken names
+2. Invoke the cleanup
+
+**Assertions:**
+1. The cleanup does not fail; the returned IDs contain the second dataset but not the first
+2. The second dataset is clean
+
+### TC-ETL-037: The cleanup creates no index for a renamed column with values longer than 256 characters
+
+**Steps:**
+1. Create a dataset from `kopare_id,beskrivning\n1,<300 characters>\n2,kort\n` (only `kopare_id` is indexed, ETL-7.02)
+2. Rename `beskrivning` to `<BOM>"beskrivning"`, invoke the cleanup
+
+**Assertions:**
+1. The keys are `kopare_id`, `beskrivning`; the only `_jsonidx_` index is the one of `kopare_id`
+2. `?beskrivning=kort` returns the second row
+
+## Cleaning rule (unit tests)
+
+Unit tests of `ColumnNames` (`ColumnNamesTest`), no RowStore instance needed (ETL-4.04, ETL-4.07, ETL-11.02).
+
+### TC-ETL-038: A label is normalized by removing byte order marks and soft hyphens, stripping and lower-casing
+
+Cases include surrounding spaces and tabs, U+FEFF and U+00AD at any position, Unicode whitespace (U+2003), a label
+consisting of whitespace and a byte order mark only (empty), and `<BOM>"name"` (quotes kept: unquoting is the
+parser's task).
+
+### TC-ETL-039: A stored column name is cleaned like the label is parsed now
+
+| Stored name | Cleaned name |
+|-------------|--------------|
+| `<BOM>"kopare_id"` | `kopare_id` |
+| `<BOM>kopare_id` | `kopare_id` |
+| `<BOM>"a""b"` | `a"b` |
+| `<BOM>"""x"""` | `"x"` |
+| `<BOM>" x "` | `x` |
+| `<BOM>"ko<SHY>pare"` | `kopare` |
+| `<BOM>"` | `"` |
+| `<BOM>""` | (empty) |
+| `na<SHY>mn`, `<SHY>namn`, `<U+2003>namn` | `namn` |
+| `"x"`, `<SHY>"x"`, `"x"<BOM>` | `"x"` (no leading byte order mark: not unquoted) |
+| `kopare_id`, `a b`, (empty) | unchanged |
+
+For each case, cleaning the cleaned name again yields the same name.
+
+### TC-ETL-040: Renames are determined for unclean names only, and not at all if clean names would collide or be empty
+
+Clean names yield no renames; `<BOM>"kopare_id"`, `na<SHY>mn`, `ort` yield the renames of the first two only;
+`<BOM>"namn"` with `namn`, `<BOM>namn` with `na<SHY>mn`, and `<BOM>` (empty cleaned name) yield no result (skip).
+
+### TC-ETL-041: Byte order marks and soft hyphens are escaped for logging
+
+`<BOM>"na<SHY>mn"` is logged as `\uFEFF"na\u00ADmn"`.

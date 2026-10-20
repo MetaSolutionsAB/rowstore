@@ -9,13 +9,13 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `01-status.md` | Status endpoint (`/status`) including JVM metrics | 5 |
 | `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 2 |
 | `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases, storage schema | 22 |
-| `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines | 32 |
+| `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines, byte order marks | 50 |
 | `05-querying.md` | Query functionality: filters, pagination, JSONP, regex modes | 24 |
 | `06-export.md` | JSON/CSV export endpoints | 8 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
 | `08-error-handling.md` | Error codes: 400, 404, 423, 424 | 13 |
 | `09-rate-limiting.md` | Rate limiting (429) - requires separate profile | 5 |
-| `11-etl-processing.md` | ETL scheduling, failure handling and atomic replaces (unit and integration tests) | 29 |
+| `11-etl-processing.md` | ETL scheduling, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 41 |
 
 ## Prerequisites
 
