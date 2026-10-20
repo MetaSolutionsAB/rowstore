@@ -84,17 +84,18 @@ public class DataSourceConfig {
 		ds.setSsl(dbConfig.getSsl());
 		ds.setSslMode(dbConfig.getSsl() ? "require" : "disable");
 		ds.setLogUnclosedConnections(log.isDebugEnabled());
-		if (dbConfig.getConnectTimeout() > 0) {
+		// 0 means no timeout, as in 1.x
+		if (dbConfig.getConnectTimeout() >= 0) {
 			ds.setConnectTimeout(dbConfig.getConnectTimeout());
 		}
-		if (dbConfig.getLoginTimeout() > 0) {
+		if (dbConfig.getLoginTimeout() >= 0) {
 			try {
 				ds.setLoginTimeout(dbConfig.getLoginTimeout());
 			} catch (Exception e) {
 				log.warn("Failed to set login timeout on PGSimpleDataSource", e);
 			}
 		}
-		if (dbConfig.getSocketTimeout() > 0) {
+		if (dbConfig.getSocketTimeout() >= 0) {
 			ds.setSocketTimeout(dbConfig.getSocketTimeout());
 		}
 		if (readOnly) {
@@ -133,14 +134,15 @@ public class DataSourceConfig {
 		hikariConfig.addDataSourceProperty("ssl", String.valueOf(dbConfig.getSsl()));
 		hikariConfig.addDataSourceProperty("sslmode", dbConfig.getSsl() ? "require" : "disable");
 
-		// Driver timeouts in seconds; connectionTimeout above only limits waiting for a pooled connection
-		if (dbConfig.getConnectTimeout() > 0) {
+		// Driver timeouts in seconds (0 means no timeout, as in 1.x); connectionTimeout above only limits
+		// waiting for a pooled connection
+		if (dbConfig.getConnectTimeout() >= 0) {
 			hikariConfig.addDataSourceProperty("connectTimeout", String.valueOf(dbConfig.getConnectTimeout()));
 		}
-		if (dbConfig.getLoginTimeout() > 0) {
+		if (dbConfig.getLoginTimeout() >= 0) {
 			hikariConfig.addDataSourceProperty("loginTimeout", String.valueOf(dbConfig.getLoginTimeout()));
 		}
-		if (dbConfig.getSocketTimeout() > 0) {
+		if (dbConfig.getSocketTimeout() >= 0) {
 			hikariConfig.addDataSourceProperty("socketTimeout", String.valueOf(dbConfig.getSocketTimeout()));
 		}
 

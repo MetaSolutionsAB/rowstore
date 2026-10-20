@@ -80,7 +80,7 @@ Covers the JSON configuration file format, all application and database options,
 > - `connectTimeout` (int, default `5`) — Connection establishment timeout.
 > - `loginTimeout` (int, default `5`) — Authentication timeout.
 >
-> Values > 0 are passed to the PostgreSQL driver, with and without connection pool. With HikariCP, `connectTimeout` additionally sets the pool's `connectionTimeout` (maximum wait for a pooled connection).
+> Values >= 0 are passed to the PostgreSQL driver, with and without connection pool (`0` means no timeout, as in 1.x). With HikariCP, `connectTimeout` additionally sets the pool's `connectionTimeout` (maximum wait for a pooled connection).
 
 ## CFG-5 Read Replica Configuration
 
