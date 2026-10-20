@@ -48,6 +48,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Savepoint;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Date;
@@ -89,6 +90,22 @@ public class PgDataset implements Dataset {
 	 * Delays between the attempts to write the final status of a load: six attempts over about 1.5 minutes.
 	 */
 	private long[] statusRetryDelaysMillis = {1000, 5000, 15000, 30000, 45000};
+
+	/**
+	 * Maximum time an attempt to lock the data table for a replace waits, see lockDataTableForReplace().
+	 */
+	static final String SWAP_LOCK_TIMEOUT = "3s";
+
+	/**
+	 * Delays between the attempts to lock the data table for a replace: seven attempts over about 1.5 minutes,
+	 * including the time each attempt waits for the lock.
+	 */
+	private long[] swapRetryDelaysMillis = {1000, 2000, 5000, 10000, 15000, 30000};
+
+	/**
+	 * SQL state of a lock that could not be acquired within lock_timeout.
+	 */
+	private static final String LOCK_NOT_AVAILABLE = "55P03";
 
 	protected PgDataset(RowStore rowstore, String id) {
 		if (rowstore == null) {
@@ -285,11 +302,10 @@ public class PgDataset implements Dataset {
 
 			markAsProcessing();
 
-			if (!append) {
-				if (!truncateTable()) {
-					return false;
-				}
-			}
+			// A replace loads into a shadow table, which replaces the data table at the end of the load in the same
+			// transaction. Until then, and if the load fails, queries and exports keep serving the previous data.
+			String targetTable = append ? dataTable : PgDatasets.shadowTableName(dataTable);
+			columnSize.clear();
 
 			Date before = new Date();
 			Connection conn = null;
@@ -321,7 +337,11 @@ public class PgDataset implements Dataset {
 
 				conn.setAutoCommit(false);
 
-				stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (data) VALUES (?)");
+				if (!append) {
+					createShadowTable(conn, targetTable);
+				}
+
+				stmt = conn.prepareStatement("INSERT INTO " + targetTable + " (data) VALUES (?)");
 				while ((line = cr.readNext()) != null) {
 					if (lineCount == 0) {
 						// We convert all column names to lower case,
@@ -378,7 +398,13 @@ public class PgDataset implements Dataset {
 				log.debug("Executing: " + stmt);
 				stmt.executeBatch();
 
-				createIndexes(conn, labels);
+				List<String> createdIndexes = createIndexes(conn, targetTable, labels);
+
+				if (!append && !replaceDataTable(conn, targetTable, createdIndexes)) {
+					log.info("Rolling back transaction");
+					conn.rollback();
+					return false;
+				}
 
 				// we commit the transaction and free the resources of the statement
 				conn.commit();
@@ -433,9 +459,15 @@ public class PgDataset implements Dataset {
 		return success;
 	}
 
-	private void createIndexes(Connection conn, Set<String> fields) throws SQLException {
+	/**
+	 * Creates an index for each field that has no index yet and whose values are not too large.
+	 *
+	 * @return Returns the names of the created indexes.
+	 */
+	private List<String> createIndexes(Connection conn, String table, Set<String> fields) throws SQLException {
 		long before = System.currentTimeMillis();
-		Set<String> existingIndices = getIndexNames();
+		List<String> createdIndexes = new ArrayList<>();
+		Set<String> existingIndices = getIndexNames(conn, table);
 		for (String field : fields) {
 			// We do not try to index fields that are too large as we would get an error from PostgreSQL
 			// TODO instead of just skipping the index we could run a fulltext-index on such fields
@@ -444,7 +476,7 @@ public class PgDataset implements Dataset {
 				log.warn("Skipping index creation for field \"" + field + "\"; the configured max field size is " + maxSizeForIndex + ", but the actual size is " + fieldSize);
 				continue;
 			}
-			String indexName = dataTable + "_jsonidx_" + Hashing.md5(field).substring(0, 8);
+			String indexName = table + "_jsonidx_" + Hashing.md5(field).substring(0, 8);
 			if (existingIndices.contains(indexName)) {
 				log.debug("Index with name " + indexName + " already exists, skipping creation");
 				continue;
@@ -455,13 +487,14 @@ public class PgDataset implements Dataset {
 			String sql = new StringBuilder("CREATE INDEX ").
 					append(indexName).
 					append(" ON ").
-					append(dataTable).
+					append(table).
 					append(" ((data->>'").
 					append(conn.unwrap(BaseConnection.class).escapeString(field)).
 					append("') text_pattern_ops)").
 					toString();
 			log.debug("Executing: " + sql);
 			try (Statement stmt = conn.createStatement()) { stmt.execute(sql); }
+			createdIndexes.add(indexName);
 		}
 		/*
 		The index below may be used for more advanced JSON-specific indexing
@@ -473,39 +506,116 @@ public class PgDataset implements Dataset {
 		*/
 
 		log.debug("Creating indexes took {} ms", System.currentTimeMillis() - before);
+		return createdIndexes;
 	}
 
-	private boolean truncateTable() {
-		long before = System.currentTimeMillis();
-		try (Connection conn = rowstore.getConnection();
-			 Statement stmt = conn.createStatement()) {
-			conn.setAutoCommit(false);
-
-			log.debug("Truncating contents of table " + dataTable);
-			String truncTable = "TRUNCATE " + dataTable;
-			stmt.executeUpdate(truncTable);
-			log.debug("Executing: " + truncTable);
-
-			log.debug("Removing all indexes from table " + dataTable);
-			Set<String> existingIndices = getIndexNames();
-			for (String index : existingIndices) {
-				String sql = "DROP INDEX IF EXISTS " + index;
-				log.debug("Executing: " + sql);
-				stmt.executeUpdate(sql);
-			}
-
-			conn.commit();
-		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
-			return false;
-		} finally {
-			log.debug("Truncating table took {} ms", System.currentTimeMillis() - before);
+	/**
+	 * Creates the shadow table for a replace, within the load's transaction. A shadow table is never committed under
+	 * its own name, but a table left behind under this name must not be loaded into, so it is dropped first.
+	 */
+	private void createShadowTable(Connection conn, String shadowTable) throws SQLException {
+		try (Statement stmt = conn.createStatement()) {
+			executeDdl(stmt, "DROP TABLE IF EXISTS " + shadowTable);
 		}
-
-		return true;
+		PgDatasets.createDataTable(conn, shadowTable);
 	}
 
-	private Set<String> getIndexNames() {
+	/**
+	 * Replaces the data table with the shadow table, within the load's transaction: drops the data table (with its
+	 * indexes and sequence) and renames the shadow table, its indexes, primary key and sequence to the names they
+	 * would have if they had been created for the data table, so that the next replace does not collide with them.
+	 *
+	 * @param shadowIndexes The names of the indexes created for the shadow table.
+	 * @return Returns false if the data table could not be locked, see {@link #lockDataTableForReplace(Connection)}.
+	 */
+	private boolean replaceDataTable(Connection conn, String shadowTable, List<String> shadowIndexes) throws SQLException {
+		long before = System.currentTimeMillis();
+		try {
+			if (!lockDataTableForReplace(conn)) {
+				return false;
+			}
+			try (Statement stmt = conn.createStatement()) {
+				executeDdl(stmt, "DROP TABLE " + dataTable);
+				executeDdl(stmt, "ALTER TABLE " + shadowTable + " RENAME TO " + dataTable);
+				for (String index : shadowIndexes) {
+					executeDdl(stmt, "ALTER INDEX " + index + " RENAME TO " + dataTable + index.substring(shadowTable.length()));
+				}
+				// PostgreSQL chooses the names of the primary key and the sequence, which may have a numeric suffix
+				String primaryKey = queryForIdentifier(conn, "SELECT quote_ident(conname) FROM pg_constraint " +
+						"WHERE conrelid = '" + dataTable + "'::regclass AND contype = 'p'");
+				executeDdl(stmt, "ALTER TABLE " + dataTable + " RENAME CONSTRAINT " + primaryKey + " TO " + dataTable + "_pkey");
+				String sequence = queryForIdentifier(conn, "SELECT pg_get_serial_sequence('" + dataTable + "', 'rownr')");
+				executeDdl(stmt, "ALTER SEQUENCE " + sequence + " RENAME TO " + dataTable + "_rownr_seq");
+			}
+			return true;
+		} finally {
+			log.debug("Replacing data table took {} ms", System.currentTimeMillis() - before);
+		}
+	}
+
+	/**
+	 * Locks the data table exclusively for replacing it, within the load's transaction. The lock has to wait for
+	 * readers of the data table, e.g., a long streaming export, and while it waits, it blocks new queries of the
+	 * data table. Therefore each attempt waits at most {@link #SWAP_LOCK_TIMEOUT}, and the attempts are retried
+	 * with backoff.
+	 *
+	 * @return Returns true if the lock was acquired, false if all attempts timed out or if interrupted.
+	 * @throws SQLException If locking failed for another reason than a lock timeout.
+	 */
+	boolean lockDataTableForReplace(Connection conn) throws SQLException {
+		for (int attempt = 0; ; attempt++) {
+			Savepoint savepoint = conn.setSavepoint();
+			try (Statement stmt = conn.createStatement()) {
+				executeDdl(stmt, "SET LOCAL lock_timeout = '" + SWAP_LOCK_TIMEOUT + "'");
+				executeDdl(stmt, "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
+				return true;
+			} catch (SQLException e) {
+				if (!LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+					throw e;
+				}
+				// also reverts SET LOCAL
+				conn.rollback(savepoint);
+			}
+			if (attempt >= swapRetryDelaysMillis.length) {
+				log.error("Unable to replace data table {} of dataset {}, it was in use during {} attempts",
+						dataTable, getId(), attempt + 1);
+				return false;
+			}
+			long delay = swapRetryDelaysMillis[attempt];
+			log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to replace it in {} ms",
+					dataTable, getId(), delay);
+			try {
+				Thread.sleep(delay);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				log.error("Interrupted while waiting to replace data table {} of dataset {}", dataTable, getId());
+				return false;
+			}
+		}
+	}
+
+	/**
+	 * Sets the delays between the attempts to lock the data table for a replace. Intended for tests.
+	 */
+	void setSwapRetryDelays(long... delaysMillis) {
+		this.swapRetryDelaysMillis = delaysMillis.clone();
+	}
+
+	private static void executeDdl(Statement stmt, String sql) throws SQLException {
+		log.debug("Executing: " + sql);
+		stmt.execute(sql);
+	}
+
+	private static String queryForIdentifier(Connection conn, String sql) throws SQLException {
+		try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
+			if (!rs.next() || rs.getString(1) == null) {
+				throw new SQLException("No result for: " + sql);
+			}
+			return rs.getString(1);
+		}
+	}
+
+	private Set<String> getIndexNames(Connection conn, String table) throws SQLException {
 		long before = System.currentTimeMillis();
 		String sql = "SELECT ci.relname AS indexname " +
 				"FROM pg_index i, pg_class ci, pg_class ct " +
@@ -513,11 +623,15 @@ public class PgDataset implements Dataset {
 				"i.indrelid = ct.oid AND " +
 				"ct.relname = ? AND " +
 				"ci.relname LIKE '%_jsonidx_%'";
-		try {
-			return new HashSet<>(rowstore.getJdbcTemplate().queryForList(sql, String.class, dataTable));
-		} catch (DataAccessException e) {
-			log.error(e.getMessage());
-			return new HashSet<>();
+		try (PreparedStatement ps = conn.prepareStatement(sql)) {
+			ps.setString(1, table);
+			Set<String> result = new HashSet<>();
+			try (ResultSet rs = ps.executeQuery()) {
+				while (rs.next()) {
+					result.add(rs.getString(1));
+				}
+			}
+			return result;
 		} finally {
 			log.debug("Fetching index names took {} ms", System.currentTimeMillis() - before);
 		}

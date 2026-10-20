@@ -141,6 +141,7 @@ Current limitations relevant to this area.
 | DOM-5.02 | MD5-hashed index names |
 | DOM-5.03 | Fields > 256 chars not indexed |
 | DOM-6.01 | Data table naming: data_ + UUID without hyphens |
+| DOM-6.02 | Shadow table naming: data table + _new, separate strict pattern, never stored |
 | DOM-7.01 | JSON-LD output with @context and @id |
 
 ### API — REST API
@@ -193,7 +194,10 @@ Current limitations relevant to this area.
 | ETL-4.04 | Column names: lowercase, trimmed, empty skipped |
 | ETL-5.01 | Batch insert every 200 rows, rollback on error |
 | ETL-6.01 | POST = append (validates column match) |
-| ETL-6.02 | PUT = truncate + reload |
+| ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate) |
+| ETL-6.03 | Replace status: PROCESSING, AVAILABLE or ERROR; previous data served until replaced and kept on failure |
+| ETL-6.04 | Swap lock: lock_timeout 3 s per attempt, bounded retries with backoff; replica query cancellation |
+| ETL-6.05 | Leftover shadow tables dropped at next replace, on delete and at startup |
 | ETL-7.01 | text_pattern_ops index per column, escapeString for DDL |
 | ETL-7.02 | Skip index for fields > 256 chars |
 | ETL-8.01 | [REMOVED] Busy-wait if PROCESSING — superseded by ETL-8.02 to ETL-8.07 |

@@ -3,18 +3,20 @@
 ## Overview
 
 Tests for the scheduling and failure handling of ETL loads: per-dataset ordering, coalescing of queued loads,
-permits only for running loads, takeover of stale PROCESSING datasets, startup reset, and status handling when a
-load fails or the database is unreachable. See [04-etl-pipeline.md](../04-etl-pipeline.md) (ETL-8, ETL-10).
+permits only for running loads, takeover of stale PROCESSING datasets, startup reset, status handling when a
+load fails or the database is unreachable, and atomic replaces. See [04-etl-pipeline.md](../04-etl-pipeline.md)
+(ETL-6, ETL-8, ETL-10).
 
-TC-ETL-001 to TC-ETL-009 and TC-ETL-015 to TC-ETL-017 are unit tests (`EtlProcessorTest`, `PgDatasetPopulateTest`)
-that use fake datasets whose loads are controlled by the test. TC-ETL-010 to TC-ETL-014 and TC-ETL-018 are
-integration tests (`EtlProcessingIT`).
+TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027 and TC-ETL-028 are unit tests (`EtlProcessorTest`,
+`PgDatasetPopulateTest`, `PgDatasetSwapLockTest`) that use fakes instead of a database. TC-ETL-010 to TC-ETL-014
+and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026 integration tests of replaces
+(`DatasetReplaceIT`).
 
 ## Prerequisites
 
 - Unit tests: none
-- Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013 and TC-ETL-014 additionally require direct
-  database access (superuser) and are skipped when testing an external instance
+- Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013, TC-ETL-014 and TC-ETL-020 to TC-ETL-026
+  additionally require direct database access (superuser) and are skipped when testing an external instance
 
 ## Test Data
 
@@ -121,6 +123,25 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 1. The ERROR status write is attempted exactly three times (initial attempt and two retries)
 2. `populate()` still throws the original exception
 
+### TC-ETL-027: A timed out lock for replacing the data table is retried within a savepoint, bounded
+
+**Setup:** `PgDataset.lockDataTableForReplace()` with a fake connection whose `LOCK TABLE` statements fail with SQL
+state `55P03` (lock timeout); three retry delays of 1 ms configured.
+
+**Assertions:**
+1. If two attempts fail, each attempt is `SAVEPOINT`, `SET LOCAL lock_timeout = '3s'`, `LOCK TABLE <dataTable> IN
+   ACCESS EXCLUSIVE MODE`, a failed attempt is followed by `ROLLBACK TO SAVEPOINT`, and the third attempt succeeds
+   (returns true)
+2. If all attempts fail, the lock is attempted four times (initial attempt and three retries), each failure is
+   rolled back to its savepoint, and false is returned (the load then fails, ETL-6.04)
+
+### TC-ETL-028: A lock for replacing the data table that fails for another reason is not retried
+
+**Setup:** As TC-ETL-027; `LOCK TABLE` fails with SQL state `08006` (connection failure).
+
+**Assertions:**
+1. The `SQLException` is thrown after one attempt, without rolling back to the savepoint
+
 ### TC-ETL-015: Different spellings of the same dataset ID share one queue
 
 **Steps:**
@@ -195,7 +216,8 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 **Steps:**
 1. Create a dataset from CSV `A` (2 rows) and wait until it is available
 2. Lock the dataset's data table (`LOCK TABLE ... IN ACCESS EXCLUSIVE MODE`) in a separate transaction
-3. `PUT /dataset/{id}` with CSV `B`; wait until the load's `TRUNCATE` waits for the lock
+3. `PUT /dataset/{id}` with CSV `B`; wait until the load's `LOCK TABLE ... IN ACCESS EXCLUSIVE MODE` (which
+   precedes the replacement of the data table by the shadow table, ETL-6.04) waits for the lock
 4. Simulate an outage: disallow connections to the database (`ALTER DATABASE ... ALLOW_CONNECTIONS false`, from
    the maintenance database) and terminate the loader's backend (`pg_terminate_backend`); release the lock
 5. `GET /dataset/{id}/info` while connections are disallowed
@@ -229,3 +251,105 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 1. All uploads return `202`; the response to the upper case request contains the ID in upper case (as requested)
 2. Eventually the dataset is available and has 20004 rows
 3. Ordered by row number, the last rows are `A20000`, `B1`, `B2`, `C1`, `C2`
+
+## Integration tests of replaces
+
+### TC-ETL-019: A replace that fails on a corrupt row late in the file keeps the previous data
+
+**Steps:**
+1. Create a dataset from CSV `A` (3 rows) and wait until it is available
+2. `PUT /dataset/{id}` with CSV `B` (1000 rows) followed by a row with more values than columns
+
+**Assertions:**
+1. The status becomes ERROR (4)
+2. Queries return the rows `A1`, `A2`, `A3`; `/info` reports `rowcount` 3
+
+### TC-ETL-020: A replace whose database connection is lost keeps the previous data
+
+**Steps:**
+1. Create a dataset from CSV `A` (3 rows) and wait until it is available
+2. In a separate transaction, create the dataset's shadow table `<dataTable>_new` without committing, so that the
+   load's `CREATE TABLE IF NOT EXISTS <dataTable>_new` waits for this transaction
+3. `PUT /dataset/{id}` with CSV `B`; wait until the load's `CREATE TABLE` waits for a lock
+4. Terminate the loader's backend (`pg_terminate_backend`) and roll back the separate transaction
+5. `PUT /dataset/{id}` with CSV `C` (2 rows)
+
+**Assertions:**
+1. After step 4, the status becomes ERROR (4) and queries return the rows `A1`, `A2`, `A3`
+2. After step 5, the dataset becomes available with the rows `C1`, `C2` (nothing is left behind)
+
+### TC-ETL-021: Queries and exports during a replace return the previous data
+
+**Steps:**
+1. Create a dataset from CSV `A` (3 rows) and wait until it is available
+2. Block the creation of the shadow table as in TC-ETL-020, `PUT /dataset/{id}` with CSV `B` (2 rows), and wait
+   until the load's `CREATE TABLE` waits for a lock
+3. Query the dataset, its info and its JSON export
+4. Roll back the separate transaction
+
+**Assertions:**
+1. In step 3, the status is PROCESSING (2), queries and the export return the rows `A1`, `A2`, `A3`, and `rowcount`
+   is 3
+2. After step 4, the dataset becomes available with the rows `B1`, `B2`
+
+### TC-ETL-022: Consecutive replaces succeed and leave the data table with canonical names
+
+**Steps:**
+1. Create a dataset from CSV `A` and wait until it is available
+2. Replace its data table directly in the database by a table as created before 2.0
+   (`rownr SERIAL PRIMARY KEY, data JSONB NOT NULL`) with one row
+3. Three times: `PUT /dataset/{id}` with CSV `B`, `C`, `D` (2 rows each) and wait until it is available
+
+**Assertions:**
+1. After each replace, queries return exactly the rows of the last CSV
+2. Only the table `<dataTable>` exists (no `<dataTable>_new`); its indexes are exactly `<dataTable>_pkey`,
+   `<dataTable>_jsonidx_<md5("name")[0..8]>` and `<dataTable>_jsonidx_<md5("value")[0..8]>`; its primary key
+   constraint is `<dataTable>_pkey`; its serial sequence is `public.<dataTable>_rownr_seq`
+3. The column `rownr` and its sequence are `bigint`
+
+### TC-ETL-023: A replace waits for a reader of the data table, e.g., an export, and then succeeds
+
+**Steps:**
+1. Create a dataset from CSV `A` (3 rows) and wait until it is available
+2. In a separate transaction, read the data table (holds an `ACCESS SHARE` lock like a streaming export)
+3. `PUT /dataset/{id}` with CSV `B` (2 rows); wait until the load's `LOCK TABLE <dataTable> IN ACCESS EXCLUSIVE MODE`
+   waits for the lock, then wait 5 seconds (longer than the lock timeout of an attempt, 3 seconds)
+4. End the separate transaction
+
+**Assertions:**
+1. In step 3, after the first attempt has timed out, the status in the database is still PROCESSING (2) and queries
+   return the rows `A1`, `A2`, `A3`
+2. After step 4, the dataset becomes available with the rows `B1`, `B2`
+
+### TC-ETL-024: A leftover shadow table is dropped at the start of a replace
+
+**Steps:**
+1. Create a dataset from CSV `A` (3 rows) and wait until it is available
+2. Create and commit a table `<dataTable>_new` with one row `leftover`
+3. `PUT /dataset/{id}` with CSV `B` (2 rows)
+
+**Assertions:**
+1. The dataset becomes available with exactly the rows `B1`, `B2` (the leftover row is not loaded)
+2. No table `<dataTable>_new` exists
+
+### TC-ETL-025: Leftover shadow tables are dropped at startup
+
+**Steps:**
+1. Create a dataset from CSV `A` (3 rows) and wait until it is available
+2. Create and commit the tables `<dataTable>_new` and `<dataTable>_newer`
+3. Invoke the startup cleanup (`PgRowStore.dropLeftoverShadowTables()`, called by the constructor at startup)
+
+**Assertions:**
+1. The returned table names contain `<dataTable>_new`, but neither `<dataTable>_newer` nor `<dataTable>`
+2. `<dataTable>_new` is dropped, `<dataTable>_newer` still exists, and the dataset still returns its rows
+
+### TC-ETL-026: Deleting a dataset drops a leftover shadow table
+
+**Steps:**
+1. Create a dataset and wait until it is available
+2. Create and commit a table `<dataTable>_new`
+3. `DELETE /dataset/{id}`
+
+**Assertions:**
+1. The response is `204` and the dataset is gone (`404`)
+2. Neither `<dataTable>` nor `<dataTable>_new` exists

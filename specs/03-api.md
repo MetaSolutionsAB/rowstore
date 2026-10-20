@@ -34,7 +34,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.05** `POST /dataset/{id}` — Appends CSV data to an existing dataset. Column structure must match. Returns 202 Accepted.
 
-> **API-3.06** `PUT /dataset/{id}` — Replaces all data in an existing dataset with new CSV data. Truncates the data table before loading. Returns 202 Accepted.
+> **API-3.06** `PUT /dataset/{id}` — Replaces all data in an existing dataset with new CSV data. The previous data is served until the new data has been loaded successfully and is kept if the load fails (see ETL-6.02, ETL-6.03). Returns 202 Accepted.
 
 > **API-3.07** `DELETE /dataset/{id}` — Deletes a dataset, its data table, and all aliases. Only permitted when status is AVAILABLE (3) or ERROR (4). Returns **204 No Content** on success, 423 Locked if dataset is still processing.
 
@@ -149,3 +149,4 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: JSONP removed, CORS added, DELETE returns 204, source references updated |
 | 2026-10-20 | API-6.05: database connectivity failures yield 503 instead of 404 |
+| 2026-10-20 | API-3.06: a replace keeps serving the previous data until it succeeds and keeps it if it fails |

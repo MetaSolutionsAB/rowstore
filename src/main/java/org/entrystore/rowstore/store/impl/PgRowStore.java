@@ -33,6 +33,7 @@ import org.springframework.stereotype.Service;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -75,6 +76,7 @@ public class PgRowStore implements RowStore {
 
 		etlProcessor = new EtlProcessor(this);
 		resetInterruptedLoads();
+		dropLeftoverShadowTables();
 		log.info("Started RowStore {}", versionInfo.getVersion());
 	}
 
@@ -99,6 +101,34 @@ public class PgRowStore implements RowStore {
 			log.error("Unable to reset datasets with interrupted loads: {}", e.getMessage());
 			return List.of();
 		}
+	}
+
+	/**
+	 * Drops shadow tables of replaces (see PgDataset#populate(File, boolean)) that exist under their own name,
+	 * i.e., that were left behind. Called at startup. A replace never commits its shadow table under its own name,
+	 * so this is a safety net that only touches tables matching {@link PgDatasets#SHADOW_TABLE_PATTERN}.
+	 *
+	 * @return Returns the names of the dropped tables.
+	 */
+	public List<String> dropLeftoverShadowTables() {
+		List<String> dropped = new ArrayList<>();
+		try {
+			List<String> tables = jdbcTemplate.queryForList(
+					"SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename ~ ?",
+					String.class, "^" + PgDatasets.SHADOW_TABLE_PATTERN + "$");
+			for (String table : tables) {
+				if (table.matches(PgDatasets.SHADOW_TABLE_PATTERN)) {
+					jdbcTemplate.execute("DROP TABLE IF EXISTS " + table);
+					dropped.add(table);
+				}
+			}
+		} catch (DataAccessException e) {
+			log.error("Unable to drop leftover shadow tables: {}", e.getMessage());
+		}
+		if (!dropped.isEmpty()) {
+			log.warn("Dropped {} leftover shadow table(s): {}", dropped.size(), dropped);
+		}
+		return dropped;
 	}
 
 	/**

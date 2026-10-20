@@ -116,15 +116,16 @@ public class PgDatasets implements Datasets {
 	}
 
 	/**
-	 * Creates a table for storing a dataset's rows. All data tables must be created with this method
-	 * to guarantee an identical schema.
+	 * Creates a table for storing a dataset's rows. All data tables, including shadow tables, must be created with
+	 * this method to guarantee an identical schema.
 	 *
 	 * @param conn The connection to use. Transaction handling is left to the caller.
-	 * @param tableName The name of the data table, must match {@link #DATA_TABLE_PATTERN}.
+	 * @param tableName The name of the data table, must match {@link #DATA_TABLE_PATTERN} or
+	 *                  {@link #SHADOW_TABLE_PATTERN}.
 	 * @throws SQLException If the table could not be created.
 	 */
 	static void createDataTable(Connection conn, String tableName) throws SQLException {
-		if (tableName == null || !tableName.matches(DATA_TABLE_PATTERN)) {
+		if (tableName == null || !(tableName.matches(DATA_TABLE_PATTERN) || tableName.matches(SHADOW_TABLE_PATTERN))) {
 			throw new IllegalArgumentException("Data table name does not match expected pattern: " + tableName);
 		}
 		try (PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + tableName + " (rownr BIGSERIAL PRIMARY KEY, data JSONB NOT NULL)")) {
@@ -145,7 +146,13 @@ public class PgDatasets implements Datasets {
 		try (Connection conn = getRowStore().getConnection()) {
 			conn.setAutoCommit(false);
 
-			try (PreparedStatement ps = conn.prepareStatement("DROP TABLE " + constructDataTableName(id))) {
+			String dataTable = constructDataTableName(id);
+			try (PreparedStatement ps = conn.prepareStatement("DROP TABLE IF EXISTS " + shadowTableName(dataTable))) {
+				log.debug("Executing: " + ps);
+				ps.execute();
+			}
+
+			try (PreparedStatement ps = conn.prepareStatement("DROP TABLE " + dataTable)) {
 				log.debug("Executing: " + ps);
 				ps.execute();
 			}
@@ -259,6 +266,23 @@ public class PgDatasets implements Datasets {
 			throw new IllegalArgumentException("Generated data table name does not match expected pattern: " + tableName);
 		}
 		return tableName;
+	}
+
+	/**
+	 * Pattern of the shadow table into which a replace loads the new data of a dataset, before it replaces the
+	 * data table. The name of a shadow table is never stored as a dataset's data table.
+	 */
+	static final String SHADOW_TABLE_PATTERN = "data_[a-f0-9]{32}_new";
+
+	/**
+	 * @param dataTable The name of a data table, must match {@link #DATA_TABLE_PATTERN}.
+	 * @return Returns the name of the shadow table of a data table.
+	 */
+	static String shadowTableName(String dataTable) {
+		if (dataTable == null || !dataTable.matches(DATA_TABLE_PATTERN)) {
+			throw new IllegalArgumentException("Data table name does not match expected pattern: " + dataTable);
+		}
+		return dataTable + "_new";
 	}
 
 }

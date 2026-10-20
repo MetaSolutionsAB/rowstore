@@ -16,7 +16,8 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 >   → Virtual Thread (Semaphore-gated)
 >     → Charset Detection → Separator Detection → CSV Parsing
 >       → Batch Insert (every 200 rows) → Index Creation
->         → Status: AVAILABLE
+>         → (replace only) Shadow Table replaces Data Table
+>           → Status: AVAILABLE
 > ```
 > The upload returns 202 immediately. Processing is entirely asynchronous.
 
@@ -71,7 +72,13 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 
 > **ETL-6.01** **POST** to an existing dataset appends rows. The uploaded CSV's column structure must match the existing dataset's columns (validated before processing).
 
-> **ETL-6.02** **PUT** to an existing dataset truncates the data table (deletes all existing rows) and reloads from the new CSV. Column structure may differ from the previous upload.
+> **ETL-6.02** **PUT** to an existing dataset replaces all existing rows with the rows of the new CSV. Column structure may differ from the previous upload. The data table is not truncated: within one transaction, the new rows are loaded into a shadow table `<dataTable>_new` (created with the same DDL as data tables, see DOM-4.03 and DOM-6.02, after dropping a table of that name if one exists), its indexes are created (ETL-7.01, with the field sizes of the new data, ETL-7.02), and then the data table is dropped (with its indexes and sequence) and the shadow table is renamed to the data table. The shadow table's indexes, primary key (`<dataTable>_pkey`) and sequence (`<dataTable>_rownr_seq`) are renamed to the names they would have if they had been created for the data table, so that repeated replaces do not collide with leftover names. The data table name stored in `datasets.data_table` never changes. A data table created before 2.0 with `rownr SERIAL` thereby becomes `BIGSERIAL` on its first replace. There is no `TRUNCATE` and no `RESTART IDENTITY`: row numbers of the new data start at 1.
+
+> **ETL-6.03** Status semantics of a replace (as in 1.x): the dataset is PROCESSING (2) during the load, AVAILABLE (3) after the shadow table has replaced the data table, and ERROR (4) if the load fails for any reason (e.g., a malformed row, an SQL error, a lost database connection, an outage or a restart). In every case, queries, exports, the row count and the column names keep serving the previous data until the replacement is committed; a failed replace leaves the previous data unchanged (its uncommitted shadow table is discarded by the rollback). A dataset in ERROR after a failed replace therefore still serves its previous data. An append (POST) loads directly into the data table in one transaction; it is not visible before it is committed, and a failed append leaves the data unchanged as well.
+
+> **ETL-6.04** Replacing the data table requires an `ACCESS EXCLUSIVE` lock on it, which has to wait for running readers (e.g., a long streaming export holds an `ACCESS SHARE` lock until it is finished), and while it waits, new queries of the data table queue behind it. Therefore each attempt to take the lock runs with `SET LOCAL lock_timeout = '3s'` within a savepoint; if it times out, the savepoint is rolled back, a WARN is logged, and the lock is retried after 1, 2, 5, 10, 15 and 30 seconds (seven attempts, about 1.5 minutes including the lock waits). Queries are thus delayed by at most about 3 seconds per attempt. If all attempts time out, the load fails: ERROR, the previous data is kept and the shadow table is discarded. The dataset's further jobs wait meanwhile (ETL-8.02). With a `queryDatabase` read replica (CFG-5.01), the replayed `ACCESS EXCLUSIVE` lock conflicts with queries running on the replica, which PostgreSQL cancels after `max_standby_streaming_delay` (or delays the replay, depending on the replica's configuration).
+
+> **ETL-6.05** A shadow table is never committed under its own name. Tables matching the shadow table pattern (DOM-6.02) that exist nevertheless are dropped at the start of the next replace of the dataset, when the dataset is deleted (API-3.07), and at startup (logged at WARN level, in the same startup step as the reset of ETL-8.06). Only tables matching the strict pattern are dropped.
 
 ## ETL-7 Auto-Indexing
 
@@ -135,3 +142,4 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 | 2026-02-09 | Updated for Spring Boot migration: virtual threads + Semaphore replace queue polling, HikariCP unwrap for BaseConnection |
 | 2026-10-20 | Failure handling of loads (ETL-10) |
 | 2026-10-20 | Per-dataset job queues with ordering and coalescing, permits only for running jobs, stale PROCESSING takeover and startup reset, abnormal worker failures (ETL-8.02 to ETL-8.07, ETL-8.01 removed) |
+| 2026-10-20 | Atomic replace via shadow table, previous data served during and after a failed replace, swap lock timeout with retries, cleanup of leftover shadow tables (ETL-6.02 updated, ETL-6.03 to ETL-6.05) |

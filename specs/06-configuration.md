@@ -74,7 +74,7 @@ Covers the JSON configuration file format, all application and database options,
 
 ## CFG-5 Read Replica Configuration
 
-> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`. When not configured, all queries use the primary `database` connection. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing).
+> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`. When not configured, all queries use the primary `database` connection. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing). Replica queries of a dataset may be cancelled when a replace of the dataset is replayed, see [ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace).
 
 ## CFG-6 Rate Limit Configuration
 
@@ -179,3 +179,4 @@ Covers the JSON configuration file format, all application and database options,
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |
+| 2026-10-20 | CFG-5.01: replica queries may be cancelled by replayed replaces |
