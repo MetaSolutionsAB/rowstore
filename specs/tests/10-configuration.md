@@ -74,7 +74,7 @@ Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configura
 
 ### TC-CFG-009: Invalid trustedproxies fails and names the key
 
-**Input (one per case):** `trustedproxies` = a string, an object, `[1]`, an array containing `null`, or an array with an entry that is not an IP literal with optional prefix length: `"not-an-ip"`, `"localhost"`, `"10.0.0"`, `"10.0.0.256"`, `"10.0.0.0/33"`, `"10.0.0.0/-1"`, `"10.0.0.0/abc"`, `"10.0.0.0/8;80"`, `"::1/129"`, `""`.
+**Input (one per case):** `trustedproxies` = a string, an object, `[1]`, an array containing `null`, or an array with an entry that is not an IP literal with optional prefix length: `"not-an-ip"`, `"localhost"`, `"10.0.0"`, `"10.0.0.256"`, `"10.0.0.0/33"`, `"10.0.0.0/-1"`, `"10.0.0.0/abc"`, `"10.0.0.0/8;80"`, `"::1/129"`, `"fe80::1%lo"` (zone ID), `""`.
 
 **Assertions:**
 1. Construction fails with `IllegalStateException`

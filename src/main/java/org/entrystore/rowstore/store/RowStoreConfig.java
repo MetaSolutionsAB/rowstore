@@ -180,11 +180,12 @@ public class RowStoreConfig {
 
 	/**
 	 * Accepts IP address literals only (no host names, which would require DNS lookups), with an optional prefix length.
-	 * NetMask's ";port" suffix is not accepted.
+	 * NetMask's ";port" suffix and IPv6 zone IDs ("%...") are not accepted.
 	 */
 	private static boolean isIpAddressOrCidr(String value) {
 		int slash = value.indexOf('/');
-		if (value.indexOf(';') >= 0 || !InetAddresses.isInetAddress(slash < 0 ? value : value.substring(0, slash))) {
+		if (value.indexOf(';') >= 0 || value.indexOf('%') >= 0 ||
+				!InetAddresses.isInetAddress(slash < 0 ? value : value.substring(0, slash))) {
 			return false;
 		}
 		try {

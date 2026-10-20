@@ -16,6 +16,8 @@
 
 package org.entrystore.rowstore.filters;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.net.InetAddresses;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
@@ -37,6 +39,7 @@ import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Replaces the remote address of requests from trusted reverse proxies ("trustedproxies" in rowstore.json)
@@ -55,6 +58,10 @@ public class TrustedProxyFilter implements Filter {
 	private static final Logger log = LoggerFactory.getLogger(TrustedProxyFilter.class);
 
 	private final List<NetMask> trustedProxies;
+
+	// Peers that sent X-Forwarded-For without being trusted, to warn at most once per hour and address
+	private final Cache<String, Boolean> warnedPeers =
+			CacheBuilder.newBuilder().maximumSize(1000).expireAfterWrite(1, TimeUnit.HOURS).build();
 
 	public TrustedProxyFilter(RowStoreConfig config) {
 		trustedProxies = config.getTrustedProxies().stream().map(NetMask::new).toList();
@@ -92,7 +99,14 @@ public class TrustedProxyFilter implements Filter {
 	 * or has no X-Forwarded-For header
 	 */
 	private String resolveClientAddress(HttpServletRequest request) {
-		if (!isTrusted(request.getRemoteAddr())) {
+		String peer = request.getRemoteAddr();
+		if (!isTrusted(peer)) {
+			// Helps operators whose proxy is not in "trustedproxies" (e.g. on a public address); 1.x trusted any value
+			if (!trustedProxies.isEmpty() && request.getHeader("X-Forwarded-For") != null &&
+					warnedPeers.asMap().putIfAbsent(peer, Boolean.TRUE) == null) {
+				log.warn("Ignoring X-Forwarded-For from {}, which is not a trusted proxy; if it is a reverse proxy, " +
+						"add it to \"trustedproxies\" in rowstore.json (logged at most once per hour per address)", peer);
+			}
 			return null;
 		}
 		List<String> hops = new ArrayList<>();
@@ -114,8 +128,10 @@ public class TrustedProxyFilter implements Filter {
 	}
 
 	private boolean isTrusted(String address) {
-		// Only IP literals are parsed; host names are never resolved
-		if (trustedProxies.isEmpty() || address == null || !InetAddresses.isInetAddress(address)) {
+		// Only IP literals are parsed; host names are never resolved. IPv6 zone IDs ("%...") are rejected up front,
+		// InetAddresses.forString() would look up the network interface and throw for unknown ones.
+		if (trustedProxies.isEmpty() || address == null || address.indexOf('%') >= 0 ||
+				!InetAddresses.isInetAddress(address)) {
 			return false;
 		}
 		InetAddress inetAddress = InetAddresses.forString(address);

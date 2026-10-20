@@ -16,17 +16,27 @@
 
 package org.entrystore.rowstore.filters;
 
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Configurator;
+import org.apache.logging.log4j.core.config.Property;
 import org.entrystore.rowstore.store.RowStoreConfig;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -66,6 +76,12 @@ class TrustedProxyFilterTest {
             // Non-IP entries are never resolved and count as untrusted
             "192.0.2.10;         192.0.2.10;  unknown;                          unknown",
             "default;            127.0.0.1;   6.6.6.6, localhost;               localhost",
+            // IPv6 zone IDs are not parsed (no interface lookup, no exception) and count as untrusted
+            "default;            127.0.0.1;   ::1%zz;                           ::1%zz",
+            "default;            127.0.0.1;   203.0.113.9, ::1%zz;              ::1%zz",
+            "default;            127.0.0.1;   203.0.113.9, fe80::1%lo;          fe80::1%lo",
+            // Entries with a port are not IP literals and count as untrusted
+            "default;            127.0.0.1;   203.0.113.9, 10.0.0.1:4711;       10.0.0.1:4711",
             // Trusted peer without header
             "192.0.2.10;         192.0.2.10;  null;                             192.0.2.10",
             "192.0.2.10;         192.0.2.10;  ' , ';                            192.0.2.10"
@@ -88,6 +104,53 @@ class TrustedProxyFilterTest {
         assertThat(chain.getRequest().getRemoteAddr()).isEqualTo(expected);
         assertThat(chain.getRequest().getRemoteHost()).isEqualTo(
                 expected.equals(peer) ? request.getRemoteHost() : expected);
+    }
+
+    @Test
+    @DisplayName("TC-RATE-012: X-Forwarded-For from an untrusted peer is logged as a warning once per peer")
+    void untrustedPeerWithForwardedFor_warnsOncePerPeer() throws Exception {
+        List<String> warnings = new ArrayList<>();
+        AbstractAppender appender = new AbstractAppender("capture", null, null, true, Property.EMPTY_ARRAY) {
+            @Override
+            public void append(LogEvent event) {
+                if (event.getLevel() == Level.WARN) {
+                    warnings.add(event.getMessage().getFormattedMessage());
+                }
+            }
+        };
+        appender.start();
+        Logger logger = (Logger) LogManager.getLogger(TrustedProxyFilter.class);
+        Level previousLevel = logger.getLevel();
+        Configurator.setLevel(logger.getName(), Level.WARN);
+        logger.addAppender(appender);
+        try {
+            TrustedProxyFilter filter = new TrustedProxyFilter(config("192.0.2.10"));
+            send(filter, "198.51.100.1", "203.0.113.7");
+            send(filter, "198.51.100.1", "203.0.113.8");
+            send(filter, "198.51.100.2", null);
+            send(filter, "192.0.2.10", "203.0.113.7");
+            assertThat(warnings).hasSize(1);
+            assertThat(warnings.getFirst()).contains("198.51.100.1", "trustedproxies");
+
+            send(filter, "198.51.100.2", "203.0.113.7");
+            assertThat(warnings).hasSize(2);
+
+            // No warnings when nobody is trusted on purpose
+            send(new TrustedProxyFilter(config("none")), "198.51.100.3", "203.0.113.7");
+            assertThat(warnings).hasSize(2);
+        } finally {
+            logger.removeAppender(appender);
+            Configurator.setLevel(logger.getName(), previousLevel);
+        }
+    }
+
+    private static void send(TrustedProxyFilter filter, String peer, String xForwardedFor) throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/datasets");
+        request.setRemoteAddr(peer);
+        if (xForwardedFor != null) {
+            request.addHeader("X-Forwarded-For", xForwardedFor);
+        }
+        filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
     }
 
     private static RowStoreConfig config(String trustedProxies) {

@@ -148,7 +148,20 @@ Rate limiting must be enabled in `rowstore.json`:
 | `["192.0.2.0/24"]` | 192.0.2.10 | `192.0.2.30, 192.0.2.20` (all trusted) | `192.0.2.30` (leftmost) |
 | `["192.0.2.10"]` | 192.0.2.10 | `unknown` | `unknown` |
 | default | 127.0.0.1 | `6.6.6.6, localhost` (host name not resolved) | `localhost` |
+| default | 127.0.0.1 | `::1%zz`, `203.0.113.9, ::1%zz`, `203.0.113.9, fe80::1%lo` (zone ID, no exception) | rightmost entry as given |
+| default | 127.0.0.1 | `203.0.113.9, 10.0.0.1:4711` (port, not an IP literal) | `10.0.0.1:4711` |
 | `["192.0.2.10"]` | 192.0.2.10 | none, or only separators | 192.0.2.10 |
+
+### TC-RATE-012: X-Forwarded-For from an untrusted peer is logged once per peer
+
+**Type:** Unit test (`TrustedProxyFilterTest`), no server needed. Specification: SEC-5.05.
+
+**Setup:** `trustedproxies: ["192.0.2.10"]`, WARN events of `TrustedProxyFilter` captured.
+
+**Assertions:**
+1. Two requests with `X-Forwarded-For` from untrusted peer 198.51.100.1, one request without the header from 198.51.100.2 and one from the trusted proxy produce exactly one warning, naming 198.51.100.1 and `trustedproxies`
+2. A request with the header from 198.51.100.2 produces a second warning
+3. With `trustedproxies: []`, no warning is logged
 
 ## Rate Limit Methods
 

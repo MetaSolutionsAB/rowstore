@@ -268,6 +268,7 @@ class RowStoreConfigTest {
             "[\"10.0.0.0/abc\"]",
             "[\"10.0.0.0/8;80\"]",
             "[\"::1/129\"]",
+            "[\"fe80::1%lo\"]",
             "[\"\"]"
     })
     @DisplayName("TC-CFG-009: trustedproxies with wrong type or an entry that is not an IP address or CIDR range fails")
