@@ -16,6 +16,8 @@
 
 package org.entrystore.rowstore.store;
 
+import com.google.common.net.InetAddresses;
+import org.apache.catalina.util.NetMask;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -29,6 +31,14 @@ import java.util.List;
  * @author Hannes Ebner
  */
 public class RowStoreConfig {
+
+	/**
+	 * Default for "trustedproxies": loopback, private, link-local and shared (CGNAT) address ranges,
+	 * equivalent to the default "internalProxies" of Tomcat's RemoteIpValve.
+	 */
+	public static final List<String> DEFAULT_TRUSTED_PROXIES = List.of(
+			"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10",
+			"::1", "fc00::/7", "fe80::/10");
 
 	private String logLevel;
 
@@ -57,6 +67,8 @@ public class RowStoreConfig {
 	private long maxUploadSize = 104857600; // 100 MB default
 
 	private List<String> corsAllowedOrigins = List.of("*");
+
+	private List<String> trustedProxies = DEFAULT_TRUSTED_PROXIES;
 
 	private Database database;
 
@@ -143,6 +155,43 @@ public class RowStoreConfig {
 			if (!originList.isEmpty()) {
 				corsAllowedOrigins = originList;
 			}
+		}
+
+		// Reverse proxies whose X-Forwarded-For header is trusted; an empty array trusts nobody
+		if (config.has("trustedproxies")) {
+			JSONArray proxies = config.optJSONArray("trustedproxies");
+			if (proxies == null) {
+				throw wrongType("trustedproxies", "an array of strings");
+			}
+			List<String> proxyList = new ArrayList<>();
+			for (int i = 0; i < proxies.length(); i++) {
+				if (!(proxies.get(i) instanceof String proxy)) {
+					throw wrongType("trustedproxies", "an array of strings");
+				}
+				if (!isIpAddressOrCidr(proxy)) {
+					throw new IllegalStateException("rowstore.json: 'trustedproxies' contains '" + proxy +
+							"', which is not an IP address or CIDR range");
+				}
+				proxyList.add(proxy);
+			}
+			trustedProxies = List.copyOf(proxyList);
+		}
+	}
+
+	/**
+	 * Accepts IP address literals only (no host names, which would require DNS lookups), with an optional prefix length.
+	 * NetMask's ";port" suffix is not accepted.
+	 */
+	private static boolean isIpAddressOrCidr(String value) {
+		int slash = value.indexOf('/');
+		if (value.indexOf(';') >= 0 || !InetAddresses.isInetAddress(slash < 0 ? value : value.substring(0, slash))) {
+			return false;
+		}
+		try {
+			new NetMask(value);
+			return true;
+		} catch (IllegalArgumentException e) {
+			return false;
 		}
 	}
 
@@ -246,6 +295,13 @@ public class RowStoreConfig {
 
 	public Database getQueryDatabase() {
 		return queryDatabase;
+	}
+
+	/**
+	 * @return IP addresses and CIDR ranges of trusted reverse proxies, validated by {@link NetMask}
+	 */
+	public List<String> getTrustedProxies() {
+		return trustedProxies;
 	}
 
 	public class Database {

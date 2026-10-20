@@ -16,12 +16,15 @@
 
 package org.entrystore.rowstore.store;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -232,6 +235,50 @@ class RowStoreConfigTest {
         json.put("somethingelse", "value");
 
         assertThat(new RowStoreConfig(json).getBaseURL()).isEqualTo("http://localhost:8282/");
+    }
+
+    @Test
+    @DisplayName("TC-CFG-008: trustedproxies defaults to private ranges, accepts IPs and CIDR ranges, empty array trusts nobody")
+    void trustedProxies_defaultExplicitAndEmpty() {
+        assertThat(new RowStoreConfig(new JSONObject(MINIMAL_CONFIG)).getTrustedProxies())
+                .containsExactlyInAnyOrder("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+                        "169.254.0.0/16", "100.64.0.0/10", "::1", "fc00::/7", "fe80::/10");
+
+        JSONObject json = new JSONObject(MINIMAL_CONFIG);
+        json.put("trustedproxies", new JSONArray(List.of("192.0.2.10", "10.10.0.0/16", "2001:db8::/32", "::1")));
+        assertThat(new RowStoreConfig(json).getTrustedProxies())
+                .containsExactly("192.0.2.10", "10.10.0.0/16", "2001:db8::/32", "::1");
+
+        json.put("trustedproxies", new JSONArray());
+        assertThat(new RowStoreConfig(json).getTrustedProxies()).isEmpty();
+    }
+
+    @ParameterizedTest(name = "trustedproxies = {0}")
+    @ValueSource(strings = {
+            "\"10.0.0.1\"",
+            "{}",
+            "[1]",
+            "[\"10.0.0.1\", null]",
+            "[\"not-an-ip\"]",
+            "[\"localhost\"]",
+            "[\"10.0.0\"]",
+            "[\"10.0.0.256\"]",
+            "[\"10.0.0.0/33\"]",
+            "[\"10.0.0.0/-1\"]",
+            "[\"10.0.0.0/abc\"]",
+            "[\"10.0.0.0/8;80\"]",
+            "[\"::1/129\"]",
+            "[\"\"]"
+    })
+    @DisplayName("TC-CFG-009: trustedproxies with wrong type or an entry that is not an IP address or CIDR range fails")
+    void trustedProxies_invalid_failsNamingKey(String jsonValue) {
+        JSONObject json = new JSONObject(MINIMAL_CONFIG);
+        json.put("trustedproxies", new JSONObject("{\"v\": " + jsonValue + "}").get("v"));
+
+        assertThatThrownBy(() -> new RowStoreConfig(json))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageStartingWith("rowstore.json")
+                .hasMessageContaining("'trustedproxies'");
     }
 
     private static void remove(JSONObject json, String dottedKey) {

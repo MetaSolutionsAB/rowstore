@@ -55,11 +55,15 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 > **SEC-5.03** Rate limiting operates at three scopes:
 > - **Global**: A single rate limiter shared by all requests
 > - **Per-dataset**: One rate limiter per dataset URL path (keyed by request path)
-> - **Per-client IP**: One rate limiter per client IP address (extracted from the `X-Forwarded-For` header)
+> - **Per-client IP**: One rate limiter per client IP address (the request's remote address, see SEC-5.05)
 >
 > Each scope has an independent limit. A request is rejected if it exceeds any active scope's limit.
 
 > **SEC-5.04** Rate limiting applies to **GET and HEAD** requests only. POST, PUT, and DELETE are not rate limited. The `/status` endpoint is **exempt** from rate limiting. Rate limiter caches have a maximum size of **32,768 entries**.
+
+> **SEC-5.05** **Client address**: The per-client-IP key is the request's remote address (`getRemoteAddr()`). `TrustedProxyFilter` replaces it with an address from `X-Forwarded-For` only if the connecting peer is a trusted proxy (`trustedproxies`, [CFG-3.11](06-configuration.md#cfg-3-application-options)). The header (all header lines, comma-separated) is walked from right to left, skipping addresses of trusted proxies; the first untrusted address is the client address. If all entries are trusted proxies, the leftmost entry is used. Entries left of the client address can be set freely by the client and are ignored, so a client cannot choose its own rate limit key. Entries are parsed as IP literals only; host names are never resolved. This is the algorithm of Tomcat's `RemoteIpValve`, which is not used because its proxy lists are regular expressions, not CIDR ranges. Other forwarding headers (`X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-Port`, `Forwarded`) are not evaluated (`server.forward-headers-strategy=none`); all URLs in responses are built from `baseurl`.
+
+> **SEC-5.06** **Trusted proxy default**: Without `trustedproxies`, loopback, private (RFC 1918), shared (100.64.0.0/10) and link-local IPv4 addresses and IPv6 loopback, unique local and link-local addresses are trusted, equivalent to the `internalProxies` default of Tomcat's `RemoteIpValve`, so a reverse proxy on the same host or on a private or container network works without configuration. An empty array trusts nobody: `X-Forwarded-For` is always ignored and the per-client-IP limit applies to the address of the connecting peer. If clients other than the reverse proxy can connect from a private address, `trustedproxies` must list exactly the reverse proxy addresses. (1.x used any `X-Forwarded-For` value verbatim as the key.)
 
 ## SEC-6 CORS
 
@@ -85,7 +89,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 - [Query Processing](05-querying.md#query-9-input-validation) — Input validation for query parameters
 - [Configuration](06-configuration.md#cfg-6-rate-limit-configuration) — Rate limit configuration options
 - [Glossary](12-glossary.md#glo-1-terms) — Rate Limit (Average), Rate Limit (Sliding Window), CORS
-- Source: `ApiKeyFilter.java`, `RateLimitFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
+- Source: `ApiKeyFilter.java`, `RateLimitFilter.java`, `TrustedProxyFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
 
 ## Change Log
 
@@ -93,3 +97,4 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: CORS implemented, JSONP removed, new validations (table name, ReDoS, upload size, alias locking) |
+| 2026-10-20 | Added SEC-5.05 and SEC-5.06 (client address from `X-Forwarded-For` only via trusted proxies); SEC-5.03 updated |

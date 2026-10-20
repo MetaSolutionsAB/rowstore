@@ -63,6 +63,23 @@ Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configura
 **Assertions:**
 1. Construction succeeds
 
+### TC-CFG-008: trustedproxies default, explicit list and empty array
+
+**Input (one per case):** Minimal config without `trustedproxies`; with `["192.0.2.10", "10.10.0.0/16", "2001:db8::/32", "::1"]`; with `[]`.
+
+**Assertions:**
+1. Without the key, the default list of CFG-3.11 applies (loopback, private, shared and link-local ranges)
+2. An explicit list is used as configured
+3. An empty array results in an empty list (nobody is trusted)
+
+### TC-CFG-009: Invalid trustedproxies fails and names the key
+
+**Input (one per case):** `trustedproxies` = a string, an object, `[1]`, an array containing `null`, or an array with an entry that is not an IP literal with optional prefix length: `"not-an-ip"`, `"localhost"`, `"10.0.0"`, `"10.0.0.256"`, `"10.0.0.0/33"`, `"10.0.0.0/-1"`, `"10.0.0.0/abc"`, `"10.0.0.0/8;80"`, `"::1/129"`, `""`.
+
+**Assertions:**
+1. Construction fails with `IllegalStateException`
+2. The message starts with `rowstore.json` and names `'trustedproxies'`
+
 ### TC-DS-001: Unpooled query data source applies SSL mode, timeouts and read-only mode
 
 **Input (one per case):** Config with a separate `queryDatabase` without pool, `ssl` = false or true, `socketTimeout` = 60, `connectTimeout` = 7, `loginTimeout` = 8.

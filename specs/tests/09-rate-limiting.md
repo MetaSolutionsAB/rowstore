@@ -101,6 +101,27 @@ Rate limiting must be enabled in `rowstore.json`:
 1. After time window expires, requests succeed again
 2. Rate limit counter resets
 
+### TC-RATE-011: Client address is resolved from X-Forwarded-For only via trusted proxies
+
+**Type:** Unit test (`TrustedProxyFilterTest`), no server needed. Specification: SEC-5.05, SEC-5.06.
+
+**Assertions (one case per row):** `getRemoteAddr()` and `getRemoteHost()` seen by the next filter in the chain:
+
+| `trustedproxies` | Peer | `X-Forwarded-For` | Remote address |
+|---|---|---|---|
+| default | 127.0.0.1, 10.1.2.3, 172.31.0.1, ::1 | `203.0.113.7` | `203.0.113.7` |
+| default | fd00::5 | `2001:db8::1` | `2001:db8::1` |
+| default | 172.32.0.1, 198.51.100.1 (not private) | `203.0.113.7` | peer |
+| `[]` | 127.0.0.1 | `203.0.113.7` | 127.0.0.1 |
+| `["192.0.2.10"]` | 192.0.2.11 | `203.0.113.7` | 192.0.2.11 |
+| `["192.0.2.10"]` | 192.0.2.10 | `6.6.6.6, 203.0.113.7` | `203.0.113.7` |
+| `["192.0.2.0/24"]` | 192.0.2.10 | `6.6.6.6, 203.0.113.7, 192.0.2.20` | `203.0.113.7` |
+| `["192.0.2.10"]` | 192.0.2.10 | two header lines `6.6.6.6` and `203.0.113.7` | `203.0.113.7` |
+| `["192.0.2.0/24"]` | 192.0.2.10 | `192.0.2.30, 192.0.2.20` (all trusted) | `192.0.2.30` (leftmost) |
+| `["192.0.2.10"]` | 192.0.2.10 | `unknown` | `unknown` |
+| default | 127.0.0.1 | `6.6.6.6, localhost` (host name not resolved) | `localhost` |
+| `["192.0.2.10"]` | 192.0.2.10 | none, or only separators | 192.0.2.10 |
+
 ## Rate Limit Methods
 
 ### Sliding Window

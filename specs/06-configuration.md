@@ -15,6 +15,7 @@ Covers the JSON configuration file format, all application and database options,
 > **CFG-1.02** The configuration is validated at startup and RowStore refuses to start if it is invalid. The first error log line names the offending key (e.g. `rowstore.json: missing required key 'database.host'`). Startup fails when:
 > - a required key is missing: `baseurl`, `database`, `database.host`, `database.database`, `database.user`, `database.password` (and the same four keys in `queryDatabase` when that block is present); an empty password is allowed
 > - `database`, `queryDatabase`, `ratelimit` or `cors` is present but not a JSON object, or `cors.allowedorigins` is present but not an array of strings
+> - `trustedproxies` is present but not an array of strings, or one of its entries is not an IP address or CIDR range
 > - a value cannot be read as the expected type (e.g. `baseurl` is not a string)
 > - `querymaxlimit` or `maxuploadsize` is not greater than 0
 >
@@ -55,6 +56,8 @@ Covers the JSON configuration file format, all application and database options,
 > **CFG-3.09** `maxuploadsize` (long, default `104857600`) — Maximum CSV upload size in bytes (default 100 MB). Uploads exceeding this limit are rejected. Must be greater than 0. See [SEC-4.09](07-security.md#sec-4-input-validation).
 
 > **CFG-3.10** `cors.allowedorigins` (JSON array, default `["*"]`) — List of allowed origins for CORS. When set to `["*"]`, all origins are permitted. See [SEC-6.01](07-security.md#sec-6-cors).
+
+> **CFG-3.11** `trustedproxies` (JSON array of strings) — IP addresses (`"192.0.2.10"`, `"::1"`) and CIDR ranges (`"10.0.0.0/8"`, `"fd00::/8"`) of reverse proxies whose `X-Forwarded-For` header is trusted for determining the client address (per-client-IP rate limit). Only IP literals are accepted, no host names. Default when absent: `["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10", "::1", "fc00::/7", "fe80::/10"]` (loopback, private, shared and link-local ranges, equivalent to the `internalProxies` default of Tomcat's `RemoteIpValve`). An empty array `[]` trusts nobody: `X-Forwarded-For` is always ignored. See [SEC-5.05](07-security.md#sec-5-rate-limiting) and [SEC-5.06](07-security.md#sec-5-rate-limiting).
 
 ## CFG-4 Database Configuration
 
@@ -97,7 +100,7 @@ Covers the JSON configuration file format, all application and database options,
 > **CFG-6.03** `ratelimit.global`, `ratelimit.dataset`, `ratelimit.clientip` (int, default `-1`) — Maximum requests per `timerange` for each scope:
 > - `global` — Single limiter for all requests
 > - `dataset` — One limiter per dataset URL path
-> - `clientip` — One limiter per client IP (from `X-Forwarded-For` header)
+> - `clientip` — One limiter per client IP: the address of the connecting peer, or the client address from `X-Forwarded-For` if the peer is a trusted proxy ([CFG-3.11](#cfg-3-application-options), [SEC-5.05](07-security.md#sec-5-rate-limiting))
 
 > **CFG-6.04** Rate limiting is enabled when: `timerange > 0 AND (global > 0 OR dataset > 0)`. If these conditions are not met, the `RateLimitFilter` is not active. See [SEC-5](07-security.md#sec-5-rate-limiting).
 
@@ -133,6 +136,7 @@ Covers the JSON configuration file format, all application and database options,
 >     "cors": {
 >         "allowedorigins": ["https://example.com", "https://app.example.com"]
 >     },
+>     "trustedproxies": ["10.0.0.5", "fd00:1::/64"],
 >     "database": {
 >         "type": "postgresql",
 >         "host": "db-primary.example.com",
@@ -177,10 +181,10 @@ Covers the JSON configuration file format, all application and database options,
 
 - [Query Processing](05-querying.md#query-4-regex-modes) — `regexpqueries`, `querytimeout`, `querymaxlimit` behavior
 - [ETL Pipeline](04-etl-pipeline.md#etl-2-concurrency-mechanism) — `maxetlprocesses`, `legacyparser` behavior
-- [Security](07-security.md#sec-5-rate-limiting) — Rate limit behavior
+- [Security](07-security.md#sec-5-rate-limiting) — Rate limit behavior, trusted proxies
 - [Deployment](08-deployment.md#depl-1-spring-boot-standalone) — CLI usage and deployment
 - [Glossary](12-glossary.md#glo-1-terms) — Read Replica, Rate Limit, CORS
-- Source: `RowStoreConfig.java`, `RowStoreConfigLoader.java`
+- Source: `RowStoreConfig.java`, `RowStoreConfigLoader.java`, `TrustedProxyFilter.java`
 
 ## Change Log
 
@@ -189,3 +193,4 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |
 | 2026-10-20 | Added CFG-1.02 (fail fast on invalid config), CFG-3.08 removed (exportpagesize unused); CFG-4.02, CFG-4.04, CFG-5.01 clarified for driver settings with HikariCP |
+| 2026-10-20 | Added CFG-3.11 (`trustedproxies`); CFG-1.02 and CFG-6.03 updated: `X-Forwarded-For` only from trusted proxies |
