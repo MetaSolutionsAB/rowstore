@@ -114,7 +114,8 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
   - `timerange` - The size (in seconds) of the time slot or window to be used for calculating the limitation.
   - `dataset` - Amount of permitted requests per dataset.
   - `global` - Amount of permitted requests globally for a RowStore instance.
-  - `clientip` - Amount of permitted requests per client IP. Uses the real upstream IP, i.e., if an `X-Forwarded-For` header is supplied by a reverse proxy, this IP is taken, otherwise the direct client's IP is used.
+  - `clientip` - Amount of permitted requests per client IP. The client IP is the address of the connecting peer. Only if the peer is a trusted proxy (see `trustedproxies`), the client IP is taken from the `X-Forwarded-For` header: the header is read from right to left, skipping trusted proxies, and the first address that is not a trusted proxy is used. Entries further left can be forged by clients and are ignored.
+- `trustedproxies` (Array of Strings) - IP addresses and CIDR ranges of the reverse proxies whose `X-Forwarded-For` header is trusted, e.g. `["10.0.0.5"]`, `["172.18.0.0/16", "fd00::/8"]`. Only IP addresses are accepted, no host names. Default (if not set): loopback, private, shared and link-local ranges (`127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `100.64.0.0/10`, `::1`, `fc00::/7`, `fe80::/10`), which fits a reverse proxy on the same host or on a private/Docker network. An empty array `[]` trusts nobody, i.e. `X-Forwarded-For` is always ignored and all requests through the proxy share the proxy's per-client limit. If clients can reach RowStore directly from a private address, list exactly the reverse proxy addresses, otherwise such clients can choose their own client IP.
 
 ### Example
 
@@ -147,8 +148,10 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
     "type": "slidingwindow",
     "timerange": 60,
     "dataset": 30,
-    "global": 300
+    "global": 300,
+    "clientip": 60
   },
+  "trustedproxies": ["10.0.0.5"],
   "loglevel": "debug"
 }
 ```

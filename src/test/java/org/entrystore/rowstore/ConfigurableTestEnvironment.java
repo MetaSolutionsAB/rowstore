@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -239,6 +240,10 @@ public class ConfigurableTestEnvironment {
                 jsonConfig.put("ratelimit", rateLimit);
             }
 
+            if (config.trustedProxies != null) {
+                jsonConfig.put("trustedproxies", config.trustedProxies);
+            }
+
             // Database configuration
             JSONObject database = new JSONObject();
             database.put("type", "postgresql");
@@ -309,6 +314,7 @@ public class ConfigurableTestEnvironment {
         private final int connectionPoolMax;
         private final int socketTimeout;
         private final boolean separateQueryDatabase;
+        private final List<String> trustedProxies;
 
         private Configuration(Builder builder) {
             this.regexpQueries = builder.regexpQueries;
@@ -324,6 +330,7 @@ public class ConfigurableTestEnvironment {
             this.connectionPoolMax = builder.connectionPoolMax;
             this.socketTimeout = builder.socketTimeout;
             this.separateQueryDatabase = builder.separateQueryDatabase;
+            this.trustedProxies = builder.trustedProxies;
         }
 
         public String getRegexpQueries() {
@@ -342,10 +349,10 @@ public class ConfigurableTestEnvironment {
          * Returns a unique key for caching environments with this configuration.
          */
         public String getCacheKey() {
-            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,socketTimeout=%d,queryDb=%b",
+            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,socketTimeout=%d,queryDb=%b,trustedProxies=%s",
                     regexpQueries, rateLimitEnabled, rateLimitTimeRange,
                     rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitRequestsClientIp, rateLimitType,
-                    connectionPoolMax, socketTimeout, separateQueryDatabase);
+                    connectionPoolMax, socketTimeout, separateQueryDatabase, trustedProxies);
         }
 
         @Override
@@ -371,6 +378,7 @@ public class ConfigurableTestEnvironment {
         private int connectionPoolMax = -1;
         private int socketTimeout = -1;
         private boolean separateQueryDatabase = false;
+        private List<String> trustedProxies = null;
 
         public Builder regexpQueries(String regexpQueries) {
             this.regexpQueries = regexpQueries;
@@ -437,6 +445,14 @@ public class ConfigurableTestEnvironment {
          */
         public Builder separateQueryDatabase(boolean separateQueryDatabase) {
             this.separateQueryDatabase = separateQueryDatabase;
+            return this;
+        }
+
+        /**
+         * Sets the "trustedproxies" array; null (the default) omits the key so that the built-in default applies.
+         */
+        public Builder trustedProxies(List<String> trustedProxies) {
+            this.trustedProxies = trustedProxies;
             return this;
         }
 

@@ -101,6 +101,34 @@ Rate limiting must be enabled in `rowstore.json`:
 1. After time window expires, requests succeed again
 2. Rate limit counter resets
 
+### TC-RATE-009: Spoofed X-Forwarded-For does not bypass the client IP limit
+
+**Setup:**
+- `ratelimit.clientip=5`, `global` and `dataset` high (1000), `timerange=30`
+- `trustedproxies: []`, so the test client on loopback is not a trusted proxy
+
+**Request:**
+- Method: `GET`
+- URL: `/datasets` (10 times, i.e. limit + 5)
+- Header: `X-Forwarded-For: <random IPv4 address>`, a different value per request
+
+**Assertions:**
+1. At most 5 requests return `200`
+2. At least one request returns `429` (before ROWS-128 every request got a fresh key and none was limited)
+
+### TC-RATE-010: Clients behind a trusted proxy are limited independently
+
+**Setup:**
+- `ratelimit.clientip=5`, `global` and `dataset` high (1000), `timerange=30`
+- `trustedproxies: ["127.0.0.1", "::1"]`, so the test client acts as a trusted reverse proxy
+
+**Requests and assertions (`GET /datasets`, in order):**
+1. 5 × `X-Forwarded-For: 10.0.0.1` return `200`, the 6th returns `429`
+2. `X-Forwarded-For: 10.0.0.2` returns `200` (independent limit)
+3. `X-Forwarded-For: <random>, 10.0.0.1` returns `429` (keyed on the entry appended by the trusted proxy, the client-supplied left part is ignored)
+4. `X-Forwarded-For: <random>, 10.0.0.2` returns `200`
+5. `X-Forwarded-For: <random>, 10.0.0.1, 127.0.0.1` returns `429` (trusted hop skipped, keyed on 10.0.0.1)
+
 ### TC-RATE-011: Client address is resolved from X-Forwarded-For only via trusted proxies
 
 **Type:** Unit test (`TrustedProxyFilterTest`), no server needed. Specification: SEC-5.05, SEC-5.06.
