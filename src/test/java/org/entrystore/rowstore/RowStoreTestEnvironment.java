@@ -212,17 +212,6 @@ public class RowStoreTestEnvironment {
         return started;
     }
 
-    /**
-     * Opens a direct JDBC connection to the test database, e.g., for failure injection.
-     */
-    public Connection openDatabaseConnection() throws SQLException {
-        if (postgresContainer == null) {
-            throw new IllegalStateException("Test environment has not been started");
-        }
-        return DriverManager.getConnection(postgresContainer.getJdbcUrl(),
-                postgresContainer.getUsername(), postgresContainer.getPassword());
-    }
-
     private void startPostgres() {
         log.info("Starting PostgreSQL container...");
 
