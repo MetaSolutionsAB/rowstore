@@ -36,6 +36,7 @@ import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -215,6 +216,27 @@ public class PgDataset implements Dataset {
 	}
 
 	/**
+	 * Sets the status to PROCESSING with a conditional update. The caller must run the load as the dataset's
+	 * only job in this RowStore instance (see EtlProcessor), and a database must not be used by more than one
+	 * RowStore instance, so a dataset that already is in PROCESSING is stale (e.g., because a load was interrupted
+	 * by a database outage) and is taken over.
+	 *
+	 * @throws DataAccessException If the status could not be written.
+	 */
+	private void markAsProcessing() {
+		int updated = rowstore.getJdbcTemplate().update(
+				"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid AND status <> ?",
+				EtlStatus.PROCESSING, id, EtlStatus.PROCESSING);
+		if (updated == 0) {
+			log.warn("Dataset {} is already in status {}({}) without an active load (or it does not exist anymore), taking it over",
+					getId(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.PROCESSING);
+		} else {
+			log.info("Setting status of {} to {}({})", getId(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.PROCESSING);
+		}
+		this.status = EtlStatus.PROCESSING;
+	}
+
+	/**
 	 * @see Dataset#getCreationDate()
 	 */
 	@Override
@@ -251,7 +273,7 @@ public class PgDataset implements Dataset {
 				return false;
 			}
 
-			setStatus(EtlStatus.PROCESSING);
+			markAsProcessing();
 
 			if (!append) {
 				if (!truncateTable()) {
@@ -393,7 +415,7 @@ public class PgDataset implements Dataset {
 		} finally {
 			// Also reached by exceptions, which propagate to the caller after the status has been set
 			if (!writeStatusWithRetry(success ? EtlStatus.AVAILABLE : EtlStatus.ERROR)) {
-				log.error("Dataset {} remains in status {}({})",
+				log.error("Dataset {} remains in status {}({}) until it is loaded again or RowStore is restarted",
 						getId(), EtlStatus.toString(status), status);
 			}
 		}
@@ -633,6 +655,10 @@ public class PgDataset implements Dataset {
 
 	/**
 	 * Initializes the object by loading all information from the database.
+	 *
+	 * @throws IllegalStateException If there is no dataset with this ID.
+	 * @throws IllegalArgumentException If the ID is not a valid UUID.
+	 * @throws DataAccessException If the database could not be queried, e.g., because it is unreachable.
 	 */
 	private void initFromDb() {
 		long before = System.currentTimeMillis();
@@ -652,14 +678,18 @@ public class PgDataset implements Dataset {
 			throw new IllegalStateException("Unable to initialize Dataset object from database");
 		} catch (DataAccessException e) {
 			Throwable cause = e.getCause();
-			if (cause instanceof SQLException se) {
-				if (!"22P02".equalsIgnoreCase(se.getSQLState())) {
-					SqlExceptionLogUtil.error(log, se);
-				} else {
-					log.info(se.getMessage().replaceFirst("ERROR: ", ""));
-				}
+			if (cause instanceof SQLException se && "22P02".equalsIgnoreCase(se.getSQLState())) {
+				// invalid UUID input, treated like an unknown dataset
+				log.info(se.getMessage().replaceFirst("ERROR: ", ""));
+				throw new IllegalArgumentException(e);
 			}
-			throw new IllegalArgumentException(e);
+			// any other failure must not be mistaken for an unknown dataset
+			if (cause instanceof SQLException se) {
+				SqlExceptionLogUtil.error(log, se);
+			} else {
+				log.error(e.getMessage());
+			}
+			throw e;
 		} finally {
 			log.debug("Loading dataset took {} ms", System.currentTimeMillis() - before);
 		}
@@ -770,6 +800,9 @@ public class PgDataset implements Dataset {
 					"SELECT dataset_id FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?",
 					(rs, rowNum) -> (UUID) rs.getObject("dataset_id"), alias);
 			return results.isEmpty() ? null : results.get(0).toString();
+		} catch (DataAccessResourceFailureException e) {
+			// an unreachable database must not be mistaken for an unknown alias
+			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 			return null;

@@ -23,8 +23,16 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -32,7 +40,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Manages the ETL-queue. Accepts and submits ETL-requests to the processing pipeline.
  *
- * Uses virtual threads with a semaphore for concurrency limiting.
+ * Jobs are queued per dataset and run one at a time per dataset, in submission order, on a virtual thread that
+ * exists while the dataset has jobs. A job acquires a semaphore permit only when it is about to run, so the
+ * number of concurrent loads is limited without waiting jobs blocking the loads of other datasets.
  *
  * @author Hannes Ebner
  */
@@ -46,10 +56,13 @@ public class EtlProcessor {
 
 	private final AtomicInteger activeProcesses = new AtomicInteger(0);
 
-	private final RowStore rowstore;
+	/**
+	 * Jobs that have not started yet, per dataset ID. A dataset has an entry as long as a worker is active for it;
+	 * the worker removes the entry when no jobs are left. Guarded by itself.
+	 */
+	private final Map<String, Deque<Job>> waitingJobs = new HashMap<>();
 
 	public EtlProcessor(RowStore rowstore) {
-		this.rowstore = rowstore;
 		int maxConcurrent = rowstore.getConfig().getMaxEtlProcesses();
 		if (maxConcurrent <= 0) {
 			maxConcurrent = 5;
@@ -58,33 +71,102 @@ public class EtlProcessor {
 		log.info("ETL processor initialized with max {} concurrent processes", maxConcurrent);
 	}
 
+	/**
+	 * Submits a CSV file to be loaded into a dataset. Loads of the same dataset run in submission order. A replace
+	 * (no append) discards the loads of the same dataset that have not started yet, since it supersedes them.
+	 */
 	public void submit(EtlResource etlResource) {
-		log.info("Submitting dataset {} to ETL processing", etlResource.getDataset().getId());
-		executor.submit(() -> processDataset(etlResource));
+		String datasetId = etlResource.getDataset().getId();
+		log.info("Submitting dataset {} to ETL processing", datasetId);
+		enqueue(datasetId, new LoadJob(etlResource), !etlResource.isAppending());
 	}
 
-	private void processDataset(EtlResource etlResource) {
-		try {
-			concurrencyLimiter.acquire();
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			log.warn("ETL task interrupted while waiting for permit");
-			return;
+	/**
+	 * Runs a task exclusively for a dataset: after all previously submitted jobs of the dataset and never
+	 * concurrently with another job of the same dataset. Like a load, the task holds an ETL permit while running.
+	 */
+	public void runExclusively(String datasetId, Runnable task) {
+		enqueue(datasetId, new TaskJob(datasetId, task), false);
+	}
+
+	private void enqueue(String datasetId, Job job, boolean supersedesWaitingLoads) {
+		List<Job> discarded = new ArrayList<>();
+		boolean startWorker;
+		synchronized (waitingJobs) {
+			Deque<Job> queue = waitingJobs.get(datasetId);
+			startWorker = queue == null;
+			if (startWorker) {
+				queue = new ArrayDeque<>();
+				waitingJobs.put(datasetId, queue);
+			} else if (supersedesWaitingLoads) {
+				for (Iterator<Job> it = queue.iterator(); it.hasNext(); ) {
+					Job waiting = it.next();
+					if (waiting instanceof LoadJob) {
+						it.remove();
+						discarded.add(waiting);
+					}
+				}
+			}
+			queue.addLast(job);
 		}
-		activeProcesses.incrementAndGet();
-		File fileToLoad = etlResource.getDataSource();
-		try {
-			Dataset dataset = etlResource.getDataset();
-			while (EtlStatus.PROCESSING == dataset.getStatus()) {
-				log.info("Dataset is already being processed, retrying in 5 seconds");
-				try {
-					Thread.sleep(5000);
-				} catch (InterruptedException ie) {
-					Thread.currentThread().interrupt();
-					log.error("Dataset loader got interrupted while waiting for dataset to finish processing");
+		discarded.forEach(j -> j.discard("superseded by a subsequent replace"));
+		if (startWorker) {
+			try {
+				executor.submit(() -> runJobs(datasetId));
+			} catch (RejectedExecutionException e) {
+				discardAll(datasetId, "the ETL processor is shut down");
+				throw e;
+			}
+		}
+	}
+
+	/**
+	 * Runs the jobs of a dataset one after another until its queue is empty.
+	 */
+	private void runJobs(String datasetId) {
+		while (true) {
+			Job job;
+			synchronized (waitingJobs) {
+				job = waitingJobs.get(datasetId).pollFirst();
+				if (job == null) {
+					waitingJobs.remove(datasetId);
 					return;
 				}
 			}
+			try {
+				concurrencyLimiter.acquire();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				job.discard("the ETL processor was interrupted");
+				discardAll(datasetId, "the ETL processor was interrupted");
+				return;
+			}
+			activeProcesses.incrementAndGet();
+			try {
+				job.run();
+			} catch (RuntimeException e) {
+				log.error("ETL job for dataset {} failed", datasetId, e);
+			} finally {
+				activeProcesses.decrementAndGet();
+				concurrencyLimiter.release();
+			}
+		}
+	}
+
+	private void discardAll(String datasetId, String reason) {
+		Deque<Job> queue;
+		synchronized (waitingJobs) {
+			queue = waitingJobs.remove(datasetId);
+		}
+		if (queue != null) {
+			queue.forEach(j -> j.discard(reason));
+		}
+	}
+
+	private void processDataset(EtlResource etlResource) {
+		Dataset dataset = etlResource.getDataset();
+		File fileToLoad = etlResource.getDataSource();
+		try {
 			log.info("Populating dataset {} with data from file {}", dataset.getId(), fileToLoad);
 			if (dataset.populate(fileToLoad, etlResource.isAppending())) {
 				log.info("Dataset {} successfully populated", dataset.getId());
@@ -92,22 +174,24 @@ public class EtlProcessor {
 				log.error("An error occurred while populating dataset {}", dataset.getId());
 			}
 		} catch (IOException | RuntimeException e) {
-			log.error("Populating dataset {} failed", etlResource.getDataset().getId(), e);
+			log.error("Populating dataset {} failed", dataset.getId(), e);
 			// populate() normally sets the status itself, this covers failures outside its status handling
 			try {
-				etlResource.getDataset().setStatus(EtlStatus.ERROR);
+				dataset.setStatus(EtlStatus.ERROR);
 			} catch (RuntimeException e1) {
-				log.error("Unable to set status of dataset {} to error", etlResource.getDataset().getId(), e1);
+				log.error("Unable to set status of dataset {} to error", dataset.getId(), e1);
 			}
 		} finally {
-			activeProcesses.decrementAndGet();
-			concurrencyLimiter.release();
-			if (fileToLoad != null && fileToLoad.exists()) {
-				if (fileToLoad.delete()) {
-					log.debug("Deleted temporary file {}", fileToLoad);
-				} else {
-					log.warn("Failed to delete temporary file {}", fileToLoad);
-				}
+			deleteTempFile(fileToLoad);
+		}
+	}
+
+	private static void deleteTempFile(File file) {
+		if (file != null && file.exists()) {
+			if (file.delete()) {
+				log.debug("Deleted temporary file {}", file);
+			} else {
+				log.warn("Failed to delete temporary file {}", file);
 			}
 		}
 	}
@@ -126,8 +210,58 @@ public class EtlProcessor {
 		}
 	}
 
+	/**
+	 * @return Returns the number of running jobs. Jobs waiting for their turn are not counted.
+	 */
 	public int getActiveEtlProcesses() {
 		return activeProcesses.get();
+	}
+
+	private interface Job {
+
+		void run();
+
+		/**
+		 * Called instead of run() if the job is dropped before it started.
+		 */
+		void discard(String reason);
+
+	}
+
+	private final class LoadJob implements Job {
+
+		private final EtlResource etlResource;
+
+		LoadJob(EtlResource etlResource) {
+			this.etlResource = etlResource;
+		}
+
+		@Override
+		public void run() {
+			processDataset(etlResource);
+		}
+
+		@Override
+		public void discard(String reason) {
+			log.info("Discarding queued load of file {} into dataset {}: {}",
+					etlResource.getDataSource(), etlResource.getDataset().getId(), reason);
+			deleteTempFile(etlResource.getDataSource());
+		}
+
+	}
+
+	private record TaskJob(String datasetId, Runnable task) implements Job {
+
+		@Override
+		public void run() {
+			task.run();
+		}
+
+		@Override
+		public void discard(String reason) {
+			log.warn("Discarding queued task for dataset {}: {}", datasetId, reason);
+		}
+
 	}
 
 }

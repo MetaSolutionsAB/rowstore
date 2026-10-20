@@ -86,7 +86,17 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 
 ## ETL-8 Concurrency Control
 
-> **ETL-8.01** An `AtomicInteger` (`activeProcesses`) tracks running tasks. The `Semaphore` controls maximum concurrent processing. If a dataset is already in PROCESSING state when a new upload arrives for the same dataset, the system busy-waits until the current processing completes.
+> **ETL-8.01** [REMOVED] Busy-waiting (polling every 5 seconds while holding a permit) for a dataset in PROCESSING state. Superseded by per-dataset queues, see ETL-8.02 to ETL-8.06.
+
+> **ETL-8.02** Jobs are queued per dataset (in memory). Jobs of the same dataset run one at a time, strictly in submission order, on a virtual thread that exists while the dataset has queued jobs. For example, a PUT followed by several append POSTs is applied in exactly that order. `EtlProcessor.runExclusively(datasetId, task)` runs other work under the same per-dataset ordering and exclusion.
+
+> **ETL-8.03** A replace (PUT, no append) discards all loads of the same dataset that are queued but have not started, since it supersedes them. Their temp files are deleted and the discarding is logged at INFO level. A running load is never interrupted, and tasks submitted with `runExclusively` are not discarded.
+
+> **ETL-8.04** A job acquires a `Semaphore` permit only when it is about to run, i.e., when no other job of its dataset is running. Jobs waiting for their dataset hold no permit and do not block loads of other datasets. The total number of concurrent jobs stays limited by `maxetlprocesses`. `activeProcesses` (exposed as `activeEtlProcesses` by `/status` and the health indicator) counts running jobs only.
+
+> **ETL-8.05** A database must not be used by more than one RowStore instance. Therefore a dataset in PROCESSING that is not being loaded by this instance is stale (e.g., left behind by a database outage) and is taken over by the next load without waiting: the transition to PROCESSING is a conditional `UPDATE datasets SET status = 2 WHERE id = ? AND status <> 2`; if no row is updated, a WARN is logged and the load proceeds.
+
+> **ETL-8.06** At startup, all datasets in PROCESSING are set to ERROR, and their IDs are logged at WARN level, since their loads were interrupted (e.g., by a crash). Datasets in ACCEPTED_DATA are left unchanged.
 
 ## ETL-9 Temp File Lifecycle
 
@@ -96,7 +106,7 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 
 > **ETL-10.01** `populate()` tracks the outcome of a load locally and sets the final status (AVAILABLE on success, ERROR otherwise) from it, without reading the status back from the database. Exceptions that are not handled inside `populate()` (e.g., I/O errors, runtime exceptions) still set ERROR and then propagate to the `EtlProcessor`, which logs them with stack trace, makes a further best-effort attempt to set ERROR, and continues with the next job.
 
-> **ETL-10.02** The final status write of a load is retried with backoff if it fails, e.g., because the database is unreachable: up to six attempts with delays of 1, 5, 15, 30 and 45 seconds (about 1.5 minutes). If all attempts fail, the dataset remains in PROCESSING.
+> **ETL-10.02** The final status write of a load is retried with backoff if it fails, e.g., because the database is unreachable: up to six attempts with delays of 1, 5, 15, 30 and 45 seconds (about 1.5 minutes). If all attempts fail, the dataset remains in PROCESSING until it is loaded again (ETL-8.05) or RowStore is restarted (ETL-8.06).
 
 ## Known Limitations
 
@@ -104,6 +114,7 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 - Separator detection only checks semicolon vs comma (no support for tab or pipe auto-detection)
 - Batch size (200) is hardcoded, not configurable
 - No retry mechanism for failed ETL jobs
+- The ETL queue is held in memory only: queued loads are lost on restart and their datasets remain in ACCEPTED_DATA
 - Column structure validation for append mode happens during processing, not at upload time
 
 ## References
@@ -121,3 +132,4 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: virtual threads + Semaphore replace queue polling, HikariCP unwrap for BaseConnection |
 | 2026-10-20 | Failure handling of loads (ETL-10) |
+| 2026-10-20 | Per-dataset job queues with ordering and coalescing, permits only for running jobs, stale PROCESSING takeover and startup reset (ETL-8.02 to ETL-8.06, ETL-8.01 removed) |

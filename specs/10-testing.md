@@ -10,7 +10,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-1 Strategy Overview
 
-> **TEST-1.01** RowStore uses integration tests that verify REST API behavior end-to-end. Each test starts a real RowStore instance backed by a PostgreSQL database, sends HTTP requests, and asserts on responses. There are no separate unit tests — all testing is done at the integration level.
+> **TEST-1.01** RowStore uses integration tests that verify REST API behavior end-to-end. Each test starts a real RowStore instance backed by a PostgreSQL database, sends HTTP requests, and asserts on responses. Behaviour that is rich but not observable deterministically over HTTP, such as the scheduling of ETL jobs, is additionally covered by unit tests (`*Test.java`, Maven Surefire) using fakes instead of a database.
 
 ## TEST-2 Infrastructure
 
@@ -86,6 +86,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT |
 > | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT, RateLimitAverageIT, RateLimitPartialConfigIT, RateLimitZeroValueIT |
 > | CORS | — | CorsIT |
+> | ETL processing | [10-etl-processing.md](tests/10-etl-processing.md) | EtlProcessingIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest) |
 
 ## TEST-9 Framework-Agnostic Specs
 
@@ -93,7 +94,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## Known Limitations
 
-- No unit tests (all testing is integration-level)
+- Few unit tests (most testing is integration-level)
 - No performance or load tests
 - No contract tests or API schema validation tests
 - Test execution requires Docker for Testcontainers
@@ -113,3 +114,4 @@ Covers the Java integration test suite and its relationship to the framework-agn
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: 22 IT classes, 141 test methods, expanded coverage matrix |
+| 2026-10-20 | Unit tests for ETL scheduling and populate status handling, ETL processing ITs |
