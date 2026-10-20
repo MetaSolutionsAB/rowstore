@@ -65,11 +65,12 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 > **DOM-4.03** Each dataset gets a dedicated **data table**:
 > ```sql
 > CREATE TABLE IF NOT EXISTS data_<uuid_no_hyphens> (
->     rownr SERIAL PRIMARY KEY,
+>     rownr BIGSERIAL PRIMARY KEY,
 >     data JSONB NOT NULL
 > )
 > ```
 > The table name is `data_` followed by the dataset UUID with hyphens removed (32 hex characters), yielding a 37-character table name.
+> Tables created before 2.0 use `rownr SERIAL` (32-bit); they are not migrated.
 
 ## DOM-5 Index Strategy
 

@@ -48,7 +48,7 @@ All terms specific to the RowStore domain. General programming or database terms
 
 > **GLO-1.19 Replace Mode** — CSV upload mode (via PUT) that truncates the existing data table and reloads from the new CSV. See [ETL-6.02](04-etl-pipeline.md#etl-6-append-vs-replace).
 
-> **GLO-1.20 Row** — A single record within a dataset, stored as a JSONB object in the data table. Each row has a sequential `rownr` (serial primary key) and a `data` column containing the key-value pairs.
+> **GLO-1.20 Row** — A single record within a dataset, stored as a JSONB object in the data table. Each row has a sequential `rownr` (bigserial primary key) and a `data` column containing the key-value pairs.
 
 > **GLO-1.21 RowStore** — A CSV-to-JSON pipeline with a REST query interface. Accepts CSV uploads, processes them asynchronously, stores the data in PostgreSQL JSONB columns, and exposes it via a RESTful API.
 

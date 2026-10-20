@@ -8,7 +8,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 |------|-------------|------------|
 | `01-status.md` | Status endpoint (`/status`) including JVM metrics | 5 |
 | `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 2 |
-| `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases | 21 |
+| `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases, storage schema | 22 |
 | `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases | 20 |
 | `05-querying.md` | Query functionality: filters, pagination, JSONP, regex modes | 24 |
 | `06-export.md` | JSON/CSV export endpoints | 8 |
@@ -127,16 +127,16 @@ Dataset creation and modification are asynchronous. Tests should:
 |----------|------------|
 | Status | 5 |
 | Datasets List | 2 |
-| Dataset Lifecycle | 21 |
+| Dataset Lifecycle | 22 |
 | CSV Formats | 20 |
 | Querying | 24 |
 | Export | 8 |
 | Metadata Endpoints | 10 |
 | Error Handling | 13 |
 | Rate Limiting | 5 |
-| **Total** | **108** |
+| **Total** | **109** |
 
-Note: Some tests are shared between Java implementations (105 in default profile) and specifications (108 total including all profiles).
+Note: Some tests are shared between Java implementations (105 in default profile) and specifications (109 total including all profiles).
 
 ## Implementation Notes
 
