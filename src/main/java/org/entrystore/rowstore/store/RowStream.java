@@ -38,22 +38,19 @@ public record RowStream(Connection conn, PreparedStatement stmt, ResultSet rs) i
 
 	/**
 	 * Ends the transaction and closes result set, statement and connection. Errors are logged and not thrown, as
-	 * they must not mask an error that occurred while consuming the stream. Calling it again has no effect.
+	 * they must not mask an error that occurred while consuming the stream. Not thread-safe: the stream must be
+	 * closed by its single owner, and not while another thread is still reading from it.
 	 */
 	@Override
 	public void close() {
-		try {
-			if (conn.isClosed()) {
-				return;
-			}
-		} catch (SQLException e) {
-			log.warn("Unable to check whether connection is closed: {}", e.getMessage());
-		}
 		closeQuietly(rs);
 		closeQuietly(stmt);
 		try {
 			// a pooled connection must not be returned with an open transaction
-			conn.rollback();
+			// (the driver closes the connection itself if it was terminated by the database)
+			if (!conn.isClosed()) {
+				conn.rollback();
+			}
 		} catch (SQLException e) {
 			log.warn("Unable to roll back transaction: {}", e.getMessage());
 		}

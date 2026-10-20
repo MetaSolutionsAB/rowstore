@@ -39,6 +39,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.sql.ResultSet;
@@ -46,6 +47,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Streams a dataset as JSON or CSV.
@@ -77,33 +79,28 @@ public class ExportController {
 			return new ResponseEntity<>(HttpStatus.FAILED_DEPENDENCY);
 		}
 
-		RowStream stream = openRowStream(dataset, request);
+		RowStream stream = openRowStream(dataset);
 		if (stream == null) {
 			return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
 		}
 
-		StreamingResponseBody body = outputStream -> {
-			try (stream) {
-				Writer writer = new BufferedWriter(new OutputStreamWriter(outputStream), 131072);
-				writer.write("[");
-				ResultSet rs = stream.rs();
-				boolean first = true;
-				while (rs.next()) {
-					if (!first) {
-						writer.write(",\n");
-					}
-					first = false;
-					writer.write(rs.getString("data"));
-					if ((rs.getRow() % 10000) == 0) {
-						writer.flush();
-					}
+		StreamingResponseBody body = streamingBody(id, stream, request, (rs, outputStream) -> {
+			Writer writer = new BufferedWriter(new OutputStreamWriter(outputStream), 131072);
+			writer.write("[");
+			boolean first = true;
+			while (rs.next()) {
+				if (!first) {
+					writer.write(",\n");
 				}
-				writer.write("]");
-				writer.flush();
-			} catch (SQLException | RuntimeException e) {
-				throw abortExport(id, e);
+				first = false;
+				writer.write(rs.getString("data"));
+				if ((rs.getRow() % 10000) == 0) {
+					writer.flush();
+				}
 			}
-		};
+			writer.write("]");
+			writer.flush();
+		});
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + id + ".json\"");
@@ -125,28 +122,23 @@ public class ExportController {
 		// one list for header and cells guarantees the same column order in both
 		List<String> columnNames = new ArrayList<>(dataset.getColumnNames());
 
-		RowStream stream = openRowStream(dataset, request);
+		RowStream stream = openRowStream(dataset);
 		if (stream == null) {
 			return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
 		}
 
-		StreamingResponseBody body = outputStream -> {
-			try (stream) {
-				CSVWriter csvWriter = new CSVWriter(new BufferedWriter(new OutputStreamWriter(outputStream), 131072));
-				csvWriter.writeNext(columnNames.toArray(new String[0]), false);
-				ResultSet rs = stream.rs();
-				while (rs.next()) {
-					String data = rs.getString("data");
-					csvWriter.writeNext(toCsvRow(new JSONObject(data), columnNames), false);
-					if ((rs.getRow() % 10000) == 0) {
-						csvWriter.flush();
-					}
+		StreamingResponseBody body = streamingBody(id, stream, request, (rs, outputStream) -> {
+			CSVWriter csvWriter = new CSVWriter(new BufferedWriter(new OutputStreamWriter(outputStream), 131072));
+			csvWriter.writeNext(columnNames.toArray(new String[0]), false);
+			while (rs.next()) {
+				String data = rs.getString("data");
+				csvWriter.writeNext(toCsvRow(new JSONObject(data), columnNames), false);
+				if ((rs.getRow() % 10000) == 0) {
+					csvWriter.flush();
 				}
-				csvWriter.flush();
-			} catch (SQLException | RuntimeException e) {
-				throw abortExport(id, e);
 			}
-		};
+			csvWriter.flush();
+		});
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + id + ".csv\"");
@@ -155,38 +147,50 @@ public class ExportController {
 	}
 
 	/**
-	 * Opens the row stream of a dataset. The stream is closed by the response body after streaming. It is also
-	 * closed when the async request completes, which covers the case that the body is never invoked (e.g. if the
-	 * async task is cancelled due to a timeout or a client disconnect before it started); closing twice is a no-op.
-	 *
-	 * @return Returns the open stream, or null if it could not be opened.
+	 * @return Returns the open row stream of the dataset, or null if it could not be opened.
 	 */
-	private RowStream openRowStream(Dataset dataset, HttpServletRequest request) {
-		RowStream stream;
+	private RowStream openRowStream(Dataset dataset) {
 		try {
-			stream = dataset.streamAll();
+			return dataset.streamAll();
 		} catch (SQLException e) {
 			log.error("Unable to read dataset {} for export", dataset.getId(), e);
 			return null;
 		}
+	}
 
+	/**
+	 * Creates a response body that writes the rows of the stream and closes the stream afterwards.
+	 * <p>
+	 * If the body is never invoked (e.g. if the async task is cancelled before it started due to a container error
+	 * such as a client disconnect), the stream is instead closed when the async request completes. Whoever claims
+	 * the stream first closes it, so it is closed exactly once and never while the body is still using it.
+	 * <p>
+	 * A failure while writing is logged and rethrown as IOException, which makes the servlet container abort the
+	 * connection instead of completing the response. The writers are deliberately not closed in that case.
+	 */
+	private StreamingResponseBody streamingBody(String id, RowStream stream, HttpServletRequest request, RowWriter rowWriter) {
+		AtomicBoolean claimed = new AtomicBoolean();
 		WebAsyncUtils.getAsyncManager(request).registerCallableInterceptor(RowStream.class.getName(),
 				new CallableProcessingInterceptor() {
 					@Override
 					public <T> void afterCompletion(NativeWebRequest webRequest, Callable<T> task) {
-						stream.close();
+						if (claimed.compareAndSet(false, true)) {
+							stream.close();
+						}
 					}
 				});
-		return stream;
-	}
 
-	/**
-	 * Logs a failure during streaming and returns an IOException to be thrown from the response body, which makes
-	 * the servlet container abort the connection instead of completing the response.
-	 */
-	private IOException abortExport(String id, Exception e) {
-		log.error("Export of dataset {} failed while streaming, aborting response", id, e);
-		return new IOException("Export of dataset " + id + " failed", e);
+		return outputStream -> {
+			if (!claimed.compareAndSet(false, true)) {
+				throw new IOException("Export of dataset " + id + " not started, request already completed");
+			}
+			try (stream) {
+				rowWriter.write(stream.rs(), outputStream);
+			} catch (SQLException | RuntimeException e) {
+				log.error("Export of dataset {} failed while streaming, aborting response", id, e);
+				throw new IOException("Export of dataset " + id + " failed", e);
+			}
+		};
 	}
 
 	/**
@@ -199,6 +203,11 @@ public class ExportController {
 			row[i] = json.optString(columnNames.get(i), "");
 		}
 		return row;
+	}
+
+	@FunctionalInterface
+	private interface RowWriter {
+		void write(ResultSet rs, OutputStream outputStream) throws IOException, SQLException;
 	}
 
 }
