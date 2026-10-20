@@ -136,7 +136,7 @@ Dataset creation and modification are asynchronous. Tests should:
 | Rate Limiting | 5 |
 | **Total** | **110** |
 
-Note: Some tests are shared between Java implementations (105 in default profile) and specifications (110 total including all profiles).
+Note: The specifications define 110 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 

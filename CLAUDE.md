@@ -50,7 +50,7 @@ Docker 29+ compatibility is handled via `-Dapi.version=1.44` in the Maven plugin
 # Run all tests (no manual setup required)
 mvn verify
 
-# Run unit tests only (Maven Surefire, *Test.java)
+# Run unit tests only (Maven Surefire, *Test.java; none exist yet, see below)
 mvn test
 
 # Build without running integration tests
@@ -72,6 +72,8 @@ mvn verify -Drowstore.baseUrl=http://localhost:8282
 Tests that need direct database access (`BaseIntegrationTest.openDatabaseConnection()`) are skipped in that mode.
 
 Integration test classes follow the `*IT.java` naming convention (Maven Failsafe), unit tests `*Test.java` (Maven Surefire).
+`mvn test` runs only the Surefire unit tests; currently all tests are `*IT.java` integration tests, so it runs
+nothing yet (the first unit tests are added by a later change).
 Most ITs extend `BaseIntegrationTest` (shared environment from `RowStoreTestEnvironment`); ITs that need a
 differently configured server extend `ConfigurableTestBase` with a dedicated extension (e.g. `RateLimitExtension`).
 
