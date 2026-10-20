@@ -7,21 +7,23 @@ This folder contains test specifications for the RowStore REST API. These specif
 | File | Description | Test Count |
 |------|-------------|------------|
 | `01-status.md` | Status endpoint (`/status`) including JVM metrics | 5 |
-| `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 2 |
+| `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 1 |
 | `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases, storage schema | 22 |
-| `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines, byte order marks | 50 |
-| `05-querying.md` | Query functionality: filters, pagination, JSONP, regex modes | 24 |
+| `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines, byte order marks | 47 |
+| `05-querying.md` | Query functionality: filters, pagination, regex modes (JSONP test cases retired) | 28 |
 | `06-export.md` | JSON/CSV export endpoints | 15 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
-| `08-error-handling.md` | Error codes: 400, 404, 423, 424 | 13 |
-| `09-rate-limiting.md` | Rate limiting (429) - requires separate profile | 5 |
-| `10-configuration.md` | rowstore.json validation and data source settings | 11 |
+| `08-error-handling.md` | Error codes: 400, 404, 423, 424, path parameters, corrupt CSV | 22 |
+| `09-rate-limiting.md` | Rate limiting (429), client address via trusted proxies - requires separate profiles | 10 |
+| `10-configuration.md` | rowstore.json validation and data source settings (unit and integration tests) | 13 |
 | `11-etl-processing.md` | ETL scheduling, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 41 |
+
+Test counts are the number of test case IDs per file; a heading that covers a range (e.g. `TC-CSV-017 to TC-CSV-022`) counts each ID, and test cases marked `[REMOVED]` are not counted.
 
 ## Prerequisites
 
 - Running RowStore instance (default: `http://localhost:8282/`)
-- Test data files in `webapp/src/test/resources/data/`
+- Test data files in `src/test/resources/data/` (some test cases use inline CSV content instead)
 - Docker (for Testcontainers-based tests)
 - For rate limiting tests: instance with rate limiting configured
 
@@ -49,10 +51,13 @@ Tests are organized into profiles based on server configuration:
 
 | Profile | Configuration | Description |
 |---------|---------------|-------------|
-| Default | `regexpqueries=full` | Standard tests (105 tests) |
-| `regex-disabled` | `regexpqueries=disabled` | Regex disabled mode (4 tests) |
-| `regex-simple` | `regexpqueries=simple` | Simple regex mode (4 tests) |
-| `ratelimit` | Rate limiting enabled | Rate limit tests (5 tests) |
+| Default | `regexpqueries=full` | Standard tests |
+| `regex-disabled` | `regexpqueries=disabled` | Regex disabled mode (TC-REGEX-DIS-*) |
+| `regex-simple` | `regexpqueries=simple` | Simple regex mode (TC-REGEX-SIM-*) |
+| `ratelimit` | Rate limiting enabled | Rate limit tests (09-rate-limiting.md) |
+| `legacy-parser` | `legacyparser=true` | CSV tests repeated with the legacy parser (TC-CSV-017 to TC-CSV-022, TC-CSV-030 to TC-CSV-036) |
+| `connection-pool` | `connectionPoolMax=3`, separate `queryDatabase` | HikariCP pools (TC-POOL-*, TC-EXPORT-014) |
+| Unit tests | none (no server, no Docker) | `*Test.java` classes, e.g. TC-CFG-*, TC-DS-*, TC-CSV-037 to TC-CSV-040 and the unit test cases of 11-etl-processing.md |
 
 ### Running Different Profiles
 
@@ -129,18 +134,19 @@ Dataset creation and modification are asynchronous. Tests should:
 | Category | Test Count |
 |----------|------------|
 | Status | 5 |
-| Datasets List | 2 |
+| Datasets List | 1 |
 | Dataset Lifecycle | 22 |
-| CSV Formats | 32 |
-| Querying | 24 |
-| Export | 8 |
+| CSV Formats | 47 |
+| Querying | 28 |
+| Export | 15 |
 | Metadata Endpoints | 11 |
-| Error Handling | 13 |
-| Rate Limiting | 5 |
-| Configuration | 11 |
-| **Total** | **133** |
+| Error Handling | 22 |
+| Rate Limiting | 10 |
+| Configuration | 13 |
+| ETL Processing | 41 |
+| **Total** | **215** |
 
-Note: The specifications define 133 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 215 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 

@@ -2,7 +2,7 @@
 
 This specification suite is the canonical reference for the RowStore system. It documents the **current state** of the software (version 2.0-SNAPSHOT, branch `develop`) and serves all four user personas: data publishers, API consumers, operators/admins, and embedded viewers.
 
-The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (121 test cases across 9 files) are preserved alongside these specs.
+The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (215 test cases across 11 files) are preserved alongside these specs.
 
 ## Reading Paths by Persona
 
@@ -110,7 +110,7 @@ Current limitations relevant to this area.
 | ARCH-2.03 | Export as JSON or CSV |
 | ARCH-2.04 | Web GUI for browsing |
 | ARCH-2.05 | Rate limiting |
-| ARCH-3.01 | Core: Java 25, Spring Boot 3.5.10, PostgreSQL, Tomcat (embedded) |
+| ARCH-3.01 | Core: Java 25, Spring Boot 3.5.10, PostgreSQL, Tomcat (embedded), optional HikariCP, Flyway |
 | ARCH-3.02 | Libraries: OpenCSV, Guava, Log4j2, juniversalchardet, ICU4J |
 | ARCH-4.01 | Single Maven module — executable JAR |
 | ARCH-4.02 | [REMOVED] standalone/jetty — replaced by Spring Boot embedded server |
@@ -120,7 +120,7 @@ Current limitations relevant to this area.
 | ARCH-5.03 | Write path: POST CSV → temp file → EtlProcessor.submit → virtual thread → PgDataset.populate |
 | ARCH-6.01 | Why JSONB (schemaless, per-column indexing) |
 | ARCH-6.02 | Why virtual-thread ETL (immediate dispatch, Semaphore concurrency control) |
-| ARCH-6.03 | Why Spring Boot (industry standard, HikariCP, Flyway, Actuator, virtual threads) |
+| ARCH-6.03 | Why Spring Boot (industry standard, optional HikariCP, Flyway, Actuator, virtual threads) |
 
 ### DOM — Domain Model
 
@@ -264,7 +264,7 @@ Current limitations relevant to this area.
 | CFG-3.11 | trustedproxies (IPs/CIDR ranges, default private ranges, [] trusts nobody) |
 | CFG-4.01 | database object: type, host, port, database, user, password |
 | CFG-4.02 | ssl (boolean, default false) → sslmode require/disable |
-| CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1) |
+| CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1: no pool) |
 | CFG-4.04 | socketTimeout (0), connectTimeout (5), loginTimeout (5) |
 | CFG-5.01 | queryDatabase (optional, falls back to database, read-only) |
 | CFG-6.01 | ratelimit.type (slidingwindow/average) |
@@ -357,7 +357,7 @@ Current limitations relevant to this area.
 |----|-------------|
 | TEST-1.01 | Integration tests verifying REST API end-to-end |
 | TEST-2.01 | JUnit 5, REST Assured, Testcontainers, Awaitility, AssertJ |
-| TEST-3.01 | 22 IT classes, 141 test methods |
+| TEST-3.01 | 32 IT classes with 217 tests, 8 unit test classes with 115 tests |
 | TEST-3.02 | Sequential execution within classes |
 | TEST-4.01 | Default profile (regexpqueries=full) |
 | TEST-4.02 | regex-disabled profile |
@@ -367,7 +367,7 @@ Current limitations relevant to this area.
 | TEST-6.01 | Awaitility polling for async ETL |
 | TEST-7.01 | 12+ CSV test files covering encodings and edge cases |
 | TEST-8.01 | Endpoint × test spec coverage matrix |
-| TEST-9.01 | specs/tests/: 121 test cases, 9 files |
+| TEST-9.01 | specs/tests/: 215 test cases, 11 files |
 
 ### USR — User Stories
 

@@ -49,7 +49,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-3.06** `querytimeout` (int, default `-1`) — Query timeout in seconds. When > 0, applied via `setQueryTimeout()` on the JDBC statement. Timed-out queries return 503. See [QUERY-7.01](05-querying.md#query-7-query-timeout).
 
-> **CFG-3.07** `querymaxlimit` (int, default `100`) — Maximum value allowed for the `_limit` query parameter. Client-requested limits exceeding this value are capped. Must be greater than 0. See [QUERY-3.01](05-querying.md#query-3-special-parameters).
+> **CFG-3.07** `querymaxlimit` (int, default `100`) — Maximum value allowed for the `_limit` query parameter. Client-requested limits exceeding this value are not used; the default limit of 100 applies instead (QUERY-3.01). Must be greater than 0. See [QUERY-3.01](05-querying.md#query-3-special-parameters).
 
 > **CFG-3.08** [REMOVED] `exportpagesize` — Was never used by the export implementation. The key is ignored if present.
 
@@ -75,8 +75,8 @@ Covers the JSON configuration file format, all application and database options,
 > **CFG-4.02** `ssl` (boolean, default `false`) — Enables SSL for the PostgreSQL connection. `true` sets the driver's `sslmode=require`, `false` sets `sslmode=disable` (instead of the pgjdbc default `prefer`), with and without connection pool.
 
 > **CFG-4.03** Connection pool settings (HikariCP):
-> - `connectionPoolInit` (int, default `-1`) — Minimum idle connections (`minimumIdle`). `-1` uses HikariCP defaults.
-> - `connectionPoolMax` (int, default `-1`) — Maximum pool size (`maximumPoolSize`). `-1` uses HikariCP defaults.
+> - `connectionPoolMax` (int, default `-1`) — Maximum pool size (`maximumPoolSize`). A HikariCP pool is used only if the value is greater than 0; otherwise (the default) no pool is used and connections are opened per operation with `PGSimpleDataSource`.
+> - `connectionPoolInit` (int, default `-1`) — Minimum idle connections (`minimumIdle`), only effective with a pool. Values <= 0 mean `0`.
 
 > **CFG-4.04** Timeout settings (all in seconds):
 > - `socketTimeout` (int, default `0`) — Socket read timeout. `0` means no timeout.
@@ -195,3 +195,4 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-10-20 | CFG-5.01: replica queries may be cancelled by replayed replaces |
 | 2026-10-20 | Added CFG-1.02 (fail fast on invalid config), CFG-3.08 removed (exportpagesize unused); CFG-4.02, CFG-4.04, CFG-5.01 clarified for driver settings with HikariCP |
 | 2026-10-20 | Added CFG-3.11 (`trustedproxies`); CFG-1.02 and CFG-6.03 updated: `X-Forwarded-For` only from trusted proxies |
+| 2026-10-20 | CFG-4.03: no pool unless `connectionPoolMax` > 0; CFG-3.07: limits above `querymaxlimit` fall back to the default |

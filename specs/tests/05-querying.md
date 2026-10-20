@@ -156,59 +156,17 @@ Tests for query functionality including filters, pagination, JSONP callbacks, an
 
 ## JSONP Callback Tests
 
-### TC-JSONP-001: Query with _callback wraps response
+JSONP support has been removed (API-7.01, QUERY-3.03), so these test cases are retired. A `_callback` parameter is treated like any other query parameter that is not a column name (QUERY-2.02).
 
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}?_callback=myCallback`
+### TC-JSONP-001: [REMOVED] Query with _callback wraps response
 
-**Expected Response:**
-- Status: `200`
-- Body: `myCallback({...})`
-- Inner content is valid JSON
+### TC-JSONP-002: [REMOVED] Callback with valid JS function name
 
-### TC-JSONP-002: Callback with valid JS function name
+### TC-JSONP-003: [REMOVED] Empty _callback behavior
 
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}?_callback=myFunc`
+### TC-JSONP-004: [REMOVED] Callback on info endpoint
 
-**Expected Response:**
-- Status: `200`
-- Response wrapped with callback name
-
-Note: Valid names include `myFunc`, `my_func`, `myFunc123`
-
-### TC-JSONP-003: Empty _callback behavior
-
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}?_callback=`
-
-**Expected Response:**
-- Status: `200` or `400`
-- If 200: may use default "callback" or return plain JSON
-
-### TC-JSONP-004: Callback on info endpoint
-
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}/info?_callback=infoCallback`
-
-**Expected Response:**
-- Status: `200` or `400`
-- If 200: response may or may not be wrapped
-
-### TC-JSONP-005: Callback combined with query filters
-
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}?_callback=filterCallback&Name=Åkesson`
-
-**Expected Response:**
-- Status: `200`
-- Body: `filterCallback({...})`
-- Inner JSON contains filtered results
+### TC-JSONP-005: [REMOVED] Callback combined with query filters
 
 ## Regex Mode Tests (Full Mode)
 

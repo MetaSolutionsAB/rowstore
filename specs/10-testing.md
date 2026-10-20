@@ -23,7 +23,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-3 Test Organization
 
-> **TEST-3.01** The test suite contains **22 `*IT.java` test classes** with **141 test methods**. All test classes follow the Maven Failsafe `*IT.java` naming convention.
+> **TEST-3.01** The test suite contains **32 `*IT.java` integration test classes** with **217 tests** and **8 `*Test.java` unit test classes** with **115 tests** (as executed by Maven Failsafe and Surefire, including the tests of nested classes). Integration test classes follow the Maven Failsafe `*IT.java` naming convention, unit test classes the Maven Surefire `*Test.java` convention; `mvn test` runs only the unit tests, `mvn verify` runs both.
 
 > **TEST-3.02** Tests within each class are executed **sequentially** using JUnit 5's `@Order` annotation. This is necessary because many tests depend on prior test state (e.g., a dataset created in test 1 is queried in test 2).
 
@@ -84,17 +84,19 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | `GET /dataset/{id}/swagger` | — | SwaggerIT |
 > | CSV formats | [04-csv-formats.md](tests/04-csv-formats.md) | CsvParsingIT, CsvEmptyLineIT, CsvEmptyLineLegacyParserIT, CsvBomIT, CsvBomLegacyParserIT, DatasetEncodingIT, DatasetSemicolonIT, DatasetEmptyColumnIT, DatasetCorruptIT |
 > | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT |
-> | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT, RateLimitAverageIT, RateLimitPartialConfigIT, RateLimitZeroValueIT |
+> | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT, RateLimitAverageIT, RateLimitPartialConfigIT, RateLimitZeroValueIT, RateLimitClientIpIT (plus unit test TrustedProxyFilterTest) |
+> | Path parameters | [08-error-handling.md](tests/08-error-handling.md) | PathParameterIT |
 > | CORS | — | CorsIT |
+> | Configuration and data sources | [10-configuration.md](tests/10-configuration.md) | ConnectionPoolIT (plus unit tests RowStoreConfigTest, DataSourceConfigTest) |
 > | ETL processing | [11-etl-processing.md](tests/11-etl-processing.md) | EtlProcessingIT, DatasetReplaceIT, ColumnNameCleanupIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest, PgDatasetSwapLockTest, ColumnNamesTest, DatasetUtilBomReaderTest) |
 
 ## TEST-9 Framework-Agnostic Specs
 
-> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **121 test cases** across 9 spec files (plus a README). Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
+> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **215 test cases** across 11 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
 
 ## Known Limitations
 
-- Few unit tests (most testing is integration-level)
+- Unit tests cover selected components only (configuration parsing, ETL scheduling, column names, proxy handling); most testing is integration-level
 - No performance or load tests
 - No contract tests or API schema validation tests
 - Test execution requires Docker for Testcontainers
@@ -117,3 +119,4 @@ Covers the Java integration test suite and its relationship to the framework-agn
 | 2026-10-20 | Unit tests for ETL scheduling and populate status handling, ETL processing ITs |
 | 2026-10-20 | Atomic replace ITs and swap lock retry unit test |
 | 2026-10-20 | Empty line ITs for the default and the legacy parser |
+| 2026-10-20 | TEST-3.01, TEST-9.01 counts updated for the merged 2.0 test suite; TEST-8.01 rows for rate limiting via trusted proxies, path parameters and configuration |
