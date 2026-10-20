@@ -100,7 +100,10 @@ public class TrustedProxyFilter implements Filter {
 	 */
 	private String resolveClientAddress(HttpServletRequest request) {
 		String peer = request.getRemoteAddr();
-		if (!isTrusted(peer)) {
+		// The socket peer of a link-local IPv6 connection carries the zone ID of the local interface (e.g.
+		// "fe80::1%2"), which is not client-controlled and irrelevant for matching
+		int zone = peer != null ? peer.indexOf('%') : -1;
+		if (!isTrusted(zone >= 0 ? peer.substring(0, zone) : peer)) {
 			// Helps operators whose proxy is not in "trustedproxies" (e.g. on a public address); 1.x trusted any value
 			if (!trustedProxies.isEmpty() && request.getHeader("X-Forwarded-For") != null &&
 					warnedPeers.asMap().putIfAbsent(peer, Boolean.TRUE) == null) {

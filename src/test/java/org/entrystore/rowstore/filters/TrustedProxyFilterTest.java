@@ -80,6 +80,8 @@ class TrustedProxyFilterTest {
             "default;            127.0.0.1;   ::1%zz;                           ::1%zz",
             "default;            127.0.0.1;   203.0.113.9, ::1%zz;              ::1%zz",
             "default;            127.0.0.1;   203.0.113.9, fe80::1%lo;          fe80::1%lo",
+            // The zone ID of a link-local socket peer is ignored, so a proxy in fe80::/10 is trusted
+            "default;            fe80::1%2;   203.0.113.7;                      203.0.113.7",
             // Entries with a port are not IP literals and count as untrusted
             "default;            127.0.0.1;   203.0.113.9, 10.0.0.1:4711;       10.0.0.1:4711",
             // Trusted peer without header
