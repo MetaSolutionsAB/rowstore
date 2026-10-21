@@ -28,6 +28,8 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-3.04** `format` — Response format override. Takes precedence over the `Accept` header for content negotiation.
 
+> **QUERY-3.05** `_callback` — Reserved parameter kept for compatibility with 1.x clients. It is accepted and ignored: it is not treated as a column filter and the response is plain JSON (JSONP wrapping was removed in 2.0, see [QUERY-3.03](#query-3-special-parameters)). Like other non-pagination parameters, it is carried over to the `prev`/`next` URLs ([QUERY-6.02](#query-6-pagination)).
+
 ## QUERY-4 Regex Modes
 
 > **QUERY-4.01** **`disabled`** (config: `regexpqueries: "disabled"` or `"false"`): All filters use exact match only. SQL operator: `data->>? = ?`.
@@ -99,3 +101,4 @@ Covers the read path from query parameter parsing through SQL execution to respo
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: JSONP _callback removed, source references updated |
+| 2026-10-21 | Added QUERY-3.05: `_callback` accepted and ignored instead of rejected with 400 (ROWS-147) |

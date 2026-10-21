@@ -209,6 +209,7 @@ Current limitations relevant to this area.
 | QUERY-3.02 | _offset: default 0, negatives corrected to 0 |
 | QUERY-3.03 | [REMOVED] _callback: JSONP function name — JSONP removed |
 | QUERY-3.04 | format: response format override |
+| QUERY-3.05 | _callback: reserved, accepted and ignored (no JSONP wrapping) |
 | QUERY-4.01 | disabled: exact match only (=) |
 | QUERY-4.02 | simple: ^-prefixed values become regex (~) |
 | QUERY-4.03 | full: heuristic detection OR ~ prefix forces regex |

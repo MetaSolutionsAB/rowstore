@@ -364,4 +364,82 @@ class QueryAdvancedIT extends BaseIntegrationTest {
         assertThat(next).as("Middle page should have next link").isNotNull();
         assertThat(next).contains("_offset=4");
     }
+
+    @Test
+    @Order(18)
+    @DisplayName("TC-QUERY-018: Reserved _callback parameter is ignored")
+    void callbackParameter_isIgnored() {
+        Response withoutCallback = given()
+                .spec(jsonSpec)
+        .when()
+                .get(datasetUrl);
+        withoutCallback.then().statusCode(200);
+
+        Response withCallback = given()
+                .spec(jsonSpec)
+                .queryParam("_callback", "x")
+        .when()
+                .get(datasetUrl);
+
+        withCallback.then()
+                .statusCode(200)
+                .contentType(ContentType.JSON);
+        assertThat(withCallback.asString()).startsWith("{");
+        assertSameQueryResponse(withCallback, withoutCallback);
+    }
+
+    @Test
+    @Order(19)
+    @DisplayName("TC-QUERY-019: Reserved _callback parameter is ignored together with column filters")
+    void callbackParameter_isIgnoredWithColumnFilter() {
+        Response withoutCallback = given()
+                .spec(jsonSpec)
+                .queryParam("Name", "McLoud")
+        .when()
+                .get(datasetUrl + "/json");
+        withoutCallback.then()
+                .statusCode(200)
+                .body("results", hasSize(1));
+
+        Response withCallback = given()
+                .spec(jsonSpec)
+                .queryParam("_callback", "x")
+                .queryParam("Name", "McLoud")
+        .when()
+                .get(datasetUrl + "/json");
+
+        withCallback.then()
+                .statusCode(200)
+                .contentType(ContentType.JSON);
+        assertThat(withCallback.asString()).startsWith("{");
+        assertSameQueryResponse(withCallback, withoutCallback);
+    }
+
+    @Test
+    @Order(20)
+    @DisplayName("TC-QUERY-020: Reserved _callback parameter is carried over to prev/next links")
+    void callbackParameter_carriedOverToPageLinks() {
+        Response response = given()
+                .spec(jsonSpec)
+                .queryParam("_callback", "x")
+                .queryParam("_limit", 2)
+                .queryParam("_offset", 2)
+        .when()
+                .get(datasetUrl);
+
+        response.then()
+                .statusCode(200)
+                .body("results", hasSize(2));
+
+        assertThat(response.jsonPath().getString("prev")).contains("_callback=x");
+        assertThat(response.jsonPath().getString("next")).contains("_callback=x");
+    }
+
+    private void assertSameQueryResponse(Response actual, Response expected) {
+        for (String field : new String[]{"results", "resultCount", "offset", "limit", "prev", "next"}) {
+            assertThat((Object) actual.jsonPath().get(field))
+                    .as(field)
+                    .isEqualTo(expected.jsonPath().get(field));
+        }
+    }
 }

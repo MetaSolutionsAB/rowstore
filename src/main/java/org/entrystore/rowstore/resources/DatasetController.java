@@ -99,7 +99,8 @@ public class DatasetController {
 		Map<String, String> tuples = new HashMap<>();
 		int specialParamCount = 0;
 		for (String k : parameters.keySet()) {
-			if ("_limit".equals(k) || "_offset".equals(k) || "_sort".equals(k)) {
+			// _callback is reserved since 1.x (JSONP); JSONP is no longer supported, so it is ignored
+			if ("_limit".equals(k) || "_offset".equals(k) || "_sort".equals(k) || "_callback".equals(k)) {
 				specialParamCount++;
 				continue;
 			}
