@@ -134,7 +134,8 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 1 ms configured.
 
 **Assertions:**
-1. If two attempts fail, each attempt is `SAVEPOINT`, `SET LOCAL lock_timeout = '3s'`, `LOCK TABLE <dataTable> IN
+1. If two attempts fail, the statements are `SET LOCAL idle_in_transaction_session_timeout = 0` (once, before the first
+   savepoint), then per attempt `SAVEPOINT`, `SET LOCAL lock_timeout = '3s'`, `LOCK TABLE <dataTable> IN
    ACCESS EXCLUSIVE MODE`, a failed attempt is followed by `ROLLBACK TO SAVEPOINT`, and the third attempt succeeds
    (returns true)
 2. If all attempts with a timeout fail, there are three of them (one per delay), each rolled back to its savepoint,
@@ -320,6 +321,7 @@ state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 
    `<dataTable>_jsonidx_<md5("name")[0..8]>` and `<dataTable>_jsonidx_<md5("value")[0..8]>`; its primary key
    constraint is `<dataTable>_pkey`; its serial sequence is `public.<dataTable>_rownr_seq`
 3. The column `rownr` and its sequence are `bigint`
+4. `pg_stats` has statistics for the column `data` of `<dataTable>` (the shadow table is analyzed before the swap)
 
 ### TC-ETL-023: A replace waits for a reader of the data table, e.g., an export, and then succeeds
 

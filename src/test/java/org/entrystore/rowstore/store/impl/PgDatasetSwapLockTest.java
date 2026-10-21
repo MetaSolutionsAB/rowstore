@@ -61,6 +61,7 @@ class PgDatasetSwapLockTest {
         failingLocks = 2;
         assertThat(dataset.lockDataTableForReplace(connection())).isTrue();
         assertThat(executed).containsExactly(
+                "SET LOCAL idle_in_transaction_session_timeout = 0",
                 "SAVEPOINT", "SET LOCAL lock_timeout = '3s'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE",
                 "ROLLBACK TO SAVEPOINT",
                 "SAVEPOINT", "SET LOCAL lock_timeout = '3s'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE",
