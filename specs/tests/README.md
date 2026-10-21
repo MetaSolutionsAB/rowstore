@@ -11,11 +11,12 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases, storage schema | 22 |
 | `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines | 32 |
 | `05-querying.md` | Query functionality: filters, pagination, JSONP, regex modes | 24 |
-| `06-export.md` | JSON/CSV export endpoints | 8 |
+| `06-export.md` | JSON/CSV export endpoints | 16 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
-| `08-error-handling.md` | Error codes: 400, 404, 423, 424 | 13 |
-| `09-rate-limiting.md` | Rate limiting (429) - requires separate profile | 5 |
-| `11-etl-processing.md` | ETL scheduling, failure handling and atomic replaces (unit and integration tests) | 29 |
+| `08-error-handling.md` | Error codes: 400, 404, 423, 424, path parameters | 15 |
+| `09-rate-limiting.md` | Rate limiting (429), client address via trusted proxies - requires separate profiles | 11 |
+| `10-configuration.md` | rowstore.json validation and data source settings | 13 |
+| `11-etl-processing.md` | ETL scheduling, failure handling and atomic replaces (unit and integration tests) | 30 |
 
 ## Prerequisites
 
@@ -40,6 +41,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `whitespace_headers.csv` | UTF-8 | Comma | 2 | Whitespace in headers |
 | `quoted_delim.csv` | UTF-8 | Comma | 2 | Delimiters in quoted fields |
 | `dataset_query_edge.csv` | UTF-8 | Comma | 5 | Edge case data for queries |
+| `dataset_export_edge.csv` | UTF-8 | Comma | 3 | Duplicate cell values, short row, empty cells (export) |
 
 ## Test Profiles
 
@@ -131,13 +133,15 @@ Dataset creation and modification are asynchronous. Tests should:
 | Dataset Lifecycle | 22 |
 | CSV Formats | 32 |
 | Querying | 24 |
-| Export | 8 |
+| Export | 16 |
 | Metadata Endpoints | 11 |
-| Error Handling | 13 |
-| Rate Limiting | 5 |
-| **Total** | **122** |
+| Error Handling | 15 |
+| Rate Limiting | 11 |
+| Configuration | 13 |
+| ETL Processing | 30 |
+| **Total** | **181** |
 
-Note: The specifications define 122 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 181 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 
