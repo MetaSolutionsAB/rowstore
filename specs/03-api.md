@@ -28,6 +28,8 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.14** The JSON response of `GET /status` (without `?jvm`) contains, in addition to the fields of API-3.01, the field `connections` with the usage of the connection budgets ([ARCH-7](01-system-architecture.md#arch-7-database-connection-limits)) per database block (`database`, and `queryDatabase` if configured separately) and budget (`query`, `export`, `load`): `inUse` (open connections), `max` (limit) and `waiting` (requests waiting for a connection, an estimate). Example: `"connections": {"database": {"query": {"inUse": 1, "max": 10, "waiting": 0}, "export": {"inUse": 0, "max": 2, "waiting": 0}, "load": {"inUse": 0, "max": 5, "waiting": 0}}}`. The field is additive; the fields of API-3.01 are unchanged.
 
+> **API-3.15** The JSON response of `GET /status` (without `?jvm`) and the details of `/actuator/health` contain the field `queuedEtlProcesses`: the number of loads (and other ETL jobs) that are queued but have not started yet, including the next job of a dataset while it waits for an ETL permit ([ETL-8.04](04-etl-pipeline.md#etl-8-concurrency-control)). `activeEtlProcesses` counts only running jobs; in 1.x it also counted loads that waited for their dataset, so the backlog of 1.x is `activeEtlProcesses + queuedEtlProcesses` in 2.0.
+
 > **API-3.02** `GET /datasets` — Returns a JSON array of all dataset UUIDs. Status 200.
 
 > **API-3.03** `POST /datasets` — Creates a new dataset from an uploaded CSV file. Content-Type must be `text/csv`. Returns 202 Accepted with a JSON body containing `id`, `url`, `status`, and `info` URL. Sets `Location` header to the new dataset URL.
@@ -153,3 +155,4 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-10-20 | API-6.05: database connectivity failures yield 503 instead of 404 |
 | 2026-10-20 | API-3.06: a replace keeps serving the previous data until it succeeds and keeps it if it fails |
 | 2026-10-21 | API-3.14: connection budget usage in `/status`; API-6.05: connection wait timeouts yield 503 |
+| 2026-10-21 | API-3.15: `queuedEtlProcesses` in `/status` and health |

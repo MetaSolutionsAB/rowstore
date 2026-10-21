@@ -76,7 +76,8 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 >     "service": "RowStore",
 >     "version": "2.0-SNAPSHOT",
 >     "datasets": 42,
->     "activeEtlProcesses": 2
+>     "activeEtlProcesses": 2,
+>     "queuedEtlProcesses": 0
 > }
 > ```
 
@@ -134,3 +135,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: executable JAR, in-repo Dockerfile, Flyway, Actuator, graceful shutdown |
+| 2026-10-21 | DEPL-5.01: `queuedEtlProcesses` (API-3.15) |

@@ -155,11 +155,13 @@ class EtlProcessorTest {
         awaitStarted(b1);
         assertThat(started).containsExactly("a1", "b1");
         assertThat(processor.getActiveEtlProcesses()).isEqualTo(2);
+        assertThat(processor.getQueuedEtlProcesses()).isEqualTo(1);
 
         a1.release.countDown();
         awaitStarted(a2);
         b1.release.countDown();
         await().atMost(TIMEOUT).until(() -> processor.getActiveEtlProcesses() == 0);
+        assertThat(processor.getQueuedEtlProcesses()).isZero();
     }
 
     @Test

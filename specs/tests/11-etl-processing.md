@@ -60,8 +60,8 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 
 **Assertions:**
 1. B1 starts while A1 is running and A2 is waiting (A2 does not occupy the second permit)
-2. `activeEtlProcesses` is 2 (A1 and B1; the waiting A2 is not counted)
-3. A2 starts after A1 has finished
+2. `activeEtlProcesses` is 2 (A1 and B1; the waiting A2 is not counted), and `queuedEtlProcesses` is 1 (A2)
+3. A2 starts after A1 has finished, and `queuedEtlProcesses` is 0 once all loads have finished
 
 ### TC-ETL-004: A replace discards waiting loads of the same dataset but not the running one
 

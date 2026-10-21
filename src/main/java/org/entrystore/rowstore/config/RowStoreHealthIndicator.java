@@ -67,6 +67,7 @@ public class RowStoreHealthIndicator implements HealthIndicator {
 		}
 		return health
 				.withDetail("activeEtlProcesses", rowStore.getEtlProcessor().getActiveEtlProcesses())
+				.withDetail("queuedEtlProcesses", rowStore.getEtlProcessor().getQueuedEtlProcesses())
 				.withDetail("databases", databases)
 				.withDetail("connections", rowStore.getConnectionUsage())
 				.build();

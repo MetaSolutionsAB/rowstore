@@ -174,6 +174,7 @@ Current limitations relevant to this area.
 | API-3.12 | GET /dataset/{id}/html — web GUI |
 | API-3.13 | GET / — 404 fallback |
 | API-3.14 | GET /status — additive `connections` field with budget usage |
+| API-3.15 | GET /status and health — additive `queuedEtlProcesses` field (queued, not started ETL jobs) |
 | API-4.01 | Accept header determines response format |
 | API-4.02 | format param overrides Accept header |
 | API-4.03 | Accept: text/html redirects 303 to /html |
@@ -332,7 +333,7 @@ Current limitations relevant to this area.
 | DEPL-3.03 | Artifacts: executable JAR + SHA256 + GPG |
 | DEPL-4.01 | PostgreSQL 9.4+ for JSONB |
 | DEPL-4.02 | Schema managed by Flyway (baselineOnMigrate) |
-| DEPL-5.01 | GET /status: service, version, datasets, activeEtlProcesses |
+| DEPL-5.01 | GET /status: service, version, datasets, activeEtlProcesses, queuedEtlProcesses |
 | DEPL-5.02 | GET /status?jvm: memory, processors, heap |
 | DEPL-5.03 | Spring Boot Actuator: /actuator/health, /actuator/metrics, /actuator/info |
 | DEPL-6.01 | Log4j2, console only, dynamic level via config |
