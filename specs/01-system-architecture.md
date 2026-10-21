@@ -78,6 +78,31 @@ Covers the system from a structural and architectural perspective. For detailed 
 
 > **ARCH-6.03** **Spring Boot framework**: RowStore uses Spring Boot as its application framework, providing embedded Tomcat, HikariCP connection pooling, Flyway schema migration, Actuator health/metrics endpoints, virtual thread support, and a large ecosystem of tooling and documentation.
 
+## ARCH-7 Database Connection Limits
+
+> **ARCH-7.01** By default, RowStore does not pool database connections: a connection is opened for a database operation and closed right afterwards, so an idle instance holds no connections (as in 1.x). Since requests run on virtual threads, the number of concurrent requests is not limited by a thread pool; instead, the number of open connections per instance is limited by **connection budgets** at the level of the data sources. This applies equally to direct JDBC connections and to `JdbcTemplate` usage, and also when the HikariCP pool is enabled (ARCH-7.07).
+
+> **ARCH-7.02** There are three budgets, so that operations that hold a connection for a long time never use up the connections of short operations:
+> - **query** — short operations: queries, dataset and alias lookups and changes, status writes, dataset creation and deletion, health and status checks. Limited by `maxQueryConnections` (default 10, CFG-4.05).
+> - **export** — streamed exports (`GET /dataset/{id}/export`), which hold their connection while the export is transferred. Limited by `maxExportConnections` (default 2, CFG-4.06).
+> - **load** — ETL jobs: loads (append and replace) and column name cleanups (ETL-11), which hold their connection for the whole job. Limited by `maxetlprocesses` (CFG-3.03); since ETL jobs are already limited to `maxetlprocesses` (ARCH-6.02) and hold at most one load connection each, they never wait for a load connection.
+>
+> The budgets apply per database block: `database` has a query and a load budget, and an export budget if there is no `queryDatabase`; a separate `queryDatabase` (CFG-5.01) has its own query budget (for queries) and the export budget.
+
+> **ARCH-7.03** A request for a connection of a budget whose connections are all in use waits; waiting requests get connections in FIFO order. The wait is limited by `connectionWaitTimeout` (default `querytimeout` if configured, otherwise 30 seconds, CFG-4.07). Only if no connection becomes free within that time, the request fails with **503 Service Unavailable** (like a database connectivity failure, API-6.05), unless the response status has already been sent (export). The defaults are meant to absorb normal bursts by waiting, so that clients practically never get 503.
+
+> **ARCH-7.04** A request or ETL job holds at most one connection at a time: all reads that belong to an operation that holds a connection (e.g., the existing column names of an append, the availability of aliases while they are changed) use that connection, or happen before or after it is held. Otherwise requests could wait for each other until the wait timeout when a budget is exhausted.
+
+> **ARCH-7.05** Waits for a connection longer than 1 second and wait timeouts are logged at WARN level, aggregated per budget to at most one message per minute (with the number of slow waits and timeouts since the last message, the longest wait and the current usage). The current usage of each budget (connections in use, maximum, waiting requests) is reported by `GET /status` (API-3.14) and in the details of the health indicator (`/actuator/health`, if details are shown). The `db` health indicator of Spring Boot Actuator is disabled, since it would open connections outside the budgets; the RowStore health indicator checks the database instead.
+
+> **ARCH-7.06** **Sizing.** The maximum number of connections of one instance is, per database:
+> - without `queryDatabase`: `maxQueryConnections + maxExportConnections + maxetlprocesses` (default 10 + 2 + 5 = 17)
+> - with `queryDatabase`: `database.maxQueryConnections + maxetlprocesses` on the primary database and `queryDatabase.maxQueryConnections + queryDatabase.maxExportConnections` on the query database
+>
+> The sum over all instances that use the same PostgreSQL cluster must stay below its `max_connections` minus the connections reserved for administration and other clients. For deployments with many instances (e.g., 80 instances x 17 = 1360 connections in the worst case), either lower the limits per instance or put a connection pooler such as **PgBouncer** (transaction pooling) between the instances and the cluster, which multiplexes the client connections onto a small number of server connections; check that its pooling mode is compatible with the prepared statements of the JDBC driver.
+
+> **ARCH-7.07** **HikariCP.** When `connectionPoolMax` > 0 (CFG-4.03), connections are pooled (and idle connections are kept, unlike the default); the budgets apply on top of the pool with the same semantics and usage reporting. The pool should be at least as large as the sum of the budgets of its database (ARCH-7.06), otherwise budgets compete for pooled connections and a connection may wait for the pool instead (with the pool's own timeout); a warning is logged at startup in that case.
+
 ## Known Limitations
 
 - Single-process architecture (no clustering or horizontal scaling)
@@ -91,7 +116,7 @@ Covers the system from a structural and architectural perspective. For detailed 
 - [Query Processing](05-querying.md#query-1-query-overview) — Query processing
 - [Configuration](06-configuration.md#cfg-3-application-options) — Configuration options
 - [Glossary](12-glossary.md#glo-1-terms) — Term definitions
-- Source: `RowStoreApplication.java`, `PgRowStore.java`
+- Source: `RowStoreApplication.java`, `PgRowStore.java`, `LimitedDataSource.java`
 
 ## Change Log
 
@@ -99,3 +124,4 @@ Covers the system from a structural and architectural perspective. For detailed 
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot 3.5.10 migration (Java 25, Tomcat, HikariCP, Flyway, virtual threads) |
+| 2026-10-21 | ARCH-7: connection budgets per instance (query, export, load), one connection per request at a time, sizing |

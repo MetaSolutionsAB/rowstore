@@ -26,6 +26,8 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.01** `GET /status` — Returns service status including name, version, dataset count, and active ETL processes. Accepts optional `?jvm` parameter for JVM memory and processor details. **Exempt from rate limiting.**
 
+> **API-3.14** The JSON response of `GET /status` (without `?jvm`) contains, in addition to the fields of API-3.01, the field `connections` with the usage of the connection budgets ([ARCH-7](01-system-architecture.md#arch-7-database-connection-limits)) per database block (`database`, and `queryDatabase` if configured separately) and budget (`query`, `export`, `load`): `inUse` (open connections), `max` (limit) and `waiting` (requests waiting for a connection, an estimate). Example: `"connections": {"database": {"query": {"inUse": 1, "max": 10, "waiting": 0}, "export": {"inUse": 0, "max": 2, "waiting": 0}, "load": {"inUse": 0, "max": 5, "waiting": 0}}}`. The field is additive; the fields of API-3.01 are unchanged.
+
 > **API-3.02** `GET /datasets` — Returns a JSON array of all dataset UUIDs. Status 200.
 
 > **API-3.03** `POST /datasets` — Creates a new dataset from an uploaded CSV file. Content-Type must be `text/csv`. Returns 202 Accepted with a JSON body containing `id`, `url`, `status`, and `info` URL. Sets `Location` header to the new dataset URL.
@@ -110,7 +112,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 > - **500 Internal Server Error** — Unexpected server-side failure
 > - **503 Service Unavailable** — Query timeout exceeded (PostgreSQL SQL state `57014`), or the database is unavailable (API-6.05)
 
-> **API-6.05** A database connectivity failure (e.g., the database is unreachable) that occurs while handling a request, such as looking up a dataset, results in **503 Service Unavailable** with an empty body, not in 404. 404 is returned only if no dataset or alias with the given identifier exists or the identifier is not a valid UUID or alias. Other unexpected database errors result in 500. Streamed responses (export) whose status has already been sent are not affected.
+> **API-6.05** A database connectivity failure (e.g., the database is unreachable, or no connection became available within the wait timeout, ARCH-7.03) that occurs while handling a request, such as looking up a dataset, results in **503 Service Unavailable** with an empty body, not in 404. 404 is returned only if no dataset or alias with the given identifier exists or the identifier is not a valid UUID or alias. Other unexpected database errors result in 500. Streamed responses (export) whose status has already been sent are not affected.
 
 ## API-7 JSONP Support
 
@@ -150,3 +152,4 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-02-09 | Updated for Spring Boot migration: JSONP removed, CORS added, DELETE returns 204, source references updated |
 | 2026-10-20 | API-6.05: database connectivity failures yield 503 instead of 404 |
 | 2026-10-20 | API-3.06: a replace keeps serving the previous data until it succeeds and keeps it if it fails |
+| 2026-10-21 | API-3.14: connection budget usage in `/status`; API-6.05: connection wait timeouts yield 503 |

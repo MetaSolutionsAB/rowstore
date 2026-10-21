@@ -16,6 +16,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `08-error-handling.md` | Error codes: 400, 404, 423, 424 | 13 |
 | `09-rate-limiting.md` | Rate limiting (429) - requires separate profile | 5 |
 | `11-etl-processing.md` | ETL scheduling, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 49 |
+| `12-connection-limits.md` | Connection budgets: FIFO waiting, wait timeouts (503), usage in `/status`, one connection per request (unit and integration tests) | 18 |
 
 ## Prerequisites
 

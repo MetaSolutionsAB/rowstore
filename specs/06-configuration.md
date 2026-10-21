@@ -72,9 +72,17 @@ Covers the JSON configuration file format, all application and database options,
 > - `connectTimeout` (int, default `5`) — Connection establishment timeout.
 > - `loginTimeout` (int, default `5`) — Authentication timeout.
 
+> **CFG-4.05** `maxQueryConnections` (int, default `10`) — Maximum number of connections of the database that are open at the same time for short operations (query budget, see [ARCH-7.02](01-system-architecture.md#arch-7-database-connection-limits)).
+
+> **CFG-4.06** `maxExportConnections` (int, default `2`) — Maximum number of connections of the database that are open at the same time for exports (export budget). Only used for the database that serves queries: `queryDatabase` if configured, otherwise `database`.
+
+> **CFG-4.07** `connectionWaitTimeout` (int, seconds) — Maximum time a request waits for a connection of a budget before it fails with 503 ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)). Defaults to `querytimeout` (CFG-3.06) if that is greater than 0, otherwise to `30`.
+>
+> The load budget of the `database` is limited by `maxetlprocesses` (CFG-3.03). Values of CFG-4.05 to CFG-4.07 that are not numbers greater than 0 are rejected at startup with an error naming the key (e.g., `rowstore.json: 'database.maxQueryConnections' must be greater than 0`); there is no "unlimited" value. See [ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits) for sizing the limits of many instances that share a PostgreSQL cluster.
+
 ## CFG-5 Read Replica Configuration
 
-> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`. When not configured, all queries use the primary `database` connection. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing). Replica queries of a dataset may be cancelled when a replace of the dataset is replayed, see [ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace). If `queryDatabase` uses a separate database user, it should be granted read access with `ALTER DEFAULT PRIVILEGES` (for tables created by the RowStore user), since every new dataset creates a new data table; privileges granted on an existing data table are kept by replaces (ETL-6.02).
+> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`, including its own connection limits (CFG-4.05 to CFG-4.07) for the queries and exports it serves. When not configured, all queries use the primary `database` connection. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing). Replica queries of a dataset may be cancelled when a replace of the dataset is replayed, see [ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace). If `queryDatabase` uses a separate database user, it should be granted read access with `ALTER DEFAULT PRIVILEGES` (for tables created by the RowStore user), since every new dataset creates a new data table; privileges granted on an existing data table are kept by replaces (ETL-6.02).
 
 ## CFG-6 Rate Limit Configuration
 
@@ -180,3 +188,4 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |
 | 2026-10-20 | CFG-5.01: replica queries may be cancelled by replayed replaces |
+| 2026-10-21 | CFG-4.05 to CFG-4.07: connection limits per database block |
