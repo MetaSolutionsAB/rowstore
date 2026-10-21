@@ -37,6 +37,7 @@ import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -71,6 +72,8 @@ public class PgDataset implements Dataset {
 
 	private String id;
 
+	private String canonicalId;
+
 	private int status;
 
 	private Date created;
@@ -82,6 +85,11 @@ public class PgDataset implements Dataset {
 	private final Map<String, Integer> columnSize = new HashMap<>();
 
 	private final int maxSizeForIndex = 256;
+
+	/**
+	 * Delays between the attempts to write the final status of a load: six attempts over about 1.5 minutes.
+	 */
+	private long[] statusRetryDelaysMillis = {1000, 5000, 15000, 30000, 45000};
 
 	protected PgDataset(RowStore rowstore, String id) {
 		if (rowstore == null) {
@@ -117,6 +125,7 @@ public class PgDataset implements Dataset {
 		}
 		this.rowstore = rowstore;
 		this.id = id;
+		this.canonicalId = id;
 		this.status = status;
 		this.created = created;
 		this.dataTable = dataTable;
@@ -128,6 +137,14 @@ public class PgDataset implements Dataset {
 	@Override
 	public String getId() {
 		return id;
+	}
+
+	/**
+	 * @see Dataset#getCanonicalId()
+	 */
+	@Override
+	public String getCanonicalId() {
+		return canonicalId;
 	}
 
 	/**
@@ -145,19 +162,97 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public void setStatus(int status) {
+		try {
+			writeStatus(status);
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+		}
+	}
+
+	/**
+	 * Writes the status to the database. The status field is only updated if this succeeds, so that it is the last
+	 * status known to be stored.
+	 *
+	 * @throws DataAccessException If the status could not be written.
+	 */
+	private void writeStatus(int status) {
 		long before = System.currentTimeMillis();
 		try {
 			log.info("Setting status of {} to {}({})", getId(), EtlStatus.toString(status), status);
 			rowstore.getJdbcTemplate().update(
 					"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid",
 					status, id);
-		} catch (DataAccessException e) {
-			log.error(e.getMessage());
+			this.status = status;
 		} finally {
 			log.debug("Setting status took {} ms", System.currentTimeMillis() - before);
 		}
+	}
 
-		this.status = status;
+	/**
+	 * Writes the status to the database and retries with backoff if this fails, e.g., because the database is
+	 * temporarily unreachable. Used for the final status of a load, which must not be lost.
+	 *
+	 * @return Returns true if the status was written.
+	 */
+	private boolean writeStatusWithRetry(int status) {
+		for (int attempt = 0; ; attempt++) {
+			try {
+				writeStatus(status);
+				return true;
+			} catch (DataAccessException e) {
+				if (attempt >= statusRetryDelaysMillis.length) {
+					log.error("Giving up setting status of {} to {}({}) after {} attempts",
+							getId(), EtlStatus.toString(status), status, attempt + 1, e);
+					return false;
+				}
+				long delay = statusRetryDelaysMillis[attempt];
+				log.warn("Unable to set status of {} to {}({}), retrying in {} ms: {}",
+						getId(), EtlStatus.toString(status), status, delay, e.getMessage());
+				try {
+					Thread.sleep(delay);
+				} catch (InterruptedException ie) {
+					Thread.currentThread().interrupt();
+					log.error("Interrupted while retrying to set status of {} to {}({})", getId(), EtlStatus.toString(status), status);
+					return false;
+				}
+			}
+		}
+	}
+
+	/**
+	 * Sets the delays between the attempts to write the final status of a load. Intended for tests.
+	 */
+	void setStatusRetryDelays(long... delaysMillis) {
+		this.statusRetryDelaysMillis = delaysMillis.clone();
+	}
+
+	/**
+	 * Sets the status to PROCESSING with a conditional update. The caller must run the load as the dataset's
+	 * only job in this RowStore instance (see EtlProcessor), and a database must not be used by more than one
+	 * RowStore instance, so a dataset that already is in PROCESSING is stale (e.g., because a load was interrupted
+	 * by a database outage) and is taken over.
+	 *
+	 * @return Returns false if the dataset does not exist anymore, e.g., because it was deleted while its load was queued.
+	 * @throws DataAccessException If the status could not be written.
+	 */
+	private boolean markAsProcessing() {
+		int updated = rowstore.getJdbcTemplate().update(
+				"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid AND status <> ?",
+				EtlStatus.PROCESSING, id, EtlStatus.PROCESSING);
+		if (updated == 0) {
+			Integer count = rowstore.getJdbcTemplate().queryForObject(
+					"SELECT COUNT(*) FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", Integer.class, id);
+			if (count == null || count == 0) {
+				log.info("Dataset {} does not exist anymore, skipping its load", getId());
+				return false;
+			}
+			log.warn("Dataset {} is already in status {}({}) without an active load, taking it over",
+					getId(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.PROCESSING);
+		} else {
+			log.info("Setting status of {} to {}({})", getId(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.PROCESSING);
+		}
+		this.status = EtlStatus.PROCESSING;
+		return true;
 	}
 
 	/**
@@ -187,18 +282,25 @@ public class PgDataset implements Dataset {
 			throw new IllegalArgumentException("Argument must not be null");
 		}
 
-		String dataTable = getDataTable();
-		if (dataTable == null) {
-			log.error("Dataset has no data table assigned");
-			return false;
-		}
-
+		// The outcome is tracked locally: the final status must not depend on reading the status
+		// back from the database, which may be unreachable if the load failed because of an outage
+		boolean success = false;
+		boolean deleted = false;
 		try {
-			setStatus(EtlStatus.PROCESSING);
+			String dataTable = getDataTable();
+			if (dataTable == null) {
+				log.error("Dataset has no data table assigned");
+				return false;
+			}
+
+			if (!markAsProcessing()) {
+				// there is no status to set for a deleted dataset
+				deleted = true;
+				return false;
+			}
 
 			if (!append) {
 				if (!truncateTable()) {
-					setStatus(EtlStatus.ERROR);
 					return false;
 				}
 			}
@@ -269,7 +371,6 @@ public class PgDataset implements Dataset {
 							log.error("Error occured when processing line {} of CSV: {}", lineCount, line);
 							log.info("Rolling back transaction");
 							conn.rollback();
-							setStatus(EtlStatus.ERROR);
 							return false;
 						}
 						PGobject jsonb = new PGobject();
@@ -295,8 +396,7 @@ public class PgDataset implements Dataset {
 
 				// we commit the transaction and free the resources of the statement
 				conn.commit();
-
-				setStatus(EtlStatus.AVAILABLE);
+				success = true;
 			} catch (SQLException e) {
 				SqlExceptionLogUtil.error(log, e);
 				try {
@@ -307,7 +407,6 @@ public class PgDataset implements Dataset {
                 } catch (SQLException e1) {
 					SqlExceptionLogUtil.error(log, e1);
 				}
-				setStatus(EtlStatus.ERROR);
 				return false;
 			} catch (CsvValidationException e) {
 				log.error(e.getMessage());
@@ -317,7 +416,6 @@ public class PgDataset implements Dataset {
 				} catch (SQLException e1) {
 					SqlExceptionLogUtil.error(log, e1);
 				}
-				setStatus(EtlStatus.ERROR);
 				return false;
 			} finally {
 				if (cr != null) {
@@ -339,15 +437,14 @@ public class PgDataset implements Dataset {
 				log.debug("Populating dataset took " + (new Date().getTime() - before.getTime()) + " ms");
 			}
 		} finally {
-			if (getStatus() == EtlStatus.PROCESSING) {
-				// something has gone wrong if the status is still "processing"
-				// at this point, so we set it to "error", just in case
-				setStatus(EtlStatus.ERROR);
-				return false;
+			// Also reached by exceptions, which propagate to the caller after the status has been set
+			if (!deleted && !writeStatusWithRetry(success ? EtlStatus.AVAILABLE : EtlStatus.ERROR)) {
+				log.error("Dataset {} keeps its last known status {}({}) until it is loaded again{}", getId(),
+						EtlStatus.toString(status), status, status == EtlStatus.PROCESSING ? " or RowStore is restarted" : "");
 			}
 		}
 
-		return true;
+		return success;
 	}
 
 	private void createIndexes(Connection conn, Set<String> fields) throws SQLException {
@@ -587,6 +684,10 @@ public class PgDataset implements Dataset {
 
 	/**
 	 * Initializes the object by loading all information from the database.
+	 *
+	 * @throws IllegalStateException If there is no dataset with this ID.
+	 * @throws IllegalArgumentException If the ID is not a valid UUID.
+	 * @throws DataAccessException If the database could not be queried, e.g., because it is unreachable.
 	 */
 	private void initFromDb() {
 		long before = System.currentTimeMillis();
@@ -594,6 +695,7 @@ public class PgDataset implements Dataset {
 			log.debug("Loading dataset {} from database", getId());
 			Map<String, Object> row = rowstore.getJdbcTemplate().queryForMap(
 					"SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", getId());
+			this.canonicalId = row.get("id").toString();
 			this.status = (int) row.get("status");
 			this.created = (java.sql.Timestamp) row.get("created");
 			String loadedTable = (String) row.get("data_table");
@@ -606,14 +708,19 @@ public class PgDataset implements Dataset {
 			throw new IllegalStateException("Unable to initialize Dataset object from database");
 		} catch (DataAccessException e) {
 			Throwable cause = e.getCause();
-			if (cause instanceof SQLException se) {
-				if (!"22P02".equalsIgnoreCase(se.getSQLState())) {
-					SqlExceptionLogUtil.error(log, se);
-				} else {
-					log.info(se.getMessage().replaceFirst("ERROR: ", ""));
-				}
+			if (cause instanceof SQLException se && "22P02".equalsIgnoreCase(se.getSQLState())) {
+				// invalid UUID input, treated like an unknown dataset
+				log.info(se.getMessage().replaceFirst("ERROR: ", ""));
+				throw new IllegalArgumentException(e);
 			}
-			throw new IllegalArgumentException(e);
+			// any other failure must not be mistaken for an unknown dataset; connectivity failures
+			// (DataAccessResourceFailureException) are mapped to 503 by DatabaseExceptionHandler
+			if (cause instanceof SQLException se) {
+				SqlExceptionLogUtil.error(log, se);
+			} else {
+				log.error(e.getMessage());
+			}
+			throw e;
 		} finally {
 			log.debug("Loading dataset took {} ms", System.currentTimeMillis() - before);
 		}
@@ -724,6 +831,11 @@ public class PgDataset implements Dataset {
 					"SELECT dataset_id FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?",
 					(rs, rowNum) -> (UUID) rs.getObject("dataset_id"), alias);
 			return results.isEmpty() ? null : results.get(0).toString();
+		} catch (DataAccessResourceFailureException e) {
+			// An unreachable database must not be mistaken for an unknown alias (mapped to 503). Unlike in
+			// initFromDb(), other failures are still treated as an unknown alias because the alias is
+			// unvalidated user input, which may be rejected by the database (e.g., invalid byte sequences).
+			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 			return null;

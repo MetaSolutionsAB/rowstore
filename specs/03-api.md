@@ -117,7 +117,9 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-6.04** Server error statuses:
 > - **500 Internal Server Error** — Unexpected server-side failure
-> - **503 Service Unavailable** — Query timeout exceeded (PostgreSQL SQL state `57014`)
+> - **503 Service Unavailable** — Query timeout exceeded (PostgreSQL SQL state `57014`), or the database is unavailable (API-6.05)
+
+> **API-6.05** A database connectivity failure (e.g., the database is unreachable) that occurs while handling a request, such as looking up a dataset, results in **503 Service Unavailable** with an empty body, not in 404. 404 is returned only if no dataset or alias with the given identifier exists or the identifier is not a valid UUID or alias. Other unexpected database errors result in 500. Streamed responses (export) whose status has already been sent are not affected.
 
 ## API-7 JSONP Support
 
@@ -155,3 +157,4 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: JSONP removed, CORS added, DELETE returns 204, source references updated |
+| 2026-10-20 | API-6.05: database connectivity failures yield 503 instead of 404 |

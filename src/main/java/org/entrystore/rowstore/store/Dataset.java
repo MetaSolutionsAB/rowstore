@@ -34,6 +34,15 @@ public interface Dataset {
 	String getId();
 
 	/**
+	 * @return Returns the ID of the dataset in its canonical form, which is identical for all spellings of the ID
+	 * (e.g., upper and lower case) and for aliases. To be used for identity comparisons, whereas getId()
+	 * returns the ID as it was requested.
+	 */
+	default String getCanonicalId() {
+		return getId();
+	}
+
+	/**
 	 * @return Returns the status of the dataset.
 	 * @see org.entrystore.rowstore.etl.EtlStatus
 	 */

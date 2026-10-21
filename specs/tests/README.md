@@ -16,6 +16,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `08-error-handling.md` | Error codes: 400, 404, 423, 424 | 13 |
 | `09-rate-limiting.md` | Rate limiting (429) - requires separate profile | 5 |
 | `10-configuration.md` | rowstore.json validation and data source settings | 11 |
+| `11-etl-processing.md` | ETL scheduling and failure handling (unit and integration tests) | 19 |
 
 ## Prerequisites
 
@@ -137,9 +138,10 @@ Dataset creation and modification are asynchronous. Tests should:
 | Error Handling | 13 |
 | Rate Limiting | 5 |
 | Configuration | 11 |
-| **Total** | **129** |
+| ETL Processing | 19 |
+| **Total** | **148** |
 
-Note: The specifications define 129 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 148 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 

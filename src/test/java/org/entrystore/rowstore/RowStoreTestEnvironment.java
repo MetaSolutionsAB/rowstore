@@ -150,6 +150,30 @@ public class RowStoreTestEnvironment {
     }
 
     /**
+     * Opens a JDBC connection to the maintenance database "postgres" of the PostgreSQL container, for tests that
+     * administer the test database (some statements cannot be run on the database the session is connected to).
+     * The caller must close the connection.
+     */
+    public Connection openMaintenanceDatabaseConnection() throws SQLException {
+        if (!started) {
+            throw new IllegalStateException("Test environment is not started");
+        }
+        String url = "jdbc:postgresql://" + postgresContainer.getHost() + ":" +
+                postgresContainer.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + "/postgres";
+        return DriverManager.getConnection(url, postgresContainer.getUsername(), postgresContainer.getPassword());
+    }
+
+    /**
+     * Returns a bean of the running RowStore application, for tests that need to call into it directly.
+     */
+    public <T> T getBean(Class<T> type) {
+        if (!started) {
+            throw new IllegalStateException("Test environment is not started");
+        }
+        return applicationContext.getBean(type);
+    }
+
+    /**
      * Returns whether the test environment is started.
      */
     public boolean isStarted() {
