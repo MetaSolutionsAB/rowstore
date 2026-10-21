@@ -74,6 +74,13 @@ public class PgRowStore implements RowStore {
 
 	private volatile boolean shuttingDown;
 
+	/**
+	 * Name of the cleanup of column names (ETL-11) in the table of maintenance tasks.
+	 */
+	public static final String COLUMN_NAME_CLEANUP_TASK = "column-name-cleanup";
+
+	private final MaintenanceTasks maintenanceTasks;
+
 	public PgRowStore(DataSource datasource,
 					  @Qualifier("queryDataSource") DataSource queryDatasource,
 					  RowStoreConfig config,
@@ -86,6 +93,7 @@ public class PgRowStore implements RowStore {
 		this.queryDatasource = queryDatasource;
 		this.jdbcTemplate = new JdbcTemplate(datasource);
 		this.queryJdbcTemplate = new JdbcTemplate(queryDatasource);
+		this.maintenanceTasks = new MaintenanceTasks(jdbcTemplate);
 
 		etlProcessor = new EtlProcessor(this);
 		resetInterruptedLoads();
@@ -144,12 +152,23 @@ public class PgRowStore implements RowStore {
 		return dropped;
 	}
 
-	/**
-	 * Starts the cleanup of column names (see {@link #cleanColumnNames()}) in the background after startup.
-	 */
 	@EventListener(ApplicationReadyEvent.class)
-	public void startColumnNameCleanup() {
-		Thread.ofVirtual().name("column-name-cleanup").start(() -> {
+	public void onApplicationReady() {
+		startColumnNameCleanup();
+	}
+
+	/**
+	 * Starts the cleanup of column names (see {@link #cleanColumnNames()}) in the background, unless a run of it has
+	 * completed before (ETL-11.07).
+	 *
+	 * @return Returns the thread of the cleanup, or null if it was skipped.
+	 */
+	public Thread startColumnNameCleanup() {
+		if (maintenanceTasks.isCompleted(COLUMN_NAME_CLEANUP_TASK)) {
+			log.info("Column names were cleaned completely before, skipping the cleanup");
+			return null;
+		}
+		return Thread.ofVirtual().name("column-name-cleanup").start(() -> {
 			try {
 				cleanColumnNames();
 			} catch (RuntimeException e) {
@@ -166,6 +185,10 @@ public class PgRowStore implements RowStore {
 	 * finished, to limit the load on the database. Datasets that are clean are not touched, so a repeated run renames
 	 * nothing. The cleanup stops (logged once at WARN level) when RowStore shuts down or the database is not reachable;
 	 * the remaining datasets are cleaned at the next startup or by an append (see PgDataset#populate).
+	 * <p>
+	 * If all datasets were checked and none of them failed (datasets skipped because of colliding names count as
+	 * checked, since a repeated run cannot clean them either), the run is recorded as completed, so that later startups
+	 * skip the cleanup (ETL-11.07). New uploads always store clean names.
 	 *
 	 * @return Returns the IDs of the datasets whose columns were renamed.
 	 */
@@ -176,10 +199,12 @@ public class PgRowStore implements RowStore {
 			return List.of();
 		}
 		List<String> cleaned = new ArrayList<>();
+		boolean complete = true;
 		for (Dataset d : all) {
 			PgDataset dataset = (PgDataset) d;
 			if (shuttingDown) {
 				log.warn("Stopped cleaning column names, RowStore is shutting down");
+				complete = false;
 				break;
 			}
 			try {
@@ -187,13 +212,18 @@ public class PgRowStore implements RowStore {
 					continue;
 				}
 				Map<String, String> renames = etlProcessor.callExclusively(dataset, dataset::cleanColumnNames).join();
-				if (!renames.isEmpty()) {
+				if (renames == null) {
+					// the data table could not be locked, the dataset is cleaned at a later startup
+					complete = false;
+				} else if (!renames.isEmpty()) {
 					cleaned.add(dataset.getCanonicalId());
 				}
 			} catch (CancellationException | RejectedExecutionException e) {
 				log.warn("Stopped cleaning column names, the ETL processor is shut down");
+				complete = false;
 				break;
 			} catch (SQLException | RuntimeException e) {
+				complete = false;
 				Throwable cause = e instanceof CompletionException && e.getCause() != null ? e.getCause() : e;
 				if (isConnectionFailure(cause)) {
 					log.warn("Stopped cleaning column names, the database is not reachable: {}", cause.getMessage());
@@ -204,6 +234,9 @@ public class PgRowStore implements RowStore {
 		}
 		if (!cleaned.isEmpty()) {
 			log.info("Cleaned column names of {} dataset(s): {}", cleaned.size(), cleaned);
+		}
+		if (complete) {
+			maintenanceTasks.markCompleted(COLUMN_NAME_CLEANUP_TASK);
 		}
 		return cleaned;
 	}

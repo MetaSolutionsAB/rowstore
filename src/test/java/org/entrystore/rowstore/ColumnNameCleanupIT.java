@@ -161,7 +161,7 @@ class ColumnNameCleanupIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("TC-ETL-035: The cleanup runs in the background after startup")
+    @DisplayName("TC-ETL-035: The cleanup runs in the background after startup until a run has completed")
     void cleanup_runsAfterStartup() throws Exception {
         RowStoreTestEnvironment env = RowStoreTestEnvironment.getInstance();
         String database = "rowstore_cleanup_startup";
@@ -174,15 +174,51 @@ class ColumnNameCleanupIT extends BaseIntegrationTest {
             int port = RowStoreTestEnvironment.findAvailablePort();
             try (ConfigurableApplicationContext ignored = env.startAdditionalRowStore(database, port)) {
                 datasetId = TestUtils.createDatasetAndWait(bytes(CSV), spec(port, "text/csv"), spec(port, null)).datasetId;
+                // the first start found nothing to clean and recorded the cleanup as completed
+                await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(200)).until(() ->
+                        cleanupCompleted(connector));
             }
             breakColumnNames(connector, datasetId, BROKEN_NAMES);
+            // like a database of 1.x, which has no record of the cleanup
+            execute(connector, "DELETE FROM maintenance_tasks");
 
             try (ConfigurableApplicationContext ignored = env.startAdditionalRowStore(database, RowStoreTestEnvironment.findAvailablePort())) {
-                await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(200)).untilAsserted(() ->
-                        assertClean(connector, datasetId));
+                await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(200)).untilAsserted(() -> {
+                    assertClean(connector, datasetId);
+                    assertThat(cleanupCompleted(connector)).isTrue();
+                });
+            }
+
+            // a completed cleanup is skipped at later startups
+            breakColumnNames(connector, datasetId, BROKEN_NAMES);
+            try (ConfigurableApplicationContext context = env.startAdditionalRowStore(database, RowStoreTestEnvironment.findAvailablePort())) {
+                assertThat(context.getBean(PgRowStore.class).startColumnNameCleanup()).isNull();
+                assertThat(storedColumnNames(connector, datasetId)).containsAll(BROKEN_NAMES.values());
             }
         } finally {
             executeMaintenance("DROP DATABASE IF EXISTS " + database + " WITH (FORCE)");
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ETL-052: A cleanup in which a dataset fails is not recorded as completed")
+    void failedDataset_cleanupNotRecordedAsCompleted() throws Exception {
+        DatasetUrls failing = createDatasetAndWait(bytes(CSV));
+        String table = dataTable(failing.datasetId);
+        try {
+            execute(TEST_DATABASE, "DELETE FROM maintenance_tasks");
+            // reading the column names of this dataset fails with an SQL error that is not a connection failure
+            execute(TEST_DATABASE, "ALTER TABLE " + table + " RENAME COLUMN data TO renamed_data");
+            rowStore().cleanColumnNames();
+            assertThat(cleanupCompleted(TEST_DATABASE)).isFalse();
+
+            execute(TEST_DATABASE, "ALTER TABLE " + table + " RENAME COLUMN renamed_data TO data");
+            rowStore().cleanColumnNames();
+            assertThat(cleanupCompleted(TEST_DATABASE)).isTrue();
+        } finally {
+            execute(TEST_DATABASE, "DO $$ BEGIN ALTER TABLE " + table + " RENAME COLUMN renamed_data TO data; " +
+                    "EXCEPTION WHEN undefined_column THEN NULL; END $$");
+            deleteDataset(failing.datasetUrl);
         }
     }
 
@@ -444,6 +480,16 @@ class ColumnNameCleanupIT extends BaseIntegrationTest {
             }
         }
         return result;
+    }
+
+    private static boolean cleanupCompleted(DatabaseConnector db) throws SQLException {
+        return !queryList(db, "SELECT name FROM maintenance_tasks WHERE name = '" + PgRowStore.COLUMN_NAME_CLEANUP_TASK + "'").isEmpty();
+    }
+
+    private static void execute(DatabaseConnector db, String sql) throws SQLException {
+        try (Connection conn = db.open(); Statement stmt = conn.createStatement()) {
+            stmt.execute(sql);
+        }
     }
 
     private static void executeMaintenance(String sql) throws SQLException {
