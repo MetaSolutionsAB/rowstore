@@ -101,10 +101,7 @@ public class PgDatasets implements Datasets {
 				ps.execute();
 			}
 
-			try (PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + dataTable + " (rownr SERIAL PRIMARY KEY, data JSONB NOT NULL)")) {
-				log.debug("Executing: " + ps);
-				ps.execute();
-			}
+			createDataTable(conn, dataTable);
 
 			conn.commit();
 			log.info("Created dataset " + id);
@@ -116,6 +113,24 @@ public class PgDatasets implements Datasets {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Creates a table for storing a dataset's rows. All data tables must be created with this method
+	 * to guarantee an identical schema.
+	 *
+	 * @param conn The connection to use. Transaction handling is left to the caller.
+	 * @param tableName The name of the data table, must match {@link #DATA_TABLE_PATTERN}.
+	 * @throws SQLException If the table could not be created.
+	 */
+	static void createDataTable(Connection conn, String tableName) throws SQLException {
+		if (tableName == null || !tableName.matches(DATA_TABLE_PATTERN)) {
+			throw new IllegalArgumentException("Data table name does not match expected pattern: " + tableName);
+		}
+		try (PreparedStatement ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS " + tableName + " (rownr BIGSERIAL PRIMARY KEY, data JSONB NOT NULL)")) {
+			log.debug("Executing: " + ps);
+			ps.execute();
+		}
 	}
 
 	/**
