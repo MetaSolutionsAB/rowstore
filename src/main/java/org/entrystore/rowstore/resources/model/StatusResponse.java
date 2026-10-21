@@ -16,4 +16,12 @@
 
 package org.entrystore.rowstore.resources.model;
 
-public record StatusResponse(String service, String version, int datasets, int activeEtlProcesses) {}
+import org.entrystore.rowstore.store.ConnectionUsage;
+
+import java.util.Map;
+
+/**
+ * @param connections Usage of the connection budgets per database block and budget (API-3.14).
+ */
+public record StatusResponse(String service, String version, int datasets, int activeEtlProcesses,
+							 Map<String, Map<String, ConnectionUsage>> connections) {}

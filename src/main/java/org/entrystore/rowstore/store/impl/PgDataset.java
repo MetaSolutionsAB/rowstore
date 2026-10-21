@@ -39,7 +39,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.EmptyResultDataAccessException;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -322,7 +321,7 @@ public class PgDataset implements Dataset {
 			PreparedStatement stmt = null;
 			CSVReader cr = null;
 			try {
-				conn = rowstore.getConnection();
+				conn = rowstore.getLoadConnection();
 				Charset charset = DatasetUtil.detectCharset(csvFile);
 				char separator = detectSeparator(csvFile, charset);
 
@@ -395,8 +394,12 @@ public class PgDataset implements Dataset {
 						}
 
 						if (append) {
-							// we must compare existing column names with new ones
-							Set<String> oldColumnNames = getColumnNames(false);
+							// we must compare existing column names with new ones; they are read with the load's
+							// connection, since a load must not hold more than one connection at a time (ARCH-7.04)
+							Set<String> oldColumnNames = readColumnNames(conn);
+							if (oldColumnNames == null) {
+								oldColumnNames = Set.of();
+							}
 
 							// if there are no old column names we assume this dataset is newly created
 							if (oldColumnNames.size() > 0 && !oldColumnNames.equals(labels)) {
@@ -624,7 +627,7 @@ public class PgDataset implements Dataset {
 		if (status == EtlStatus.CREATED || dataTable == null) {
 			return Map.of();
 		}
-		try (Connection conn = rowstore.getConnection()) {
+		try (Connection conn = rowstore.getLoadConnection()) {
 			conn.setAutoCommit(false);
 			try {
 				Set<String> columnNames = readColumnNames(conn);
@@ -1076,13 +1079,21 @@ public class PgDataset implements Dataset {
 	public ResultSet streamAll() {
 		Connection conn = null;
 		try {
-			conn = rowstore.getQueryConnection();
+			conn = rowstore.getExportConnection();
 			conn.setAutoCommit(false);
 			PreparedStatement stmnt = conn.prepareStatement("SELECT data FROM " + getDataTable(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
 			stmnt.setFetchSize(1000);
 			return stmnt.executeQuery();
 		} catch (SQLException e) {
 			log.warn(e.getMessage());
+			// the connection must not be leaked, it would occupy a connection of the export budget
+			if (conn != null) {
+				try {
+					conn.close();
+				} catch (SQLException e1) {
+					log.warn(e1.getMessage());
+				}
+			}
 			return null;
 		}
 	}
@@ -1091,16 +1102,14 @@ public class PgDataset implements Dataset {
 	 * @see Dataset#getColumnNames()
 	 */
 	public Set<String> getColumnNames() {
-		return this.getColumnNames(true);
-	}
-
-	private Set<String> getColumnNames(boolean useQueryDatabase) {
 		long before = System.currentTimeMillis();
-		JdbcTemplate jt = useQueryDatabase ? rowstore.getQueryJdbcTemplate() : rowstore.getJdbcTemplate();
 		String sql = "SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable() +
 				" WHERE rownr=(SELECT min(rownr) FROM " + getDataTable() + ")";
 		try {
-			return new HashSet<>(jt.queryForList(sql, String.class));
+			return new HashSet<>(rowstore.getQueryJdbcTemplate().queryForList(sql, String.class));
+		} catch (DataAccessResourceFailureException e) {
+			// e.g., no connection available within the wait timeout (503), must not be mistaken for no columns
+			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 			return new HashSet<>();
@@ -1163,6 +1172,8 @@ public class PgDataset implements Dataset {
 			Long result = rowstore.getQueryJdbcTemplate().queryForObject(
 					"SELECT COUNT(rownr)::BIGINT FROM " + getDataTable(), Long.class);
 			return result != null ? result : -1;
+		} catch (DataAccessResourceFailureException e) {
+			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 			return -1;
@@ -1176,16 +1187,13 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public Set<String> getAliases() {
-		return this.getAliases(true);
-	}
-
-	private Set<String> getAliases(boolean useQueryDatabase) {
 		long before = System.currentTimeMillis();
-		JdbcTemplate jt = useQueryDatabase ? rowstore.getQueryJdbcTemplate() : rowstore.getJdbcTemplate();
 		try {
-			return new HashSet<>(jt.queryForList(
+			return new HashSet<>(rowstore.getQueryJdbcTemplate().queryForList(
 					"SELECT alias FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?::uuid",
 					String.class, getId()));
+		} catch (DataAccessResourceFailureException e) {
+			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 			return new HashSet<>();
@@ -1216,7 +1224,16 @@ public class PgDataset implements Dataset {
 				lockStmt.executeQuery();
 			}
 
-			Set<String> existingAliases = getAliases(false);
+			// all reads use this connection, since a request must not hold more than one connection at a time (ARCH-7.04)
+			Set<String> existingAliases = new HashSet<>();
+			try (PreparedStatement ps = conn.prepareStatement("SELECT alias FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?")) {
+				ps.setObject(1, uuid);
+				try (ResultSet rs = ps.executeQuery()) {
+					while (rs.next()) {
+						existingAliases.add(rs.getString(1));
+					}
+				}
+			}
 
 			try (PreparedStatement deleteStmt = conn.prepareStatement("DELETE FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?")) {
 				deleteStmt.setObject(1, uuid);
@@ -1226,7 +1243,7 @@ public class PgDataset implements Dataset {
 
 			try (PreparedStatement insertStmt = conn.prepareStatement("INSERT INTO " + PgDatasets.ALIAS_TABLE_NAME + " (dataset_id, alias) VALUES (?, ?)")) {
 				for (String alias : aliases) {
-					if (existingAliases.contains(alias) || (isAliasValid(alias) && isAliasAvailable(alias))) {
+					if (existingAliases.contains(alias) || (isAliasValid(alias) && isAliasAvailable(conn, alias))) {
 						insertStmt.setObject(1, uuid);
 						insertStmt.setString(2, alias);
 						log.debug("Adding to batch: " + insertStmt);
@@ -1275,8 +1292,28 @@ public class PgDataset implements Dataset {
 		return alias != null && StringUtils.isAlphanumeric(alias);
 	}
 
-	private boolean isAliasAvailable(String alias) {
-		return (!rowstore.getDatasets().hasDataset(alias) && (resolveAlias(alias) == null));
+	/**
+	 * @param alias A valid alias, see {@link #isAliasValid(String)}.
+	 * @return Returns whether the alias is neither the ID of a dataset nor an alias of a dataset. Reads with the
+	 * caller's connection, in its transaction.
+	 */
+	private static boolean isAliasAvailable(Connection conn, String alias) throws SQLException {
+		// An alphanumeric alias is a valid UUID input for PostgreSQL only if it consists of 32 hexadecimal digits;
+		// other aliases cannot be the ID of a dataset, and casting them to UUID would abort the transaction
+		if (alias.matches("[0-9a-fA-F]{32}") &&
+				exists(conn, "SELECT 1 FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", alias)) {
+			return false;
+		}
+		return !exists(conn, "SELECT 1 FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?", alias);
+	}
+
+	private static boolean exists(Connection conn, String sql, String param) throws SQLException {
+		try (PreparedStatement ps = conn.prepareStatement(sql)) {
+			ps.setString(1, param);
+			try (ResultSet rs = ps.executeQuery()) {
+				return rs.next();
+			}
+		}
 	}
 
 	/**

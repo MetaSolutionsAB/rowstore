@@ -56,6 +56,8 @@ public class EtlProcessor {
 
 	private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
+	private final int maxEtlProcesses;
+
 	private final Semaphore concurrencyLimiter;
 
 	private final AtomicInteger activeProcesses = new AtomicInteger(0);
@@ -71,6 +73,7 @@ public class EtlProcessor {
 		if (maxConcurrent <= 0) {
 			maxConcurrent = 5;
 		}
+		this.maxEtlProcesses = maxConcurrent;
 		this.concurrencyLimiter = new Semaphore(maxConcurrent);
 		log.info("ETL processor initialized with max {} concurrent processes", maxConcurrent);
 	}
@@ -249,6 +252,13 @@ public class EtlProcessor {
 			executor.shutdownNow();
 			Thread.currentThread().interrupt();
 		}
+	}
+
+	/**
+	 * @return Returns the maximum number of jobs that run at the same time.
+	 */
+	public int getMaxEtlProcesses() {
+		return maxEtlProcesses;
 	}
 
 	/**

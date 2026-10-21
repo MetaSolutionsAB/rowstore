@@ -20,6 +20,7 @@ import jakarta.annotation.PreDestroy;
 import org.entrystore.rowstore.etl.EtlProcessor;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.resources.VersionInfo;
+import org.entrystore.rowstore.store.ConnectionUsage;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.Datasets;
 import org.entrystore.rowstore.store.RowStore;
@@ -31,6 +32,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -40,12 +42,14 @@ import java.sql.SQLException;
 import java.sql.SQLNonTransientConnectionException;
 import java.sql.SQLTransientConnectionException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A PostgreSQL-specific implementation of the RowStore interface.
@@ -58,9 +62,23 @@ public class PgRowStore implements RowStore {
 
 	private final static Logger log = LoggerFactory.getLogger(PgRowStore.class);
 
-	private final DataSource datasource;
+	/**
+	 * Connection budgets (ARCH-7): short operations on the primary database and on the query database (the same
+	 * budget if there is no separate query database), exports (on the query database) and loads (on the primary
+	 * database).
+	 */
+	private final LimitedDataSource primaryQuerySlots;
 
-	private final DataSource queryDatasource;
+	private final LimitedDataSource querySlots;
+
+	private final LimitedDataSource exportSlots;
+
+	private final LimitedDataSource loadSlots;
+
+	/**
+	 * The budgets per database block and budget name, for reporting their usage.
+	 */
+	private final Map<String, Map<String, LimitedDataSource>> budgets = new LinkedHashMap<>();
 
 	private final JdbcTemplate jdbcTemplate;
 
@@ -82,15 +100,53 @@ public class PgRowStore implements RowStore {
 			throw new IllegalArgumentException("Configuration must not be null");
 		}
 		this.config = config;
-		this.datasource = datasource;
-		this.queryDatasource = queryDatasource;
-		this.jdbcTemplate = new JdbcTemplate(datasource);
-		this.queryJdbcTemplate = new JdbcTemplate(queryDatasource);
-
 		etlProcessor = new EtlProcessor(this);
+
+		RowStoreConfig.Database primaryDb = config.getDatabase();
+		RowStoreConfig.Database queryDb = config.getQueryDatabase();
+		boolean separateQueryDatabase = queryDb != primaryDb;
+		primaryQuerySlots = addBudget("database", "query", datasource, primaryDb.getMaxQueryConnections(), primaryDb);
+		if (separateQueryDatabase) {
+			querySlots = addBudget("queryDatabase", "query", queryDatasource, queryDb.getMaxQueryConnections(), queryDb);
+			exportSlots = addBudget("queryDatabase", "export", queryDatasource, queryDb.getMaxExportConnections(), queryDb);
+		} else {
+			querySlots = primaryQuerySlots;
+			exportSlots = addBudget("database", "export", datasource, primaryDb.getMaxExportConnections(), primaryDb);
+		}
+		// every ETL job holds at most one load connection, so loads never wait for a load connection
+		loadSlots = addBudget("database", "load", datasource, etlProcessor.getMaxEtlProcesses(), primaryDb);
+		checkPoolSize(primaryDb, "database");
+		if (separateQueryDatabase) {
+			checkPoolSize(queryDb, "queryDatabase");
+		}
+
+		this.jdbcTemplate = new JdbcTemplate(primaryQuerySlots);
+		this.queryJdbcTemplate = new JdbcTemplate(querySlots);
+
 		resetInterruptedLoads();
 		dropLeftoverShadowTables();
 		log.info("Started RowStore {}", versionInfo.getVersion());
+	}
+
+	private LimitedDataSource addBudget(String dbName, String budgetName, DataSource target, int maxConnections,
+										RowStoreConfig.Database db) {
+		LimitedDataSource budget = new LimitedDataSource(target, dbName + " " + budgetName, maxConnections,
+				TimeUnit.SECONDS.toMillis(db.getConnectionWaitTimeout()));
+		budgets.computeIfAbsent(dbName, k -> new LinkedHashMap<>()).put(budgetName, budget);
+		log.info("Limiting {} connections to {} (wait timeout {} s)", budget.getName(), maxConnections, db.getConnectionWaitTimeout());
+		return budget;
+	}
+
+	/**
+	 * Warns if the connection pool of a database (if enabled) is smaller than the sum of its connection budgets, since
+	 * the budgets then compete for pooled connections and a connection may wait for the pool instead.
+	 */
+	private void checkPoolSize(RowStoreConfig.Database db, String dbName) {
+		int sum = budgets.get(dbName).values().stream().mapToInt(LimitedDataSource::getMaxConnections).sum();
+		if (db.getConnectionPoolMax() > 0 && db.getConnectionPoolMax() < sum) {
+			log.warn("connectionPoolMax {} of {} is lower than the sum of its connection limits {}, " +
+					"connections may have to wait for the pool", db.getConnectionPoolMax(), dbName, sum);
+		}
 	}
 
 	/**
@@ -226,16 +282,57 @@ public class PgRowStore implements RowStore {
 	 * @see RowStore#getConnection()
 	 */
 	@Override
-	public Connection getConnection() throws SQLException {
-		return datasource.getConnection();
+	public Connection getConnection() {
+		return connect(primaryQuerySlots);
 	}
 
 	/**
 	 * @see RowStore#getQueryConnection()
 	 */
 	@Override
-	public Connection getQueryConnection() throws SQLException {
-		return queryDatasource.getConnection();
+	public Connection getQueryConnection() {
+		return connect(querySlots);
+	}
+
+	/**
+	 * @see RowStore#getExportConnection()
+	 */
+	@Override
+	public Connection getExportConnection() {
+		return connect(exportSlots);
+	}
+
+	/**
+	 * @see RowStore#getLoadConnection()
+	 */
+	@Override
+	public Connection getLoadConnection() {
+		return connect(loadSlots);
+	}
+
+	/**
+	 * @throws CannotGetJdbcConnectionException If no connection could be obtained, like JdbcTemplate.
+	 */
+	private static Connection connect(DataSource budget) {
+		try {
+			return budget.getConnection();
+		} catch (SQLException e) {
+			throw new CannotGetJdbcConnectionException("Failed to obtain JDBC Connection", e);
+		}
+	}
+
+	/**
+	 * @see RowStore#getConnectionUsage()
+	 */
+	@Override
+	public Map<String, Map<String, ConnectionUsage>> getConnectionUsage() {
+		Map<String, Map<String, ConnectionUsage>> result = new LinkedHashMap<>();
+		budgets.forEach((dbName, dbBudgets) -> {
+			Map<String, ConnectionUsage> usage = new LinkedHashMap<>();
+			dbBudgets.forEach((budgetName, budget) -> usage.put(budgetName, budget.getUsage()));
+			result.put(dbName, usage);
+		});
+		return result;
 	}
 
 	@Override
@@ -257,7 +354,7 @@ public class PgRowStore implements RowStore {
 	}
 
 	public Datasets getDatasets() {
-		synchronized (datasource) {
+		synchronized (this) {
 			if (datasets == null) {
 				this.datasets = new PgDatasets(this);
 			}

@@ -19,6 +19,7 @@ package org.entrystore.rowstore.config;
 import org.entrystore.rowstore.store.RowStore;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 
 import java.sql.Connection;
@@ -36,18 +37,23 @@ public class RowStoreHealthIndicator implements HealthIndicator {
 	@Override
 	public Health health() {
 		try (Connection conn = rowStore.getConnection()) {
-			if (conn.isValid(5)) {
-				return Health.up()
-						.withDetail("datasets", rowStore.getDatasets().amount())
-						.withDetail("activeEtlProcesses", rowStore.getEtlProcessor().getActiveEtlProcesses())
+			if (!conn.isValid(5)) {
+				return Health.down()
+						.withDetail("connections", rowStore.getConnectionUsage())
 						.build();
 			}
-		} catch (SQLException e) {
+		} catch (SQLException | DataAccessException e) {
 			return Health.down()
 					.withException(e)
+					.withDetail("connections", rowStore.getConnectionUsage())
 					.build();
 		}
-		return Health.down().build();
+		// read after the connection has been closed, a request must not hold more than one connection (ARCH-7.04)
+		return Health.up()
+				.withDetail("datasets", rowStore.getDatasets().amount())
+				.withDetail("activeEtlProcesses", rowStore.getEtlProcessor().getActiveEtlProcesses())
+				.withDetail("connections", rowStore.getConnectionUsage())
+				.build();
 	}
 
 }

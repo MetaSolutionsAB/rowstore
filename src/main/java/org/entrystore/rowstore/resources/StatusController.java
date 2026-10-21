@@ -58,7 +58,8 @@ public class StatusController {
 				"RowStore",
 				versionInfo.getVersion(),
 				rowStore.getDatasets().amount(),
-				rowStore.getEtlProcessor().getActiveEtlProcesses()
+				rowStore.getEtlProcessor().getActiveEtlProcesses(),
+				rowStore.getConnectionUsage()
 		);
 		return ResponseEntity.ok(body);
 	}

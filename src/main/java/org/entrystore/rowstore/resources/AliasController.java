@@ -20,6 +20,7 @@ import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -66,6 +67,9 @@ public class AliasController {
 			if (!dataset.setAliases(aliases)) {
 				return ResponseEntity.badRequest().build();
 			}
+		} catch (DataAccessResourceFailureException e) {
+			// e.g., no connection available within the wait timeout, results in 503 (API-6.05)
+			throw e;
 		} catch (Exception e) {
 			log.info(e.getMessage());
 			return ResponseEntity.badRequest().build();
@@ -86,6 +90,9 @@ public class AliasController {
 			if (!dataset.setAliases(aliases)) {
 				return ResponseEntity.badRequest().build();
 			}
+		} catch (DataAccessResourceFailureException e) {
+			// e.g., no connection available within the wait timeout, results in 503 (API-6.05)
+			throw e;
 		} catch (Exception e) {
 			log.info(e.getMessage());
 			return ResponseEntity.badRequest().build();
