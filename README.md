@@ -175,7 +175,7 @@ Aliases may only contain alpha-numeric characters (including Unicode) and may be
 
 ### Further dataset resources
 
-- `GET http://{base-url}/dataset/{id}/export` - Exports all rows as JSON (`Accept: application/json`) or CSV (`Accept: text/csv`).
+- `GET http://{base-url}/dataset/{id}/export` - Exports all rows as JSON (`Accept: application/json`) or CSV (`Accept: text/csv`). If the export cannot start, HTTP 500 is returned (503 if no export connection becomes available in time). A failure after streaming has started aborts the connection, so an incomplete export is recognizable as an incomplete transfer.
 - `GET http://{base-url}/dataset/{id}/swagger` - OpenAPI description of the dataset's query interface.
 - `GET http://{base-url}/dataset/{id}/html` - Web interface for browsing the dataset.
 
