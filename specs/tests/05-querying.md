@@ -2,7 +2,7 @@
 
 ## Overview
 
-Tests for query functionality including filters, pagination, JSONP callbacks, and regex modes.
+Tests for query functionality including filters, pagination, and regex modes. The former JSONP callback tests are retired.
 
 ## Prerequisites
 
