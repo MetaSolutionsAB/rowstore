@@ -155,8 +155,8 @@ Registry tables are managed by Flyway (`src/main/resources/db/migration`):
 - `aliases` - Alias lookup (id SERIAL, dataset_id UUID, alias TEXT)
 
 Per-dataset data tables (`data_<uuid without hyphens>`) are created at runtime by `PgDatasets.createDataTable()`:
-rows are stored as JSONB (`rownr BIGSERIAL PRIMARY KEY, data JSONB NOT NULL`). Tables created before 2.0 use
-`rownr SERIAL` and are not migrated.
+rows are stored as JSONB (`rownr BIGSERIAL PRIMARY KEY, data JSONB NOT NULL`). Tables created before 2.0 keep
+`rownr SERIAL` until their next replace (PUT), which recreates the table with `BIGSERIAL`.
 
 ### Query Processing
 
