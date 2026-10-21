@@ -127,6 +127,14 @@ public class ExportController {
 			return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
 		}
 
+		if (columnNames.isEmpty() && hasRows(id, stream)) {
+			// Column names are taken from the first row, so with rows they must not be empty. They could not
+			// be read, and the export would silently lose all cells.
+			log.error("Unable to read the column names of dataset {} for export", id);
+			stream.close();
+			return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+
 		StreamingResponseBody body = streamingBody(id, stream, request, (rs, outputStream) -> {
 			CSVWriter csvWriter = new CSVWriter(new BufferedWriter(new OutputStreamWriter(outputStream), 131072));
 			csvWriter.writeNext(columnNames.toArray(new String[0]), false);
@@ -155,6 +163,20 @@ public class ExportController {
 		} catch (SQLException e) {
 			log.error("Unable to read dataset {} for export", dataset.getId(), e);
 			return null;
+		}
+	}
+
+	/**
+	 * Moves the stream to its first row. Only to be used if no rows are exported, as that row is consumed.
+	 *
+	 * @return Returns true if the stream has at least one row or if this could not be determined.
+	 */
+	private boolean hasRows(String id, RowStream stream) {
+		try {
+			return stream.rs().next();
+		} catch (SQLException e) {
+			log.error("Unable to read dataset {} for export", id, e);
+			return true;
 		}
 	}
 

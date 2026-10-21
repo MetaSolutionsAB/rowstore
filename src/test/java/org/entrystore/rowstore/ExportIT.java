@@ -462,6 +462,36 @@ class ExportIT extends BaseIntegrationTest {
         }
     }
 
+    @Test
+    @Order(14)
+    @DisplayName("TC-EXPORT-016: CSV export without readable column names fails instead of losing all cells")
+    void exportCsv_unreadableColumnNames_returns500() throws Exception {
+        assumeTrue(RowStoreTestEnvironment.getInstance().isStarted(),
+                "Requires direct database access (embedded test environment)");
+        DatasetUrls urls = createDatasetAndWait(loadTestData(EDGE_FILE));
+        DatasetUrls headersOnlyUrls = createDatasetAndWait(loadTestData("headers_only.csv"));
+        try (Connection db = RowStoreTestEnvironment.getInstance().openDatabaseConnection()) {
+            String table = TestUtils.getDataTableName(db, urls.datasetId);
+            // Column names are read from the first row, so an empty first row leaves a dataset with rows but
+            // without column names, as if reading the column names had failed
+            try (Statement st = db.createStatement()) {
+                st.executeUpdate("UPDATE " + table + " SET data = '{}'::jsonb WHERE rownr = (SELECT min(rownr) FROM " + table + ")");
+            }
+            given().accept("text/csv").when().get(urls.datasetUrl + "/export").then().statusCode(500);
+            await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))
+                    .until(() -> TestUtils.countBackendsReferencing(db, table) == 0);
+
+            // The JSON export does not depend on the column names
+            assertThat(new JSONArray(exportJsonBody(urls.datasetUrl)).length()).isEqualTo(3);
+
+            // A dataset without rows has no column names either, and is still exported
+            given().accept("text/csv").when().get(headersOnlyUrls.datasetUrl + "/export").then().statusCode(200);
+        } finally {
+            deleteDataset(urls.datasetUrl);
+            deleteDataset(headersOnlyUrls.datasetUrl);
+        }
+    }
+
     /**
      * Inserts about 50 MB of rows, far more than the server's write buffer and the socket buffers can hold.
      * While the client pauses reading, an export is therefore blocked mid-stream with its database cursor
