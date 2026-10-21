@@ -204,7 +204,7 @@ Unknown keys are ignored (e.g. `exportpagesize`, which was never used and has be
 - `regexpqueries` (String) - Determines whether the query interface should allow regular expressions to match column values: `disabled` or `false` (no regexp support, default), `simple` (support for queries starting with `^`), and `full` or `true` (support for any regexp queries).
 - `maxetlprocesses` (Integer) - Maximum number of concurrently running loads (ETL processes) across all datasets. Values of 0 or less mean the default. Default: 5.
 - `legacyparser` (Boolean) - Use OpenCSV's legacy `CSVParser` (backslash as escape character) instead of the RFC 4180 parser. Default: `false`.
-- `maxuploadsize` (Integer) - Maximum size of a CSV upload in bytes. Larger uploads are rejected with HTTP 413. Default: 104857600 (100 MB).
+- `maxuploadsize` (Integer) - Maximum size of a CSV upload in bytes. Larger uploads are rejected with HTTP 413. Must be greater than 0; there is no setting for unlimited uploads. Default: 104857600 (100 MB).
 - `querytimeout` (Integer) - Query timeout in seconds for dataset queries and for the reads of requests that precede them (e.g. dataset and alias lookups, column names, row counts); a timeout results in HTTP 503. By default (or if the value is 0 or less) no query timeout is active, unless configured directly in the database.
 - `querymaxlimit` (Integer) - The maximum allowed value of the `_limit` URL parameter when querying a dataset. Must be greater than 0. Default: 100.
 - `loglevel` (String) - Log level of RowStore's log output (console): a Log4j level name such as `DEBUG`, `INFO`, `WARN` or `ERROR` (case-insensitive); unknown values mean `INFO`. Default: `INFO`.
