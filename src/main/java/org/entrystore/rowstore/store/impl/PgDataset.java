@@ -102,7 +102,7 @@ public class PgDataset implements Dataset {
 
 	/**
 	 * Delays between the attempts to lock the data table for a replace: four attempts with a timeout and a last one
-	 * without. The delays are short because the load's transaction is idle meanwhile (idle_in_transaction_session_timeout).
+	 * without. The delays are short because the load's transaction is idle meanwhile and holds its connection and ETL permit.
 	 */
 	private long[] swapRetryDelaysMillis = {1000, 2000, 5000, 5000};
 
@@ -443,10 +443,17 @@ public class PgDataset implements Dataset {
 
 				if (append) {
 					createIndexes(conn, targetTable, labels);
-				} else if (!replaceDataTable(conn, targetTable, createIndexes(conn, targetTable, labels))) {
-					log.info("Rolling back transaction");
-					conn.rollback();
-					return false;
+				} else {
+					List<String> shadowIndexes = createIndexes(conn, targetTable, labels);
+					// planner statistics for the new data, so that queries are planned well right after the swap
+					try (Statement analyzeStmt = conn.createStatement()) {
+						executeDdl(analyzeStmt, "ANALYZE " + targetTable);
+					}
+					if (!replaceDataTable(conn, targetTable, shadowIndexes)) {
+						log.info("Rolling back transaction");
+						conn.rollback();
+						return false;
+					}
 				}
 
 				// we commit the transaction and free the resources of the statement
@@ -567,6 +574,12 @@ public class PgDataset implements Dataset {
 	 * Replaces the data table with the shadow table, within the load's transaction: drops the data table (with its
 	 * indexes and sequence) and renames the shadow table, its indexes, primary key and sequence to the names they
 	 * would have if they had been created for the data table, so that the next replace does not collide with them.
+	 * <p>
+	 * Only the owner and the table privileges are carried over (copyOwnerAndPrivileges). Everything else that was
+	 * added to the data table outside of RowStore is lost with the dropped table, e.g., manually created indexes,
+	 * triggers, comments, storage parameters, column privileges and the membership in publications that list the
+	 * table explicitly, and dependent objects such as views make the DROP fail (ETL-6.02). Keep this in mind before
+	 * relying on anything attached to a data table.
 	 *
 	 * @param shadowIndexes The names of the indexes created for the shadow table.
 	 * @return Returns false if interrupted while waiting to lock the data table, see {@link #lockDataTableForReplace(Connection)}.
@@ -644,6 +657,12 @@ public class PgDataset implements Dataset {
 	 * @throws SQLException If locking failed for another reason than a lock timeout of an attempt with a timeout.
 	 */
 	boolean lockDataTableForReplace(Connection conn) throws SQLException {
+		// The transaction is idle during the delays between the attempts, so that an idle_in_transaction_session_timeout
+		// configured for the database user would end it. Set before the first savepoint, so that rolling back an
+		// attempt does not revert it; applies to this transaction only.
+		try (Statement stmt = conn.createStatement()) {
+			executeDdl(stmt, "SET LOCAL idle_in_transaction_session_timeout = 0");
+		}
 		for (int attempt = 0; ; attempt++) {
 			boolean lastAttempt = attempt >= swapRetryDelaysMillis.length;
 			Savepoint savepoint = conn.setSavepoint();

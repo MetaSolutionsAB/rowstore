@@ -315,6 +315,7 @@ state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 
    `<dataTable>_jsonidx_<md5("name")[0..8]>` and `<dataTable>_jsonidx_<md5("value")[0..8]>`; its primary key
    constraint is `<dataTable>_pkey`; its serial sequence is `public.<dataTable>_rownr_seq`
 3. The column `rownr` and its sequence are `bigint`
+4. `pg_stats` has statistics for the column `data` of `<dataTable>` (the shadow table is analyzed before the swap)
 
 ### TC-ETL-023: A replace waits for a reader of the data table, e.g., an export, and then succeeds
 
