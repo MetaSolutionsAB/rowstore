@@ -42,13 +42,18 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Replaces the remote address of requests from trusted reverse proxies ("trustedproxies" in rowstore.json)
- * with the client address from X-Forwarded-For, so that {@link HttpServletRequest#getRemoteAddr()} returns
- * the client address in all subsequent filters (e.g. {@link RateLimitFilter}).
+ * Replaces the remote address of requests from trusted reverse proxies with the client address from X-Forwarded-For,
+ * so that {@link HttpServletRequest#getRemoteAddr()} returns the client address in all subsequent filters (e.g.
+ * {@link RateLimitFilter}).
  * <p>
- * Same algorithm as Tomcat's RemoteIpValve: the header is walked from the right, skipping trusted proxies, and the
- * first untrusted address is the client. Entries left of it may have been supplied by the client and are ignored.
- * RemoteIpValve itself is not used because its proxy lists are regular expressions (Tomcat 10.1), not CIDR ranges.
+ * Without "trustedproxies" in rowstore.json, the connecting peer is trusted as the reverse proxy, since RowStore must
+ * not be reachable other than through it (SEC-9.01), and the last X-Forwarded-For entry, which the proxy has
+ * appended or set, is the client. Entries left of it may have been supplied by the client and are ignored.
+ * <p>
+ * With "trustedproxies", only the listed peers are trusted, with the algorithm of Tomcat's RemoteIpValve: the header
+ * is walked from the right, skipping trusted proxies, and the first untrusted address is the client. RemoteIpValve
+ * itself is not used because its proxy lists are regular expressions (Tomcat 10.1), not CIDR ranges.
+ * <p>
  * Other X-Forwarded-* headers are not evaluated.
  */
 @Component
@@ -57,6 +62,7 @@ public class TrustedProxyFilter implements Filter {
 
 	private static final Logger log = LoggerFactory.getLogger(TrustedProxyFilter.class);
 
+	// null if "trustedproxies" is not configured, then the connecting peer is trusted
 	private final List<NetMask> trustedProxies;
 
 	// Peers that sent X-Forwarded-For without being trusted, to warn at most once per hour and address
@@ -64,8 +70,12 @@ public class TrustedProxyFilter implements Filter {
 			CacheBuilder.newBuilder().maximumSize(1000).expireAfterWrite(1, TimeUnit.HOURS).build();
 
 	public TrustedProxyFilter(RowStoreConfig config) {
-		trustedProxies = config.getTrustedProxies().stream().map(NetMask::new).toList();
-		if (trustedProxies.isEmpty()) {
+		List<String> configured = config.getTrustedProxies();
+		trustedProxies = configured == null ? null : configured.stream().map(NetMask::new).toList();
+		if (trustedProxies == null) {
+			log.info("No trusted proxies configured, the client address is the last X-Forwarded-For entry of the " +
+					"connecting peer, which must be the reverse proxy");
+		} else if (trustedProxies.isEmpty()) {
 			log.info("No trusted proxies configured, X-Forwarded-For is ignored");
 		} else {
 			log.info("Trusting X-Forwarded-For from proxies in {}", config.getTrustedProxies());
@@ -99,6 +109,10 @@ public class TrustedProxyFilter implements Filter {
 	 * or has no X-Forwarded-For header
 	 */
 	private String resolveClientAddress(HttpServletRequest request) {
+		if (trustedProxies == null) {
+			List<String> hops = forwardedHops(request);
+			return hops.isEmpty() ? null : hops.getLast();
+		}
 		String peer = request.getRemoteAddr();
 		// The socket peer of a link-local IPv6 connection carries the zone ID of the local interface (e.g.
 		// "fe80::1%2"), which is not client-controlled and irrelevant for matching
@@ -112,14 +126,7 @@ public class TrustedProxyFilter implements Filter {
 			}
 			return null;
 		}
-		List<String> hops = new ArrayList<>();
-		for (String header : Collections.list(request.getHeaders("X-Forwarded-For"))) {
-			for (String hop : header.split(",")) {
-				if (!hop.isBlank()) {
-					hops.add(hop.trim());
-				}
-			}
-		}
+		List<String> hops = forwardedHops(request);
 		String client = null;
 		for (int i = hops.size() - 1; i >= 0; i--) {
 			client = hops.get(i);
@@ -128,6 +135,21 @@ public class TrustedProxyFilter implements Filter {
 			}
 		}
 		return client;
+	}
+
+	/**
+	 * @return the entries of all X-Forwarded-For header lines in order, without blank entries
+	 */
+	private static List<String> forwardedHops(HttpServletRequest request) {
+		List<String> hops = new ArrayList<>();
+		for (String header : Collections.list(request.getHeaders("X-Forwarded-For"))) {
+			for (String hop : header.split(",")) {
+				if (!hop.isBlank()) {
+					hops.add(hop.trim());
+				}
+			}
+		}
+		return hops;
 	}
 
 	private boolean isTrusted(String address) {

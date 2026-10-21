@@ -240,11 +240,10 @@ class RowStoreConfigTest {
     }
 
     @Test
-    @DisplayName("TC-CFG-008: trustedproxies defaults to private ranges, accepts IPs and CIDR ranges, empty array trusts nobody")
+    @DisplayName("TC-CFG-008: trustedproxies is not set by default, accepts IPs and CIDR ranges, empty array trusts nobody")
     void trustedProxies_defaultExplicitAndEmpty() {
-        assertThat(new RowStoreConfig(new JSONObject(MINIMAL_CONFIG)).getTrustedProxies())
-                .containsExactlyInAnyOrder("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
-                        "169.254.0.0/16", "100.64.0.0/10", "::1", "fc00::/7", "fe80::/10");
+        // not set: the connecting peer is trusted as the reverse proxy (SEC-5.06)
+        assertThat(new RowStoreConfig(new JSONObject(MINIMAL_CONFIG)).getTrustedProxies()).isNull();
 
         JSONObject json = new JSONObject(MINIMAL_CONFIG);
         json.put("trustedproxies", new JSONArray(List.of("192.0.2.10", "10.10.0.0/16", "2001:db8::/32", "::1")));

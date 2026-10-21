@@ -48,19 +48,31 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TrustedProxyFilterTest {
 
     /**
-     * @param trustedProxies "default" omits the key, "none" configures an empty array, otherwise space-separated entries
+     * @param trustedProxies "default" omits the key, "none" configures an empty array, "private" the loopback, private
+     *                       and link-local ranges, otherwise space-separated entries
      * @param xForwardedFor X-Forwarded-For header values separated by "|", each sent as a separate header line
      */
     @ParameterizedTest(name = "[{index}] trusted=''{0}'', peer={1}, XFF=''{2}'' -> {3}")
     @CsvSource(delimiter = ';', nullValues = "null", value = {
-            // Default trust list (loopback, private ranges, IPv6 loopback/ULA/link-local)
+            // Default (no trustedproxies): the connecting peer is the proxy, its last entry is the client
             "default;            127.0.0.1;   203.0.113.7;                      203.0.113.7",
-            "default;            10.1.2.3;    203.0.113.7;                      203.0.113.7",
-            "default;            172.31.0.1;  203.0.113.7;                      203.0.113.7",
-            "default;            ::1;         203.0.113.7;                      203.0.113.7",
-            "default;            fd00::5;     2001:db8::1;                      2001:db8::1",
-            "default;            172.32.0.1;  203.0.113.7;                      172.32.0.1",
-            "default;            198.51.100.1;203.0.113.7;                      198.51.100.1",
+            "default;            198.51.100.1;203.0.113.7;                      203.0.113.7",
+            "default;            10.1.2.3;    6.6.6.6, 203.0.113.7;             203.0.113.7",
+            // A client from a private network is not skipped, so it cannot select its own key
+            "default;            10.1.2.3;    6.6.6.6, 10.9.8.7;                10.9.8.7",
+            "default;            127.0.0.1;   6.6.6.6|203.0.113.7;              203.0.113.7",
+            // The last entry is used as written by the proxy, never resolved
+            "default;            127.0.0.1;   6.6.6.6, localhost;               localhost",
+            "default;            127.0.0.1;   null;                             127.0.0.1",
+            "default;            127.0.0.1;   ' , ';                            127.0.0.1",
+            // Explicit list of loopback, private and link-local ranges (Tomcat's internalProxies)
+            "private;            127.0.0.1;   203.0.113.7;                      203.0.113.7",
+            "private;            10.1.2.3;    203.0.113.7;                      203.0.113.7",
+            "private;            172.31.0.1;  203.0.113.7;                      203.0.113.7",
+            "private;            ::1;         203.0.113.7;                      203.0.113.7",
+            "private;            fd00::5;     2001:db8::1;                      2001:db8::1",
+            "private;            172.32.0.1;  203.0.113.7;                      172.32.0.1",
+            "private;            198.51.100.1;203.0.113.7;                      198.51.100.1",
             // Explicit empty array: X-Forwarded-For is always ignored
             "none;               127.0.0.1;   203.0.113.7;                      127.0.0.1",
             // Untrusted peer: header ignored, even if it claims a trusted address
@@ -75,15 +87,15 @@ class TrustedProxyFilterTest {
             "192.0.2.0/24;       192.0.2.10;  192.0.2.30, 192.0.2.20;           192.0.2.30",
             // Non-IP entries are never resolved and count as untrusted
             "192.0.2.10;         192.0.2.10;  unknown;                          unknown",
-            "default;            127.0.0.1;   6.6.6.6, localhost;               localhost",
+            "private;            127.0.0.1;   6.6.6.6, localhost;               localhost",
             // IPv6 zone IDs are not parsed (no interface lookup, no exception) and count as untrusted
-            "default;            127.0.0.1;   ::1%zz;                           ::1%zz",
-            "default;            127.0.0.1;   203.0.113.9, ::1%zz;              ::1%zz",
-            "default;            127.0.0.1;   203.0.113.9, fe80::1%lo;          fe80::1%lo",
+            "private;            127.0.0.1;   ::1%zz;                           ::1%zz",
+            "private;            127.0.0.1;   203.0.113.9, ::1%zz;              ::1%zz",
+            "private;            127.0.0.1;   203.0.113.9, fe80::1%lo;          fe80::1%lo",
             // The zone ID of a link-local socket peer is ignored, so a proxy in fe80::/10 is trusted
-            "default;            fe80::1%2;   203.0.113.7;                      203.0.113.7",
+            "private;            fe80::1%2;   203.0.113.7;                      203.0.113.7",
             // Entries with a port are not IP literals and count as untrusted
-            "default;            127.0.0.1;   203.0.113.9, 10.0.0.1:4711;       10.0.0.1:4711",
+            "private;            127.0.0.1;   203.0.113.9, 10.0.0.1:4711;       10.0.0.1:4711",
             // Trusted peer without header
             "192.0.2.10;         192.0.2.10;  null;                             192.0.2.10",
             "192.0.2.10;         192.0.2.10;  ' , ';                            192.0.2.10"
@@ -137,8 +149,9 @@ class TrustedProxyFilterTest {
             send(filter, "198.51.100.2", "203.0.113.7");
             assertThat(warnings).hasSize(2);
 
-            // No warnings when nobody is trusted on purpose
+            // No warnings when nobody is trusted on purpose, or when the connecting peer is trusted by default
             send(new TrustedProxyFilter(config("none")), "198.51.100.3", "203.0.113.7");
+            send(new TrustedProxyFilter(config("default")), "198.51.100.4", "203.0.113.7");
             assertThat(warnings).hasSize(2);
         } finally {
             logger.removeAppender(appender);
@@ -164,6 +177,9 @@ class TrustedProxyFilterTest {
                 """);
         if ("none".equals(trustedProxies)) {
             json.put("trustedproxies", new JSONArray());
+        } else if ("private".equals(trustedProxies)) {
+            json.put("trustedproxies", new JSONArray(List.of("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12",
+                    "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10", "::1", "fc00::/7", "fe80::/10")));
         } else if (!"default".equals(trustedProxies)) {
             json.put("trustedproxies", new JSONArray(Arrays.asList(trustedProxies.split(" +"))));
         }

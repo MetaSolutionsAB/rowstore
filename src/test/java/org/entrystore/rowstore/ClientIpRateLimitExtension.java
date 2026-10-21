@@ -27,7 +27,7 @@ import org.testcontainers.DockerClientFactory;
 import java.util.List;
 
 /**
- * JUnit 5 extension that starts two RowStore test environments with a per-client-IP rate limit
+ * JUnit 5 extension that starts three RowStore test environments with a per-client-IP rate limit
  * of {@value #CLIENT_IP_LIMIT} requests per {@value #TIME_RANGE_SECONDS} seconds. Global and per-dataset
  * limits are set high so that only the per-client-IP limit trips.
  *
@@ -35,6 +35,8 @@ import java.util.List;
  *   so X-Forwarded-For must be ignored.
  * - {@link #getTrustedBaseUrl()}: {@code trustedproxies} contains the loopback addresses, so the test client acts
  *   as a trusted reverse proxy and X-Forwarded-For determines the client address.
+ * - {@link #getDefaultBaseUrl()}: no {@code trustedproxies}, the connecting test client is trusted as the reverse
+ *   proxy and the last X-Forwarded-For entry determines the client address.
  */
 public class ClientIpRateLimitExtension implements BeforeAllCallback, ExecutionCondition {
 
@@ -46,6 +48,7 @@ public class ClientIpRateLimitExtension implements BeforeAllCallback, ExecutionC
 
     private static ConfigurableTestEnvironment untrustedEnvironment;
     private static ConfigurableTestEnvironment trustedEnvironment;
+    private static ConfigurableTestEnvironment defaultEnvironment;
     private static final Object LOCK = new Object();
 
     @Override
@@ -68,10 +71,12 @@ public class ClientIpRateLimitExtension implements BeforeAllCallback, ExecutionC
             if (untrustedEnvironment == null) {
                 untrustedEnvironment = start(List.of());
                 trustedEnvironment = start(List.of("127.0.0.1", "::1"));
+                defaultEnvironment = start(null);
 
                 Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                     untrustedEnvironment.stop();
                     trustedEnvironment.stop();
+                    defaultEnvironment.stop();
                 }));
             }
         }
@@ -102,6 +107,13 @@ public class ClientIpRateLimitExtension implements BeforeAllCallback, ExecutionC
             throw new IllegalStateException("ClientIpRateLimitExtension has not been initialized");
         }
         return trustedEnvironment.getBaseUrl();
+    }
+
+    public static String getDefaultBaseUrl() {
+        if (defaultEnvironment == null) {
+            throw new IllegalStateException("ClientIpRateLimitExtension has not been initialized");
+        }
+        return defaultEnvironment.getBaseUrl();
     }
 
     private boolean isDockerAvailable() {
