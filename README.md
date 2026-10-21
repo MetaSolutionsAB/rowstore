@@ -9,9 +9,9 @@ RowStore 2.0 is a Spring Boot application that is distributed as a single execut
 
 ## Quickstart
 
-Requirements: Java 25, Maven 3.9+ and Docker with the Compose plugin. All commands are run from the root of this repository.
+Requirements: Java 25, Maven 3.6.3+ and Docker with the Compose plugin. All commands are run from the root of this repository.
 
-1. Start PostgreSQL 16 (defined in `docker-compose.yml`, data in the named volume `rowstore-pgdata`, listening on `localhost:15432`):
+1. Start PostgreSQL 16 (defined in `docker-compose.yml`, data in the named volume `rowstore-pgdata`, which Docker Compose prefixes with the project name, e.g. `rowstore_rowstore-pgdata`; listening on `localhost:15432`):
 
    ```
    docker compose up -d
@@ -131,7 +131,7 @@ Results are paginated. Pagination is controlled through the URL parameters `_lim
 
 The query engine tries to optimize queries by detecting whether a query value contains any characters that are typical for regular expressions. Queries for partial strings may be affected by undesired optimization, in such cases a regexp query can be enforced by prefixing the query value with `~`. E.g. a query for `name=meta` would not trigger a regexp query, whereas a query for `name=^meta` would. To accept `meta` as regexp it must be prefixed with `~`: `name=~meta`.
 
-Queries are subject to an eventually configured query timeout, see configuration section. If a query exceeds the configured timeout the running request to the database is interrupted and HTTP status 503 is returned. HTTP 503 is also returned if the database is not reachable.
+Queries are subject to an eventually configured query timeout, see configuration section. If a query exceeds the configured timeout the running request to the database is interrupted and HTTP status 503 is returned. Requests for a dataset (`/dataset/{id}` and its sub-resources) also get HTTP 503 if the database cannot be reached.
 
 ### /dataset/{id}/info
 
@@ -199,14 +199,14 @@ Unknown keys are ignored (e.g. `exportpagesize`, which was never used and has be
 
 - `baseurl` (String, required) - The base URL under which the root of RowStore can be reached. Used for generating correct URIs in API responses.
 - `regexpqueries` (String) - Determines whether the query interface should allow regular expressions to match column values: `disabled` or `false` (no regexp support, default), `simple` (support for queries starting with `^`), and `full` or `true` (support for any regexp queries).
-- `maxetlprocesses` (Integer) - Maximum number of concurrently running loads (ETL processes) across all datasets. Default: 5.
+- `maxetlprocesses` (Integer) - Maximum number of concurrently running loads (ETL processes) across all datasets. Values of 0 or less mean the default. Default: 5.
 - `legacyparser` (Boolean) - Use OpenCSV's legacy `CSVParser` (backslash as escape character) instead of the RFC 4180 parser. Default: `false`.
 - `maxuploadsize` (Integer) - Maximum size of a CSV upload in bytes. Larger uploads are rejected with HTTP 413. Default: 104857600 (100 MB).
 - `querytimeout` (Integer) - Query timeout for dataset queries in seconds. By default (or if the value is 0 or less) no query timeout is active, unless configured directly in the database.
 - `querymaxlimit` (Integer) - The maximum allowed value of the `_limit` URL parameter when querying a dataset. Must be greater than 0. Default: 100.
-- `loglevel` (String) - Log level of RowStore's log output (console): `DEBUG`, `INFO`, `WARN` or `ERROR` (case-insensitive). Default: `INFO`.
+- `loglevel` (String) - Log level of RowStore's log output (console): a Log4j level name such as `DEBUG`, `INFO`, `WARN` or `ERROR` (case-insensitive); unknown values mean `INFO`. Default: `INFO`.
 - `cors` - Configures CORS.
-  - `allowedorigins` (Array of Strings) - Origins that may call RowStore from browsers, e.g. `["https://app.example.com"]`. Default: `["*"]` (all origins), see [Security](#security).
+  - `allowedorigins` (Array of Strings) - Origins that may call RowStore from browsers, e.g. `["https://app.example.com"]`. Default (also if the array is empty): `["*"]` (all origins), see [Security](#security).
 - `database` (required) - Configures the database connection. By default, no connection pool is used (connections are opened and closed per operation with `PGSimpleDataSource`). Set `connectionPoolMax` to a positive integer to enable HikariCP connection pooling.
   - `type` - DB type, currently only `postgresql` is supported. Default: `postgresql`.
   - `host` (required) - Hostname.
@@ -216,12 +216,12 @@ Unknown keys are ignored (e.g. `exportpagesize`, which was never used and has be
   - `password` (required) - Password, may be empty.
   - `ssl` - `true` or `false`. `true` requires SSL (`sslmode=require`), `false` disables it (`sslmode=disable`), so a server that requires SSL refuses the connection. Default: `false`.
   - `connectionPoolMax` - Maximum size of the connection pool. Set to a positive integer to enable HikariCP pooling. When not set or <= 0, no pool is used. Default: -1 (no pool).
-  - `connectionPoolInit` - Minimum idle connections in the pool. Only effective when `connectionPoolMax` > 0. Default: 0.
+  - `connectionPoolInit` - Minimum idle connections in the pool. Only effective when `connectionPoolMax` > 0. Default: -1 (no minimum idle connections).
   - `socketTimeout` - Socket timeout of the database driver in seconds, 0 means unlimited. Default: 0.
   - `connectTimeout` - Connection timeout in seconds, 0 means unlimited. With a connection pool, it also limits the wait for a free pooled connection. Default: 5.
   - `loginTimeout` - Login timeout in seconds, 0 means unlimited. Default: 5.
 - `queryDatabase` - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica. Same configuration properties as `database`, including the required ones. Its connections are read-only. Default: the `database` connection.
-- `ratelimit` - Configures rate limitation. It is active if `timerange` is greater than 0 and `global` or `dataset` is greater than 0; `/status` is not rate limited. Rejected requests get HTTP 429.
+- `ratelimit` - Configures rate limitation. It is active if `timerange` is greater than 0 and `global` or `dataset` is greater than 0. Only `GET` and `HEAD` requests are rate limited, except for `/status`. Rejected requests get HTTP 429.
   - `type` - `average` or `slidingwindow` (default).
   - `timerange` - The size (in seconds) of the time slot or window to be used for calculating the limitation.
   - `dataset` - Amount of permitted requests per dataset.
@@ -274,7 +274,7 @@ Unknown keys are ignored (e.g. `exportpagesize`, which was never used and has be
 
 ## Data loading
 
-A CSV upload is loaded asynchronously in a single database transaction; the dataset's status (see `/dataset/{id}/info`) shows the progress. An append (`POST`) inserts the rows into the dataset's table. A replace (`PUT`) loads the rows into a new table and swaps it for the dataset's table at the end of the same transaction, so queries and exports serve the previous data until the replace is complete, and a failed replace keeps the previous data. During a replace, the database needs disk space for both the old and the new data. The swap has to wait for running readers of the table, e.g. a long export or a backup with `pg_dump`; meanwhile new queries of the dataset wait as well.
+A CSV upload is loaded asynchronously in a single database transaction; the dataset's status (see `/dataset/{id}/info`) shows the progress. An append (`POST`) inserts the rows into the dataset's table. A replace (`PUT`) loads the rows into a new table and swaps it for the dataset's table at the end of the same transaction (the new table gets the owner and the table privileges of the old one), so queries and exports serve the previous data until the replace is complete, and a failed replace keeps the previous data. During a replace, the database needs disk space for both the old and the new data. The swap has to wait for running readers of the table, e.g. a long export or a backup with `pg_dump`; meanwhile new queries of the dataset wait as well.
 
 ## Connection Pooling with PgBouncer
 
@@ -296,7 +296,10 @@ rowstore = host=postgres-main port=5432 dbname=rowstore
 pool_mode = transaction
 default_pool_size = 20
 max_client_conn = 1000
+max_prepared_statements = 200
 ```
+
+The PostgreSQL JDBC driver switches to server-side prepared statements after a statement has been executed five times on a connection (`prepareThreshold=5`), and RowStore does not change that setting. In `transaction` mode, this requires PgBouncer 1.21 or later with `max_prepared_statements` greater than 0, otherwise requests fail with errors about missing or already existing prepared statements.
 
 ### RowStore configuration with PgBouncer
 
