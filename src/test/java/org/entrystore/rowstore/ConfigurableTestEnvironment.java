@@ -27,6 +27,9 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -180,6 +183,17 @@ public class ConfigurableTestEnvironment {
         return config;
     }
 
+    /**
+     * Opens a direct JDBC connection to the test database, e.g., for failure injection.
+     */
+    public Connection openDatabaseConnection() throws SQLException {
+        if (!started) {
+            throw new IllegalStateException("Test environment has not been started");
+        }
+        return DriverManager.getConnection(sharedPostgresContainer.getJdbcUrl(),
+                sharedPostgresContainer.getUsername(), sharedPostgresContainer.getPassword());
+    }
+
     private static void startSharedPostgres() {
         synchronized (POSTGRES_LOCK) {
             if (sharedPostgresContainer == null || !sharedPostgresContainer.isRunning()) {
@@ -245,6 +259,15 @@ public class ConfigurableTestEnvironment {
             if (config.connectionPoolMax > 0) {
                 database.put("connectionPoolMax", config.connectionPoolMax);
             }
+            if (config.maxQueryConnections > 0) {
+                database.put("maxQueryConnections", config.maxQueryConnections);
+            }
+            if (config.maxExportConnections > 0) {
+                database.put("maxExportConnections", config.maxExportConnections);
+            }
+            if (config.connectionWaitTimeout > 0) {
+                database.put("connectionWaitTimeout", config.connectionWaitTimeout);
+            }
             jsonConfig.put("database", database);
 
             tempConfigFile = Files.createTempFile("rowstore-config-test-", ".json");
@@ -293,6 +316,9 @@ public class ConfigurableTestEnvironment {
         private final int rateLimitRequestsClientIp;
         private final String rateLimitType;
         private final int connectionPoolMax;
+        private final int maxQueryConnections;
+        private final int maxExportConnections;
+        private final int connectionWaitTimeout;
         private final boolean legacyParser;
 
         private Configuration(Builder builder) {
@@ -307,6 +333,9 @@ public class ConfigurableTestEnvironment {
             this.rateLimitRequestsClientIp = builder.rateLimitRequestsClientIp;
             this.rateLimitType = builder.rateLimitType;
             this.connectionPoolMax = builder.connectionPoolMax;
+            this.maxQueryConnections = builder.maxQueryConnections;
+            this.maxExportConnections = builder.maxExportConnections;
+            this.connectionWaitTimeout = builder.connectionWaitTimeout;
             this.legacyParser = builder.legacyParser;
         }
 
@@ -326,10 +355,12 @@ public class ConfigurableTestEnvironment {
          * Returns a unique key for caching environments with this configuration.
          */
         public String getCacheKey() {
-            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,legacyParser=%b",
+            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,legacyParser=%b," +
+                            "maxEtl=%d,maxQueryConnections=%d,maxExportConnections=%d,connectionWaitTimeout=%d",
                     regexpQueries, rateLimitEnabled, rateLimitTimeRange,
                     rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitRequestsClientIp, rateLimitType,
-                    connectionPoolMax, legacyParser);
+                    connectionPoolMax, legacyParser, maxEtlProcesses, maxQueryConnections, maxExportConnections,
+                    connectionWaitTimeout);
         }
 
         @Override
@@ -353,6 +384,9 @@ public class ConfigurableTestEnvironment {
         private int rateLimitRequestsClientIp = -1;
         private String rateLimitType = "slidingwindow";
         private int connectionPoolMax = -1;
+        private int maxQueryConnections = -1;
+        private int maxExportConnections = -1;
+        private int connectionWaitTimeout = -1;
         private boolean legacyParser = false;
 
         public Builder regexpQueries(String regexpQueries) {
@@ -407,6 +441,21 @@ public class ConfigurableTestEnvironment {
 
         public Builder connectionPoolMax(int connectionPoolMax) {
             this.connectionPoolMax = connectionPoolMax;
+            return this;
+        }
+
+        public Builder maxQueryConnections(int maxQueryConnections) {
+            this.maxQueryConnections = maxQueryConnections;
+            return this;
+        }
+
+        public Builder maxExportConnections(int maxExportConnections) {
+            this.maxExportConnections = maxExportConnections;
+            return this;
+        }
+
+        public Builder connectionWaitTimeout(int connectionWaitTimeout) {
+            this.connectionWaitTimeout = connectionWaitTimeout;
             return this;
         }
 
