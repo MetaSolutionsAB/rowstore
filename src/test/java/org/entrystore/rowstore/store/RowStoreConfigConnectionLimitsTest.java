@@ -77,6 +77,31 @@ class RowStoreConfigConnectionLimitsTest {
                 .hasMessage("rowstore.json: '" + block + "." + key + "' must be a number greater than 0");
     }
 
+    @ParameterizedTest
+    @CsvSource({
+            "database, -1",
+            "queryDatabase, abc"
+    })
+    @DisplayName("TC-CONN-028: queryLockTimeout must be a number greater than or equal to 0")
+    void negativeQueryLockTimeout_isRejected(String block, String value) {
+        JSONObject json = config(database()).put("queryDatabase", database());
+        json.getJSONObject(block).put("queryLockTimeout", value);
+
+        assertThatThrownBy(() -> new RowStoreConfig(json))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("rowstore.json: '" + block + ".queryLockTimeout' must be a number greater than or equal to 0");
+    }
+
+    @Test
+    @DisplayName("TC-CONN-028: queryLockTimeout defaults to half the wait timeout, 0 disables it")
+    void queryLockTimeout_defaultsAndDisabled() {
+        RowStoreConfig config = new RowStoreConfig(config(database().put("connectionWaitTimeout", 9))
+                .put("queryDatabase", database().put("queryLockTimeout", 0)));
+
+        assertThat(config.getDatabase().getQueryLockTimeoutMillis()).isEqualTo(4500);
+        assertThat(config.getQueryDatabase().getQueryLockTimeoutMillis()).isZero();
+    }
+
     private static JSONObject config(JSONObject database) {
         return new JSONObject().put("baseurl", "http://localhost/").put("database", database);
     }

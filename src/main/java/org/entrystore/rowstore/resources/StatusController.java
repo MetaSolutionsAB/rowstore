@@ -77,7 +77,8 @@ public class StatusController {
 		try {
 			return rowStore.getDatasets().amount();
 		} catch (DataAccessException e) {
-			log.warn("Unable to count datasets for the status: {}", e.getMessage());
+			// waits for connections are logged aggregated by the connection budget
+			log.debug("Unable to count datasets for the status: {}", e.getMessage());
 			return -1;
 		}
 	}

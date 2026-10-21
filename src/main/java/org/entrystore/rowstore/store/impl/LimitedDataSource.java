@@ -67,6 +67,11 @@ public class LimitedDataSource extends DelegatingDataSource {
 	private final String sessionSql;
 
 	/**
+	 * Whether waits are recorded for the aggregated warnings; false for the data sources of {@link #withWaitTimeout(long)}.
+	 */
+	private final boolean recordWaits;
+
+	/**
 	 * @param target The data source to limit.
 	 * @param name The name of the budget, for logging (e.g., "database query").
 	 * @param maxConnections The maximum number of open connections, must be greater than 0.
@@ -81,6 +86,7 @@ public class LimitedDataSource extends DelegatingDataSource {
 		this.slots = new Slots(name, maxConnections);
 		this.waitTimeoutMillis = waitTimeoutMillis;
 		this.sessionSql = sessionSql;
+		this.recordWaits = true;
 	}
 
 	public LimitedDataSource(DataSource target, String name, int maxConnections, long waitTimeoutMillis) {
@@ -92,11 +98,13 @@ public class LimitedDataSource extends DelegatingDataSource {
 		this.slots = budget.slots;
 		this.waitTimeoutMillis = waitTimeoutMillis;
 		this.sessionSql = budget.sessionSql;
+		this.recordWaits = false;
 	}
 
 	/**
 	 * @return Returns a data source that uses the same slots (and session statement) as this one, but waits at most
-	 * the given time for a free slot, e.g., for health checks that must not wait as long as requests.
+	 * the given time for a free slot, e.g., for health checks that must not wait as long as requests. Its waits are not
+	 * included in the aggregated warnings, which report the waits of this data source.
 	 */
 	public LimitedDataSource withWaitTimeout(long waitTimeoutMillis) {
 		if (waitTimeoutMillis <= 0) {
@@ -167,11 +175,13 @@ public class LimitedDataSource extends DelegatingDataSource {
 		}
 		long waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
 		if (!acquired) {
-			recordSlowWait(waitedMillis, true);
+			if (recordWaits) {
+				recordSlowWait(waitedMillis, true);
+			}
 			throw new ConnectionWaitTimeoutException("No " + slots.name + " connection available within " +
 					waitTimeoutMillis + " ms, all " + slots.max + " in use");
 		}
-		if (waitedMillis >= SLOW_WAIT_MILLIS) {
+		if (recordWaits && waitedMillis >= SLOW_WAIT_MILLIS) {
 			recordSlowWait(waitedMillis, false);
 		}
 	}

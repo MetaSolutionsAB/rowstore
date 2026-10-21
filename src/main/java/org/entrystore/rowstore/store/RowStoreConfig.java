@@ -97,9 +97,11 @@ public class RowStoreConfig {
 			// Database
 			database = new Database(config.getJSONObject("database"));
 			requirePositive(config.getJSONObject("database"), "database", CONNECTION_LIMIT_KEYS);
+			requireNonNegative(config.getJSONObject("database"), "database", "queryLockTimeout");
 			if (config.has("queryDatabase")) {
 				queryDatabase = new Database(config.getJSONObject("queryDatabase"));
 				requirePositive(config.getJSONObject("queryDatabase"), "queryDatabase", CONNECTION_LIMIT_KEYS);
+				requireNonNegative(config.getJSONObject("queryDatabase"), "queryDatabase", "queryLockTimeout");
 			} else {
 				queryDatabase = database;
 			}
@@ -161,6 +163,15 @@ public class RowStoreConfig {
 			if (block.has(key) && block.optInt(key, 0) <= 0) {
 				throw new IllegalStateException("rowstore.json: '" + blockName + "." + key + "' must be a number greater than 0");
 			}
+		}
+	}
+
+	/**
+	 * @throws IllegalStateException If the key is present in the block and not a number greater than or equal to 0.
+	 */
+	private static void requireNonNegative(JSONObject block, String blockName, String key) {
+		if (block.has(key) && block.optInt(key, -1) < 0) {
+			throw new IllegalStateException("rowstore.json: '" + blockName + "." + key + "' must be a number greater than or equal to 0");
 		}
 	}
 
@@ -272,6 +283,8 @@ public class RowStoreConfig {
 
 		private int connectionWaitTimeout = -1;
 
+		private int queryLockTimeout = -1;
+
 		Database() {
 		}
 
@@ -291,6 +304,7 @@ public class RowStoreConfig {
 			setMaxQueryConnections(dbConfig.optInt("maxQueryConnections", DEFAULT_MAX_QUERY_CONNECTIONS));
 			setMaxExportConnections(dbConfig.optInt("maxExportConnections", DEFAULT_MAX_EXPORT_CONNECTIONS));
 			setConnectionWaitTimeout(dbConfig.optInt("connectionWaitTimeout", -1));	// seconds, see getConnectionWaitTimeout()
+			setQueryLockTimeout(dbConfig.optInt("queryLockTimeout", -1));	// seconds, see getQueryLockTimeoutMillis()
 		}
 
 		public Database setMaxQueryConnections(int maxQueryConnections) {
@@ -300,6 +314,11 @@ public class RowStoreConfig {
 
 		public Database setMaxExportConnections(int maxExportConnections) {
 			this.maxExportConnections = maxExportConnections;
+			return this;
+		}
+
+		public Database setQueryLockTimeout(int queryLockTimeout) {
+			this.queryLockTimeout = queryLockTimeout;
 			return this;
 		}
 
@@ -439,6 +458,17 @@ public class RowStoreConfig {
 				return connectionWaitTimeout;
 			}
 			return queryTimeout > 0 ? queryTimeout : DEFAULT_CONNECTION_WAIT_TIMEOUT;
+		}
+
+		/**
+		 * @return Returns the lock timeout in milliseconds of connections for short operations (CFG-4.08): the
+		 * configured value, 0 if disabled (no lock timeout is set), or half of the connection wait timeout.
+		 */
+		public long getQueryLockTimeoutMillis() {
+			if (queryLockTimeout >= 0) {
+				return queryLockTimeout * 1000L;
+			}
+			return Math.max(1, getConnectionWaitTimeout() * 1000L / 2);
 		}
 
 	}

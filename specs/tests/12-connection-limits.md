@@ -9,8 +9,9 @@ requests and ETL jobs holding at most one connection at a time. See
 (CFG-4.05 to CFG-4.07).
 
 TC-CONN-001 to TC-CONN-007 and TC-CONN-024 to TC-CONN-026 are unit tests of the budget (`LimitedDataSourceTest`)
-with a fake data source, TC-CONN-008 and TC-CONN-009 unit tests of the configuration
-(`RowStoreConfigConnectionLimitsTest`). TC-CONN-010 to TC-CONN-013 and TC-CONN-021 are integration tests with small
+with a fake data source, TC-CONN-008, TC-CONN-009 and TC-CONN-028 unit tests of the configuration
+(`RowStoreConfigConnectionLimitsTest`), TC-CONN-027 a unit test of the session statements (`PgRowStoreSessionSqlTest`).
+TC-CONN-010 to TC-CONN-013, TC-CONN-021 and TC-CONN-029 are integration tests with small
 limits (`ConnectionLimitIT`: 2 query connections, 1 export connection, `maxetlprocesses` 2, wait timeout 2 s, hence
 lock timeout 1 s), TC-CONN-014 to TC-CONN-020 and TC-CONN-022 integration tests with one connection per budget
 (`ConnectionLimitSingleSlotIT`: 1 query connection, 1 export connection, `maxetlprocesses` 1, wait timeout 5 s, hence
@@ -160,7 +161,7 @@ table is restored.
 4. Release the locks
 
 **Assertions:**
-1. The query of dataset B returns 200 with 1 result within less than the wait timeout
+1. The query of dataset B returns 200 with 1 result within the lock timeout (1 s) plus 1 s
 2. The queries of dataset A return 503 (lock timeout)
 3. After the locks are released, queries of dataset A return 200
 
@@ -268,3 +269,33 @@ table is restored.
 **Assertions:**
 1. A limited connection is equal to itself and not to another one, with a stable hash code; a statement is equal to
    itself and to the statement returned by its result set
+
+## Lock timeout configuration (unit tests)
+
+### TC-CONN-027: Session statements of the budgets
+
+**Assertions:**
+1. By default (wait timeout 30 s), query connections execute `SET lock_timeout = 15000`; export and load connections
+   execute nothing without a pool and `RESET lock_timeout` with a HikariCP pool
+2. With `queryLockTimeout` 5, query connections execute `SET lock_timeout = 5000`
+3. With `queryLockTimeout` 0, no connection of any budget executes a session statement, with or without a pool
+
+### TC-CONN-028: queryLockTimeout must be a number greater than or equal to 0
+
+**Assertions:**
+1. Negative and non-numeric values in `database` or `queryDatabase` are rejected with
+   `rowstore.json: '<block>.queryLockTimeout' must be a number greater than or equal to 0`
+2. Without a value, the lock timeout is half the wait timeout (wait timeout 9 s: 4500 ms); `0` disables it
+
+## Lock timeout of data changes (integration test)
+
+### TC-CONN-029: Creating a dataset gets 503 if the datasets table stays locked for longer than the lock timeout
+
+**Steps:**
+1. Lock the `datasets` table in share mode with a direct database connection
+2. `POST /datasets` with `dataset1_utf8.csv`
+3. Release the lock
+
+**Assertions:**
+1. Step 2 returns 503 after at least the lock timeout (1 s)
+2. No dataset was created

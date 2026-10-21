@@ -112,6 +112,10 @@ public class PgDatasets implements Datasets {
 			log.info("Created dataset " + id);
 			return new PgDataset(getRowStore(), id, EtlStatus.CREATED, new java.util.Date(), dataTable);
 		} catch (SQLException e) {
+			if (PgRowStore.isTemporarilyUnavailable(e)) {
+				// e.g., the datasets table is locked for longer than the lock timeout (503, ARCH-7.03)
+				throw new TransientDataAccessResourceException("Unable to create dataset: " + e.getMessage(), e);
+			}
 			log.error(e.getMessage());
 		} finally {
 			log.debug("Creating dataset took {} ms", System.currentTimeMillis() - before);
@@ -175,7 +179,7 @@ public class PgDatasets implements Datasets {
 			log.info("Purged dataset " + id);
 			return true;
 		} catch (SQLException e) {
-			if (PgRowStore.LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+			if (PgRowStore.isTemporarilyUnavailable(e)) {
 				// the data table is in use, e.g., by an export (503, ARCH-7.03)
 				throw new TransientDataAccessResourceException("Data table of dataset " + id + " is locked", e);
 			}

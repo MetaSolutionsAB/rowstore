@@ -1289,7 +1289,7 @@ public class PgDataset implements Dataset {
 			}
 			conn.commit();
 		} catch (SQLException e) {
-			if (LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+			if (PgRowStore.isTemporarilyUnavailable(e)) {
 				throw new TransientDataAccessResourceException("Aliases of dataset " + getId() + " are locked", e);
 			}
 			log.error(e.getMessage());

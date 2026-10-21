@@ -126,7 +126,7 @@ Current limitations relevant to this area.
 | ARCH-7.03 | FIFO wait up to connectionWaitTimeout, then 503; querytimeout and lock timeout bound query connections |
 | ARCH-7.04 | A request or ETL job holds at most one connection at a time |
 | ARCH-7.05 | Aggregated WARN for slow waits and timeouts; usage in /status and health details; health of both databases with short wait |
-| ARCH-7.06 | Sizing formula per instance and database; PgBouncer for many instances |
+| ARCH-7.06 | Sizing formula per instance and database; PgBouncer for many instances (queryLockTimeout 0, server-side lock_timeout) |
 | ARCH-7.07 | Budgets apply on top of an enabled HikariCP pool; pool size warning |
 
 ### DOM — Domain Model
@@ -275,6 +275,7 @@ Current limitations relevant to this area.
 | CFG-4.05 | maxQueryConnections (int, default 10) |
 | CFG-4.06 | maxExportConnections (int, default 2) |
 | CFG-4.07 | connectionWaitTimeout (int seconds, default querytimeout or 30) |
+| CFG-4.08 | queryLockTimeout (int seconds, default connectionWaitTimeout / 2, 0 disables) |
 | CFG-5.01 | queryDatabase (optional, falls back to database) |
 | CFG-6.01 | ratelimit.type (slidingwindow/average) |
 | CFG-6.02 | ratelimit.timerange (seconds) |

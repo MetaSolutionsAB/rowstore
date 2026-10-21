@@ -161,34 +161,41 @@ public class PgRowStore implements RowStore {
 	}
 
 	/**
-	 * Creates a budget. Connections of query budgets wait at most half the wait timeout for a lock (ARCH-7.03), so that
-	 * a request for a dataset whose data table is locked, e.g., by a replace waiting for a long export, frees its
-	 * connection in time for the requests waiting behind it. Connections of other budgets keep the default lock_timeout;
-	 * pooled connections may have been used by a query budget before, so it is reset for them.
+	 * Creates a budget.
 	 *
 	 * @param queryBudget Whether the budget is for short operations.
 	 */
 	private LimitedDataSource addBudget(String dbName, String budgetName, DataSource target, int maxConnections,
 										RowStoreConfig.Database db, boolean queryBudget) {
 		long waitMillis = TimeUnit.SECONDS.toMillis(db.getConnectionWaitTimeout());
-		String sessionSql = null;
-		if (queryBudget) {
-			sessionSql = "SET lock_timeout = " + lockTimeoutMillis(db);
-		} else if (db.getConnectionPoolMax() > 0) {
-			sessionSql = "RESET lock_timeout";
-		}
-		LimitedDataSource budget = new LimitedDataSource(target, dbName + " " + budgetName, maxConnections, waitMillis, sessionSql);
+		LimitedDataSource budget = new LimitedDataSource(target, dbName + " " + budgetName, maxConnections, waitMillis,
+				sessionSql(db, queryBudget));
 		budgets.computeIfAbsent(dbName, k -> new LinkedHashMap<>()).put(budgetName, budget);
+		long lockTimeout = db.getQueryLockTimeoutMillis();
 		log.info("Limiting {} connections to {} (wait timeout {} s{})", budget.getName(), maxConnections,
-				db.getConnectionWaitTimeout(), queryBudget ? ", lock timeout " + lockTimeoutMillis(db) + " ms" : "");
+				db.getConnectionWaitTimeout(), queryBudget ? ", lock timeout " + (lockTimeout > 0 ? lockTimeout + " ms" : "not set") : "");
 		return budget;
 	}
 
 	/**
-	 * @return Returns the lock timeout of connections of the query budgets of a database: half its wait timeout.
+	 * Connections of query budgets wait at most queryLockTimeout (default half the wait timeout) for a lock
+	 * (ARCH-7.03), so that a request for a dataset whose data table is locked, e.g., by a replace waiting for a long
+	 * export, frees its connection in time for the requests waiting behind it. Connections of other budgets keep the
+	 * default lock_timeout: connections of a HikariCP pool may have been used by a query budget before, so it is reset
+	 * for them; without a pool, every connection is a new session (assuming direct connections to PostgreSQL, see
+	 * ARCH-7.06 for PgBouncer), so nothing has to be reset. If queryLockTimeout is 0, no session state is changed at all.
+	 *
+	 * @return Returns the statement to execute on every connection of the budget, or null.
 	 */
-	static long lockTimeoutMillis(RowStoreConfig.Database db) {
-		return Math.max(1, TimeUnit.SECONDS.toMillis(db.getConnectionWaitTimeout()) / 2);
+	static String sessionSql(RowStoreConfig.Database db, boolean queryBudget) {
+		long lockTimeout = db.getQueryLockTimeoutMillis();
+		if (lockTimeout <= 0) {
+			return null;
+		}
+		if (queryBudget) {
+			return "SET lock_timeout = " + lockTimeout;
+		}
+		return db.getConnectionPoolMax() > 0 ? "RESET lock_timeout" : null;
 	}
 
 	private static LimitedDataSource probe(LimitedDataSource querySlots, RowStoreConfig.Database db) {
@@ -332,8 +339,10 @@ public class PgRowStore implements RowStore {
 				break;
 			} catch (SQLException | RuntimeException e) {
 				Throwable cause = e instanceof CompletionException && e.getCause() != null ? e.getCause() : e;
-				if (LimitedDataSource.isWaitTimeout(cause)) {
-					// the database is in use, not unreachable; the dataset is cleaned at the next startup or by an append
+				if (LimitedDataSource.isWaitTimeout(cause) || cause instanceof TransientDataAccessResourceException ||
+						(cause instanceof SQLException se && isTemporarilyUnavailable(se))) {
+					// the database is in use (no connection or lock available in time), not unreachable; the dataset is
+					// cleaned at the next startup or by an append
 					log.warn("Skipped cleaning column names of dataset {}: {}", dataset.getId(), cause.getMessage());
 					continue;
 				}

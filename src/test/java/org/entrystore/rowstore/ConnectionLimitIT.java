@@ -51,6 +51,11 @@ class ConnectionLimitIT extends ConfigurableTestBase {
 
     private static final int WAIT_TIMEOUT_SECONDS = 2;
 
+    /**
+     * Lock timeout of query connections: half the wait timeout by default.
+     */
+    private static final long LOCK_TIMEOUT_MILLIS = WAIT_TIMEOUT_SECONDS * 500L;
+
     private static final ConfigurableTestEnvironment ENV = ConfigurableTestEnvironment.builder()
             .maxQueryConnections(2)
             .maxExportConnections(1)
@@ -225,7 +230,8 @@ class ConnectionLimitIT extends ConfigurableTestBase {
             .then()
                     .statusCode(200)
                     .body("results", hasSize(1));
-            assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(WAIT_TIMEOUT_SECONDS));
+            // served after the blocked requests freed their connections (lock timeout) plus a margin
+            assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofMillis(LOCK_TIMEOUT_MILLIS + 1000));
 
             for (CompletableFuture<Response> request : blocked) {
                 assertThat(request.get(30, TimeUnit.SECONDS).statusCode()).isEqualTo(503);
@@ -236,6 +242,23 @@ class ConnectionLimitIT extends ConfigurableTestBase {
             locker.rollback();
         }
         given().spec(jsonSpec).get(first.datasetUrl).then().statusCode(200);
+    }
+
+    @Test
+    @DisplayName("TC-CONN-029: Creating a dataset gets 503 if the datasets table stays locked for longer than the lock timeout")
+    void createDataset_lockedDatasetsTable_results503() throws Exception {
+        int before = TestUtils.getDatasetsList(jsonSpec).size();
+        try (Connection lock = ENV.openDatabaseConnection()) {
+            lock.setAutoCommit(false);
+            try (var stmt = lock.createStatement()) {
+                stmt.execute("LOCK TABLE datasets IN SHARE MODE");
+            }
+            long start = System.nanoTime();
+            createDataset(loadTestData("dataset1_utf8.csv")).then().statusCode(503);
+            assertThat(Duration.ofNanos(System.nanoTime() - start)).isGreaterThanOrEqualTo(Duration.ofMillis(LOCK_TIMEOUT_MILLIS - 100));
+            lock.rollback();
+        }
+        assertThat(TestUtils.getDatasetsList(jsonSpec)).hasSize(before);
     }
 
 }

@@ -60,10 +60,10 @@ public class RowStoreHealthIndicator implements HealthIndicator {
 		Health.Builder health = databases.containsValue("DOWN") ? Health.down() : Health.up();
 		if (failure != null) {
 			health.withException(failure);
-		} else {
+		} else if (databases.containsValue("UP") && !databases.containsValue("DOWN") && !databases.containsValue("BUSY")) {
 			// read after the checks, a request must not hold more than one connection at a time; not read if all
-			// connections are in use, so that the check does not wait again
-			health.withDetail("datasets", databases.containsValue("BUSY") ? -1 : getDatasetCount());
+			// connections are in use, so that the check does not wait again, or if a database is down
+			health.withDetail("datasets", getDatasetCount());
 		}
 		return health
 				.withDetail("activeEtlProcesses", rowStore.getEtlProcessor().getActiveEtlProcesses())
