@@ -226,6 +226,7 @@ Current limitations relevant to this area.
 | ID | Description |
 |----|-------------|
 | CFG-1.01 | JSON configuration file format |
+| CFG-1.02 | Startup fails on invalid config; error names the offending key |
 | CFG-2.01 | Resolution: Spring property → env var → classpath |
 | CFG-2.02 | Schemes: file, http, https |
 | CFG-3.01 | baseurl (String, required) |
@@ -235,14 +236,14 @@ Current limitations relevant to this area.
 | CFG-3.05 | legacyparser (boolean, default false) |
 | CFG-3.06 | querytimeout (int seconds, default -1) |
 | CFG-3.07 | querymaxlimit (int, default 100) |
-| CFG-3.08 | exportpagesize (int, default 100000) |
+| CFG-3.08 | [REMOVED] exportpagesize — never used, key ignored |
 | CFG-3.09 | maxuploadsize (long bytes, default 104857600) |
 | CFG-3.10 | cors.allowedorigins (JSON array, default ["*"]) |
 | CFG-4.01 | database object: type, host, port, database, user, password |
-| CFG-4.02 | ssl (boolean, default false) |
+| CFG-4.02 | ssl (boolean, optional) → sslmode require/disable, prefer when not set |
 | CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1) |
 | CFG-4.04 | socketTimeout (0), connectTimeout (5), loginTimeout (5) |
-| CFG-5.01 | queryDatabase (optional, falls back to database) |
+| CFG-5.01 | queryDatabase (optional, falls back to database, read-only) |
 | CFG-6.01 | ratelimit.type (slidingwindow/average) |
 | CFG-6.02 | ratelimit.timerange (seconds) |
 | CFG-6.03 | ratelimit.global, .dataset, .clientip (requests per timerange) |

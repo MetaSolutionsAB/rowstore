@@ -15,6 +15,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
 | `08-error-handling.md` | Error codes: 400, 404, 423, 424 | 13 |
 | `09-rate-limiting.md` | Rate limiting (429) - requires separate profile | 5 |
+| `10-configuration.md` | rowstore.json validation and data source settings | 11 |
 
 ## Prerequisites
 
@@ -134,9 +135,10 @@ Dataset creation and modification are asynchronous. Tests should:
 | Metadata Endpoints | 11 |
 | Error Handling | 13 |
 | Rate Limiting | 5 |
-| **Total** | **110** |
+| Configuration | 11 |
+| **Total** | **121** |
 
-Note: The specifications define 110 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 121 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 
