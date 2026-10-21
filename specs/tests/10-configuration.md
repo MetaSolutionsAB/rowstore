@@ -23,7 +23,7 @@ Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configura
 
 **Assertions:**
 1. `querymaxlimit` = 100, `maxuploadsize` = 104857600, `querytimeout` = -1, `cors.allowedorigins` = `["*"]`
-2. Database defaults: `type` = postgresql, `port` = 5432, `ssl` = false, `socketTimeout` = 0, `connectTimeout` = 5, `loginTimeout` = 5, pool settings = -1
+2. Database defaults: `type` = postgresql, `port` = 5432, `ssl` = false with `sslmode` = prefer (key not set), `socketTimeout` = 0, `connectTimeout` = 5, `loginTimeout` = 5, pool settings = -1
 3. `getQueryDatabase()` is the same object as `getDatabase()`
 
 ### TC-CFG-003: Empty database password is accepted
@@ -65,10 +65,10 @@ Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configura
 
 ### TC-DS-001: Unpooled query data source applies SSL mode, timeouts and read-only mode
 
-**Input (one per case):** Config with a separate `queryDatabase` without pool, `ssl` = false or true, `socketTimeout` = 60, `connectTimeout` = 7, `loginTimeout` = 8.
+**Input (one per case):** Config with a separate `queryDatabase` without pool, `ssl` = false, true or not set, `socketTimeout` = 60, `connectTimeout` = 7, `loginTimeout` = 8.
 
 **Assertions:**
-1. `sslmode` is `disable` for `ssl=false` and `require` for `ssl=true`
+1. `sslmode` is `disable` for `ssl=false`, `require` for `ssl=true` and `prefer` when `ssl` is not set
 2. Driver timeouts are 60 / 7 / 8 seconds
 3. `readOnly` is true and `readOnlyMode` is `always`
 

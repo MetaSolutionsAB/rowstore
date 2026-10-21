@@ -96,7 +96,7 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
   - `type` - DB type, currently only `postgresql` is supported. Default: `postgresql`.
   - `host` - Hostname.
   - `port` - Port. Default: `5432`.
-  - `ssl` - `true` or `false`. `true` requires SSL (`sslmode=require`), `false` disables it (`sslmode=disable`), so a server that requires SSL refuses the connection.
+  - `ssl` - `true` or `false`. `true` requires SSL (`sslmode=require`), `false` disables it (`sslmode=disable`), so a server that requires SSL refuses the connection. When not set, SSL is used if the server offers it (`sslmode=prefer`).
   - `database` - Name of database.
   - `user` - Username.
   - `password` - Password.

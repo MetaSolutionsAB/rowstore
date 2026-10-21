@@ -80,9 +80,9 @@ public class DataSourceConfig {
 		ds.setServerNames(new String[]{dbConfig.getHost()});
 		ds.setDatabaseName(dbConfig.getName());
 		ds.setPortNumbers(new int[]{dbConfig.getPort()});
-		// pgjdbc defaults to sslmode=prefer, which can cause connection timeouts if SSL is not wanted
+		// ssl=false disables SSL, since sslmode=prefer can cause connection timeouts if SSL is not wanted
 		ds.setSsl(dbConfig.getSsl());
-		ds.setSslMode(dbConfig.getSsl() ? "require" : "disable");
+		ds.setSslMode(dbConfig.getSslMode());
 		ds.setLogUnclosedConnections(log.isDebugEnabled());
 		// 0 means no timeout, as in 1.x
 		if (dbConfig.getConnectTimeout() >= 0) {
@@ -130,9 +130,9 @@ public class DataSourceConfig {
 			hikariConfig.setConnectionTimeout(dbConfig.getConnectTimeout() * 1000L);
 		}
 
-		// pgjdbc defaults to sslmode=prefer, which can cause connection timeouts if SSL is not wanted
+		// ssl=false disables SSL, since sslmode=prefer can cause connection timeouts if SSL is not wanted
 		hikariConfig.addDataSourceProperty("ssl", String.valueOf(dbConfig.getSsl()));
-		hikariConfig.addDataSourceProperty("sslmode", dbConfig.getSsl() ? "require" : "disable");
+		hikariConfig.addDataSourceProperty("sslmode", dbConfig.getSslMode());
 
 		// Driver timeouts in seconds (0 means no timeout, as in 1.x); connectionTimeout above only limits
 		// waiting for a pooled connection
