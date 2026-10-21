@@ -69,7 +69,7 @@ The configuration file (see [Configuration](#configuration)) is looked up in thi
 
 If no configuration is found or it is invalid, RowStore does not start. RowStore listens on port 8282; use `--server.port=<port>` to change it (other Spring Boot properties can be passed the same way). At startup, RowStore creates or migrates its tables with Flyway; an existing 1.x database is adopted as it is. When upgrading from 1.x, read the upgrade notes of version 2.0 in `CHANGELOG.md`.
 
-Besides the REST API, the same port serves the Spring Boot Actuator endpoints (`/actuator/health`, `/actuator/info`, `/actuator/metrics`), the OpenAPI documentation (`/v3/api-docs`, `/swagger-ui.html`) and JVM details (`/status?jvm`). They are meant for operators only and must be blocked by the reverse proxy, see [Security](#security).
+Besides the REST API, the same port serves the Spring Boot Actuator endpoints (`/actuator/health`, `/actuator/info`, `/actuator/metrics`), the OpenAPI documentation (`/v3/api-docs`, `/swagger-ui.html`) and JVM details (`/status?jvm`). They are meant for operators only and must be blocked by the reverse proxy, see [Security](#security). `/actuator/health` checks the database and, if configured, the query database: a database is reported as `UP`, as `BUSY` if all its connections are in use (it is reachable, so the health stays UP), or as `DOWN` if it cannot be reached, which makes the health DOWN.
 
 ### Docker
 
@@ -93,9 +93,9 @@ Note that `localhost` in the configuration refers to the container itself; use a
 In order for RowStore to be able to properly process CSV files, some conventions have to be followed:
 
 - String values within the tabular data model (such as column titles or cell string values) must contain only Unicode characters. The character encoding is detected automatically.
-- The first row should contain short names for each column; they are used as property names during the CSV2JSON conversion. They are also used as variable names by the query API. Upon import, byte order marks (U+FEFF) and soft hyphens (U+00AD) are removed from the column titles, which are then trimmed and converted to lower case. Columns with an empty title are skipped.
+- The first row should contain short names for each column; they are used as property names during the CSV2JSON conversion. They are also used as variable names by the query API. Upon import, byte order marks (U+FEFF) and soft hyphens (U+00AD) are removed from the column titles, leading and trailing whitespace and control characters are removed (no-break spaces are kept), and the titles are converted to lower case. Columns with an empty title are skipped.
 - A byte order mark at the beginning of the file is skipped before the file is parsed, so it does not become part of the first column title.
-- Datasets loaded by RowStore 1.x whose column names contain byte order marks or soft hyphens (e.g. `\ufeff"kopare_id"` instead of `kopare_id`) are renamed accordingly in the background after the first start of RowStore 2.0, one dataset at a time. Datasets where a cleaned name would be empty or collide with another column name are skipped and logged; they keep their names until they are replaced. After the rename, such columns can only be queried by their cleaned names.
+- Datasets loaded by RowStore 1.x whose column names contain byte order marks or soft hyphens (e.g. `\ufeff"kopare_id"` instead of `kopare_id`) are renamed in the background after the first start of RowStore 2.0, one dataset at a time, to the names that a fresh import of the same CSV file yields (a byte order mark in front of a quoted first title also left the quotes in the stored name; they are removed as well). A dataset is skipped, logged at WARN level and left unchanged if a cleaned name would be empty or collide with another column name, or if any row contains both an old name and its cleaned name; it keeps its names until it is replaced. An append that arrives before the rename renames the columns itself. Queries keep working during the rename and see the old names until it is complete; only its very end blocks readers of the dataset briefly. After the rename, such columns can only be queried by their cleaned names.
 - Comma ("`,`") must be used as column delimiter. There is some basic detection for CSV-files that are using semi-colon ("`;`") as separator, but it is recommended to use comma.
 - Quotation marks ("`"`") must be used as quotation characters; a quotation mark within a quoted value is written as two quotation marks (`""`). With `legacyparser` enabled, backslash ("`\`") is the escape character.
 - Line feed ("`\n`") or carriage return followed by line feed ("`\r\n`") must be used to indicate a new line (i.e., a new row).
@@ -131,7 +131,9 @@ Results are paginated. Pagination is controlled through the URL parameters `_lim
 
 The query engine tries to optimize queries by detecting whether a query value contains any characters that are typical for regular expressions. Queries for partial strings may be affected by undesired optimization, in such cases a regexp query can be enforced by prefixing the query value with `~`. E.g. a query for `name=meta` would not trigger a regexp query, whereas a query for `name=^meta` would. To accept `meta` as regexp it must be prefixed with `~`: `name=~meta`.
 
-Queries are subject to an eventually configured query timeout, see configuration section. If a query exceeds the configured timeout the running request to the database is interrupted and HTTP status 503 is returned. Requests for a dataset (`/dataset/{id}` and its sub-resources) also get HTTP 503 if the database cannot be reached.
+Queries are subject to an eventually configured query timeout, see configuration section. If a query exceeds the configured timeout the running request to the database is interrupted and HTTP status 503 is returned. Requests for a dataset (`/dataset/{id}` and its sub-resources) also get HTTP 503 if the database cannot be reached, if no database connection becomes available within `connectionWaitTimeout`, or if the dataset is locked (e.g. by a replace waiting for a long export) for longer than `queryLockTimeout` (see [Database connections](#database-connections)).
+
+The parameter `_callback` (JSONP in 1.x) is accepted and ignored: responses are always plain JSON.
 
 ### /dataset/{id}/info
 
@@ -179,7 +181,7 @@ Aliases may only contain alpha-numeric characters (including Unicode) and may be
 
 ### /status
 
-- `GET http://{base-url}/status` - Returns some basic information about the RowStore instance: version, number of datasets, and the number of loads that are currently running (`activeEtlProcesses`; uploads waiting for their turn are not counted).
+- `GET http://{base-url}/status` - Returns some basic information about the RowStore instance: version, number of datasets (-1 if it could not be determined, e.g. because all database connections are in use), the number of loads that are currently running (`activeEtlProcesses`; uploads waiting for their turn are not counted), and the usage of the database connection budgets (`connections`, per database and budget: `inUse`, `max`, `waiting`), e.g. `"connections": {"database": {"query": {"inUse": 1, "max": 10, "waiting": 0}, "export": {"inUse": 0, "max": 2, "waiting": 0}, "load": {"inUse": 0, "max": 5, "waiting": 0}}}`.
 
 ## Configuration
 
@@ -191,7 +193,8 @@ The configuration is validated at startup. If it is invalid, RowStore logs an er
 - `baseurl` or one of the required database keys is not a string,
 - `database`, `queryDatabase`, `ratelimit` or `cors` is not a JSON object, or `cors.allowedorigins` is not an array of strings,
 - `trustedproxies` is not an array of strings or contains an entry that is not an IP address or CIDR range,
-- `querymaxlimit` or `maxuploadsize` is not greater than 0.
+- `querymaxlimit` or `maxuploadsize` is not greater than 0,
+- `maxQueryConnections`, `maxExportConnections` or `connectionWaitTimeout` (in `database` or `queryDatabase`) is not a number greater than 0, or `queryLockTimeout` is not a number greater than or equal to 0.
 
 Unknown keys are ignored (e.g. `exportpagesize`, which was never used and has been removed). Optional numeric and boolean values of the wrong type fall back to their defaults.
 
@@ -202,7 +205,7 @@ Unknown keys are ignored (e.g. `exportpagesize`, which was never used and has be
 - `maxetlprocesses` (Integer) - Maximum number of concurrently running loads (ETL processes) across all datasets. Values of 0 or less mean the default. Default: 5.
 - `legacyparser` (Boolean) - Use OpenCSV's legacy `CSVParser` (backslash as escape character) instead of the RFC 4180 parser. Default: `false`.
 - `maxuploadsize` (Integer) - Maximum size of a CSV upload in bytes. Larger uploads are rejected with HTTP 413. Default: 104857600 (100 MB).
-- `querytimeout` (Integer) - Query timeout for dataset queries in seconds. By default (or if the value is 0 or less) no query timeout is active, unless configured directly in the database.
+- `querytimeout` (Integer) - Query timeout in seconds for dataset queries and for the reads of requests that precede them (e.g. dataset and alias lookups, column names, row counts); a timeout results in HTTP 503. By default (or if the value is 0 or less) no query timeout is active, unless configured directly in the database.
 - `querymaxlimit` (Integer) - The maximum allowed value of the `_limit` URL parameter when querying a dataset. Must be greater than 0. Default: 100.
 - `loglevel` (String) - Log level of RowStore's log output (console): a Log4j level name such as `DEBUG`, `INFO`, `WARN` or `ERROR` (case-insensitive); unknown values mean `INFO`. Default: `INFO`.
 - `cors` - Configures CORS.
@@ -220,7 +223,13 @@ Unknown keys are ignored (e.g. `exportpagesize`, which was never used and has be
   - `socketTimeout` - Socket timeout of the database driver in seconds, 0 means unlimited. Default: 0.
   - `connectTimeout` - Connection timeout in seconds, 0 means unlimited. With a connection pool, it also limits the wait for a free pooled connection. Default: 5.
   - `loginTimeout` - Login timeout in seconds, 0 means unlimited. Default: 5.
-- `queryDatabase` - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica. Same configuration properties as `database`, including the required ones. Its connections are read-only. Default: the `database` connection.
+  - `maxQueryConnections` - Maximum number of connections that requests use at the same time for short operations (queries, lookups, alias and dataset changes, health and status checks). Default: 10.
+  - `maxExportConnections` - Maximum number of connections for streamed exports at the same time. Only used for the database that serves queries (`queryDatabase` if configured). Default: 2.
+  - `connectionWaitTimeout` - Maximum time in seconds a request waits for a free connection before it fails with HTTP 503. Default: `querytimeout` if that is greater than 0, otherwise 30.
+  - `queryLockTimeout` - Maximum time in seconds the short operations of requests wait for a lock (PostgreSQL `lock_timeout`, set on each query connection); a lock timeout results in HTTP 503. `0` sets no lock timeout and changes no session state, which is required with PgBouncer transaction pooling (see below). Default: half of `connectionWaitTimeout`.
+
+  See [Database connections](#database-connections) for how these limits work together.
+- `queryDatabase` - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica. Same configuration properties as `database`, including the required ones and the connection limits for the queries and exports it serves. Its connections are read-only. Default: the `database` connection.
 - `ratelimit` - Configures rate limitation. It is active if `timerange` is greater than 0 and `global` or `dataset` is greater than 0. Only `GET` and `HEAD` requests are rate limited, except for `/status`. Rejected requests get HTTP 429.
   - `type` - `average` or `slidingwindow` (default).
   - `timerange` - The size (in seconds) of the time slot or window to be used for calculating the limitation.
@@ -274,7 +283,23 @@ Unknown keys are ignored (e.g. `exportpagesize`, which was never used and has be
 
 ## Data loading
 
-A CSV upload is loaded asynchronously in a single database transaction; the dataset's status (see `/dataset/{id}/info`) shows the progress. An append (`POST`) inserts the rows into the dataset's table. A replace (`PUT`) loads the rows into a new table and swaps it for the dataset's table at the end of the same transaction (the new table gets the owner and the table privileges of the old one), so queries and exports serve the previous data until the replace is complete, and a failed replace keeps the previous data. During a replace, the database needs disk space for both the old and the new data. The swap has to wait for running readers of the table, e.g. a long export or a backup with `pg_dump`; meanwhile new queries of the dataset wait as well.
+A CSV upload is loaded asynchronously in a single database transaction; the dataset's status (see `/dataset/{id}/info`) shows the progress. An append (`POST`) inserts the rows into the dataset's table. A replace (`PUT`) loads the rows into a new table and swaps it for the dataset's table at the end of the same transaction (the new table gets the owner and the table privileges of the old one), so queries and exports serve the previous data until the replace is complete, and a failed replace keeps the previous data. During a replace, the database needs disk space for both the old and the new data. The swap has to wait for running readers of the table, e.g. a long export or a backup with `pg_dump`; meanwhile new requests for the dataset wait as well and get HTTP 503 after `queryLockTimeout` (requests for other datasets are not affected).
+
+## Database connections
+
+By default, RowStore does not pool connections: it opens a connection per operation and closes it afterwards, so an idle instance holds no connections. The number of connections that an instance opens at the same time is limited per database by three budgets:
+
+- **query** (`maxQueryConnections`, default 10): short operations of requests,
+- **export** (`maxExportConnections`, default 2): streamed exports, which hold their connection while the export is transferred,
+- **load** (`maxetlprocesses`, default 5): data loads and all other database work of loads, including their status updates, so loads always finish even if all query connections are busy.
+
+A request that finds all connections of its budget in use waits for a free one (first come, first served) for at most `connectionWaitTimeout` and then gets HTTP 503. The defaults are meant to absorb bursts by waiting. Requests that are blocked by a lock on a dataset (e.g. a replace that waits for a long export, see [Data loading](#data-loading)) give up their connection after `queryLockTimeout` with HTTP 503, so that requests for other datasets keep being served. The current usage is reported by `/status` and in the details of `/actuator/health`; waits longer than one second and timeouts are logged at WARN level.
+
+### Sizing many instances
+
+In the worst case, one instance opens per database `maxQueryConnections + maxExportConnections + maxetlprocesses` connections, i.e. 10 + 2 + 5 = 17 with the defaults. With a separate `queryDatabase`, the primary database gets `database.maxQueryConnections + maxetlprocesses` and the query database `queryDatabase.maxQueryConnections + queryDatabase.maxExportConnections`. The sum over all instances that use the same PostgreSQL cluster must stay below its `max_connections` minus the connections reserved for administration and other clients: e.g. 80 instances with the defaults may open 80 x 17 = 1360 connections. For such deployments, lower the limits per instance or put PgBouncer in transaction pooling mode in front of the cluster (see below).
+
+With `connectionPoolMax` > 0, connections are pooled with HikariCP and idle connections are kept; the budgets apply on top of the pool, which should be at least as large as the sum of the budgets of its database (a warning is logged at startup otherwise).
 
 ## Connection Pooling with PgBouncer
 
@@ -284,7 +309,10 @@ When running many RowStore instances against a shared PostgreSQL cluster, a conn
 
 By default, RowStore uses `PGSimpleDataSource` (no connection pool), which opens and closes connections per operation. This is appropriate for most deployments. However, when dozens or hundreds of instances share a single PostgreSQL cluster, even short-lived connections can cause contention on the server side.
 
-PgBouncer in `transaction` mode multiplexes many application connections over a smaller number of PostgreSQL server connections, reducing load on the database.
+PgBouncer in `transaction` mode multiplexes many application connections over a smaller number of PostgreSQL server connections, reducing load on the database. RowStore only uses session state within transactions, except for the lock timeout of query connections (`queryLockTimeout`), which is set with `SET lock_timeout` when a connection is obtained. Under transaction pooling, such a setting would end up on an arbitrary server connection and stay there for other clients, and PgBouncer cannot track it (`track_extra_parameters` only covers parameters that PostgreSQL reports to the client, and `lock_timeout` is not one of them). Therefore, with transaction pooling:
+
+- set `queryLockTimeout` to `0` in `database` and `queryDatabase`, and
+- configure the lock timeout on the server side instead, preferably for a separate database user of the query database, e.g. `ALTER ROLE rowstore_query SET lock_timeout = '15s'` (half of `connectionWaitTimeout`). If the same user also runs loads and exports, the setting applies to them as well: replaces set their own lock timeouts, but an export blocked behind an exclusive lock for longer fails.
 
 ### Recommended PgBouncer configuration
 
@@ -312,7 +340,8 @@ Point RowStore at PgBouncer instead of PostgreSQL directly. Connection pooling i
     "port": 6432,
     "database": "rowstore",
     "user": "rowstore",
-    "password": "secret"
+    "password": "secret",
+    "queryLockTimeout": 0
   }
 }
 ```
@@ -327,6 +356,7 @@ To enable RowStore-side connection pooling in addition to PgBouncer (useful for 
     "database": "rowstore",
     "user": "rowstore",
     "password": "secret",
+    "queryLockTimeout": 0,
     "connectionPoolMax": 5
   }
 }
