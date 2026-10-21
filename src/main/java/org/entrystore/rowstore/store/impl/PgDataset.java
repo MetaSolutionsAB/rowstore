@@ -232,19 +232,27 @@ public class PgDataset implements Dataset {
 	 * RowStore instance, so a dataset that already is in PROCESSING is stale (e.g., because a load was interrupted
 	 * by a database outage) and is taken over.
 	 *
+	 * @return Returns false if the dataset does not exist anymore, e.g., because it was deleted while its load was queued.
 	 * @throws DataAccessException If the status could not be written.
 	 */
-	private void markAsProcessing() {
+	private boolean markAsProcessing() {
 		int updated = rowstore.getJdbcTemplate().update(
 				"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid AND status <> ?",
 				EtlStatus.PROCESSING, id, EtlStatus.PROCESSING);
 		if (updated == 0) {
-			log.warn("Dataset {} is already in status {}({}) without an active load (or it does not exist anymore), taking it over",
+			Integer count = rowstore.getJdbcTemplate().queryForObject(
+					"SELECT COUNT(*) FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", Integer.class, id);
+			if (count == null || count == 0) {
+				log.info("Dataset {} does not exist anymore, skipping its load", getId());
+				return false;
+			}
+			log.warn("Dataset {} is already in status {}({}) without an active load, taking it over",
 					getId(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.PROCESSING);
 		} else {
 			log.info("Setting status of {} to {}({})", getId(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.PROCESSING);
 		}
 		this.status = EtlStatus.PROCESSING;
+		return true;
 	}
 
 	/**
@@ -277,6 +285,7 @@ public class PgDataset implements Dataset {
 		// The outcome is tracked locally: the final status must not depend on reading the status
 		// back from the database, which may be unreachable if the load failed because of an outage
 		boolean success = false;
+		boolean deleted = false;
 		try {
 			String dataTable = getDataTable();
 			if (dataTable == null) {
@@ -284,7 +293,11 @@ public class PgDataset implements Dataset {
 				return false;
 			}
 
-			markAsProcessing();
+			if (!markAsProcessing()) {
+				// there is no status to set for a deleted dataset
+				deleted = true;
+				return false;
+			}
 
 			if (!append) {
 				if (!truncateTable()) {
@@ -425,7 +438,7 @@ public class PgDataset implements Dataset {
 			}
 		} finally {
 			// Also reached by exceptions, which propagate to the caller after the status has been set
-			if (!writeStatusWithRetry(success ? EtlStatus.AVAILABLE : EtlStatus.ERROR)) {
+			if (!deleted && !writeStatusWithRetry(success ? EtlStatus.AVAILABLE : EtlStatus.ERROR)) {
 				log.error("Dataset {} keeps its last known status {}({}) until it is loaded again{}", getId(),
 						EtlStatus.toString(status), status, status == EtlStatus.PROCESSING ? " or RowStore is restarted" : "");
 			}

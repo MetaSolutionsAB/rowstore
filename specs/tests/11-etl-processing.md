@@ -121,6 +121,14 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 1. The ERROR status write is attempted exactly three times (initial attempt and two retries)
 2. `populate()` still throws the original exception
 
+### TC-ETL-050: A load of a dataset that was deleted while the load was queued is skipped
+
+**Setup:** As TC-ETL-007, but the dataset does not exist in the database anymore: the conditional transition to PROCESSING updates no row.
+
+**Assertions:**
+1. `populate()` returns false without reading the CSV file
+2. No status is written apart from the attempted transition to PROCESSING (in particular no ERROR)
+
 ### TC-ETL-015: Different spellings of the same dataset ID share one queue
 
 **Steps:**
