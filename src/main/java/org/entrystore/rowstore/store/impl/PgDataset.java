@@ -103,14 +103,22 @@ public class PgDataset implements Dataset {
 	private long[] statusRetryDelaysMillis = {1000, 5000, 15000, 30000, 45000};
 
 	/**
-	 * Maximum time an attempt to lock the data table for a replace waits, except the last attempt, which waits
-	 * without a timeout, see lockDataTableForReplace().
+	 * Maximum time an attempt to lock the data table for a replace waits, except the last attempt, which waits at most
+	 * {@link #FINAL_SWAP_LOCK_TIMEOUT}, see lockDataTableForReplace().
 	 */
 	static final String SWAP_LOCK_TIMEOUT = "3s";
 
 	/**
-	 * Delays between the attempts to lock the data table for a replace: four attempts with a timeout and a last one
-	 * without. The delays are short because the load's transaction is idle meanwhile and holds its connection and ETL permit.
+	 * Maximum time the last attempt to lock the data table waits, e.g., for a backup or a long export. If it expires,
+	 * the operation that needs the lock fails, e.g., a replace keeps the previous data (ETL-6.04).
+	 */
+	static final String FINAL_SWAP_LOCK_TIMEOUT = "30min";
+
+	private String finalSwapLockTimeout = FINAL_SWAP_LOCK_TIMEOUT;
+
+	/**
+	 * Delays between the attempts to lock the data table for a replace: four short attempts and a last, long one.
+	 * The delays are short because the load's transaction is idle meanwhile and holds its connection and ETL permit.
 	 */
 	private long[] swapRetryDelaysMillis = {1000, 2000, 5000, 5000};
 
@@ -651,7 +659,9 @@ public class PgDataset implements Dataset {
 	 * exist. Must not run concurrently with a load of the dataset, see
 	 * {@link org.entrystore.rowstore.etl.EtlProcessor#callExclusively}.
 	 *
-	 * @return Returns the renamed columns (stored name to clean name), empty if nothing was renamed.
+	 * @return Returns the renamed columns (stored name to clean name), empty if nothing was renamed, or null if the
+	 * renames could not be completed because the data table could not be locked to drop the old indexes (ETL-6.04),
+	 * so that the dataset is to be cleaned again later.
 	 * @throws SQLException If the database could not be accessed.
 	 * @throws DataAccessException If the dataset could not be loaded from the database.
 	 */
@@ -695,7 +705,7 @@ public class PgDataset implements Dataset {
 				List<String> staleIndexes = renameColumns(conn, renames);
 				if (!dropIndexes(conn, staleIndexes)) {
 					conn.rollback();
-					return Map.of();
+					return null;
 				}
 				conn.commit();
 				log.info("Renamed columns of dataset {}: {}", getId(), describeRenames(renames));
@@ -785,7 +795,7 @@ public class PgDataset implements Dataset {
 	 * Dropping an index locks the data table exclusively until the end of the transaction, which is acquired like for
 	 * a replace, see {@link #lockDataTableForReplace(Connection)}.
 	 *
-	 * @return Returns false if interrupted while waiting to lock the data table.
+	 * @return Returns false if the data table could not be locked (timeout of the last attempt, or interrupted).
 	 */
 	private boolean dropIndexes(Connection conn, List<String> indexes) throws SQLException {
 		if (indexes.isEmpty()) {
@@ -852,7 +862,7 @@ public class PgDataset implements Dataset {
 	 * relying on anything attached to a data table.
 	 *
 	 * @param shadowIndexes The names of the indexes created for the shadow table.
-	 * @return Returns false if interrupted while waiting to lock the data table, see {@link #lockDataTableForReplace(Connection)}.
+	 * @return Returns false if the data table could not be locked (timeout of the last attempt, or interrupted), see {@link #lockDataTableForReplace(Connection)}.
 	 */
 	private boolean replaceDataTable(Connection conn, String shadowTable, List<String> shadowIndexes) throws SQLException {
 		long before = System.currentTimeMillis();
@@ -915,16 +925,19 @@ public class PgDataset implements Dataset {
 	 * Locks the data table exclusively for replacing it, within the load's transaction. The lock has to wait for
 	 * readers of the data table, e.g., a long streaming export, and while it waits, it blocks new queries of the
 	 * data table. Therefore the first attempts wait at most {@link #SWAP_LOCK_TIMEOUT} each and are retried after a
-	 * delay, so that queries are not blocked for longer than that at a time. The last attempt waits without a
-	 * timeout, so that a replace eventually succeeds even if the data table is read for a long time (e.g., by a
-	 * backup); meanwhile new queries of the data table wait as well.
+	 * delay, so that queries are not blocked for longer than that at a time. The last attempt waits at most
+	 * {@link #FINAL_SWAP_LOCK_TIMEOUT}, so that a replace succeeds even if the data table is read for a long time
+	 * (e.g., by an export); meanwhile new queries of the data table wait as well. If the data table is held for longer
+	 * (e.g., by a backup or a session left idle in a transaction), the caller gives up instead of blocking the dataset
+	 * indefinitely. The sessions holding the data table are logged before the last attempt and when giving up.
 	 *
 	 * After the lock has been acquired, the attempt's lock_timeout stays in force until the end of the transaction.
 	 * This is harmless, since the remaining statements only touch the locked data table, objects that depend on it,
 	 * and the shadow table, which was created in the same transaction.
 	 *
-	 * @return Returns true if the lock was acquired, false if interrupted while waiting for the next attempt.
-	 * @throws SQLException If locking failed for another reason than a lock timeout of an attempt with a timeout.
+	 * @return Returns true if the lock was acquired, false if the last attempt timed out or if interrupted while
+	 * waiting for the next attempt; the transaction can then only be rolled back.
+	 * @throws SQLException If locking failed for another reason than a lock timeout.
 	 */
 	boolean lockDataTableForReplace(Connection conn) throws SQLException {
 		return lockDataTable(conn, "replace it");
@@ -945,21 +958,32 @@ public class PgDataset implements Dataset {
 		}
 		for (int attempt = 0; ; attempt++) {
 			boolean lastAttempt = attempt >= swapRetryDelaysMillis.length;
+			if (lastAttempt) {
+				logLockHolders(conn, "Waiting up to " + finalSwapLockTimeout + " to " + purpose + ", data table " +
+						dataTable + " of dataset " + getId() + " is held by");
+			}
 			Savepoint savepoint = conn.setSavepoint();
 			try (Statement stmt = conn.createStatement()) {
-				executeDdl(stmt, "SET LOCAL lock_timeout = '" + (lastAttempt ? "0" : SWAP_LOCK_TIMEOUT) + "'");
+				executeDdl(stmt, "SET LOCAL lock_timeout = '" + (lastAttempt ? finalSwapLockTimeout : SWAP_LOCK_TIMEOUT) + "'");
 				executeDdl(stmt, "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
 				return true;
 			} catch (SQLException e) {
-				if (lastAttempt || !LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+				if (!LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
 					throw e;
 				}
 				// also reverts SET LOCAL
 				conn.rollback(savepoint);
+				if (lastAttempt) {
+					log.error("Unable to lock data table {} of dataset {} within {} to {}, giving up", dataTable, getId(),
+							finalSwapLockTimeout, purpose);
+					logLockHolders(conn, "Data table " + dataTable + " of dataset " + getId() + " is held by");
+					return false;
+				}
 			}
 			long delay = swapRetryDelaysMillis[attempt];
 			log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to {} in {} ms{}",
-					dataTable, getId(), purpose, delay, attempt == swapRetryDelaysMillis.length - 1 ? " without a lock timeout" : "");
+					dataTable, getId(), purpose, delay,
+					attempt == swapRetryDelaysMillis.length - 1 ? " with a lock timeout of " + finalSwapLockTimeout : "");
 			try {
 				Thread.sleep(delay);
 			} catch (InterruptedException e) {
@@ -971,10 +995,49 @@ public class PgDataset implements Dataset {
 	}
 
 	/**
+	 * Logs the sessions that hold a lock on the data table, so that an operator can see what blocks it (e.g., a backup,
+	 * an export, or a session left idle in a transaction). Best effort within a savepoint, so that a failure does not
+	 * abort the caller's transaction; the query text of other users' sessions is only visible to privileged users.
+	 */
+	private void logLockHolders(Connection conn, String message) {
+		String sql = "SELECT a.pid, a.usename, a.application_name, a.state, a.xact_start, left(a.query, 200) " +
+				"FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid " +
+				"WHERE l.locktype = 'relation' AND l.relation = to_regclass(?) AND l.granted AND l.pid <> pg_backend_pid()";
+		List<String> holders = new ArrayList<>();
+		try {
+			Savepoint savepoint = conn.setSavepoint();
+			try (PreparedStatement ps = conn.prepareStatement(sql)) {
+				ps.setString(1, dataTable);
+				try (ResultSet rs = ps.executeQuery()) {
+					while (rs.next()) {
+						holders.add("pid " + rs.getInt(1) + " (user " + rs.getString(2) + ", application \"" + rs.getString(3) +
+								"\", " + rs.getString(4) + ", transaction since " + rs.getTimestamp(5) + "): " + rs.getString(6));
+					}
+				}
+				conn.releaseSavepoint(savepoint);
+			} catch (SQLException e) {
+				conn.rollback(savepoint);
+				throw e;
+			}
+		} catch (SQLException e) {
+			log.warn("Unable to determine the sessions holding data table {}: {}", dataTable, e.getMessage());
+			return;
+		}
+		log.warn("{} {}", message, holders.isEmpty() ? "no other session anymore" : holders);
+	}
+
+	/**
 	 * Sets the delays between the attempts to lock the data table for a replace. Intended for tests.
 	 */
 	void setSwapRetryDelays(long... delaysMillis) {
 		this.swapRetryDelaysMillis = delaysMillis.clone();
+	}
+
+	/**
+	 * Sets the lock timeout of the last attempt to lock the data table (a PostgreSQL interval). Intended for tests.
+	 */
+	void setFinalSwapLockTimeout(String timeout) {
+		this.finalSwapLockTimeout = timeout;
 	}
 
 	private static void executeDdl(Statement stmt, String sql) throws SQLException {

@@ -144,6 +144,7 @@ Current limitations relevant to this area.
 | DOM-4.01 | datasets table schema |
 | DOM-4.02 | aliases table schema |
 | DOM-4.03 | Per-dataset data table schema |
+| DOM-4.04 | maintenance_tasks table: completed one-time maintenance tasks, skipped at later startups |
 | DOM-5.01 | text_pattern_ops indexes per column |
 | DOM-5.02 | MD5-hashed index names |
 | DOM-5.03 | Fields > 256 chars not indexed |
@@ -207,7 +208,7 @@ Current limitations relevant to this area.
 | ETL-6.01 | POST = append (validates column match) |
 | ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate); owner and privileges kept |
 | ETL-6.03 | Replace status: PROCESSING, AVAILABLE or ERROR; previous data served until replaced and kept on failure |
-| ETL-6.04 | Swap lock: four 3 s lock_timeout probes with short delays, then an unbounded wait; timeouts to configure; replica query cancellation |
+| ETL-6.04 | Swap lock: four 3 s lock_timeout probes with short delays, then a last attempt of at most 30 minutes, giving up with ERROR and previous data; lock holders logged; replica query cancellation |
 | ETL-6.05 | Leftover shadow tables dropped at next replace, on delete and at startup |
 | ETL-7.01 | text_pattern_ops index per column, escapeString for DDL |
 | ETL-7.02 | Skip index for fields > 256 chars |
@@ -227,6 +228,7 @@ Current limitations relevant to this area.
 | ETL-11.04 | Append before the cleanup renames the columns to its labels within the append |
 | ETL-11.05 | Empty or colliding cleaned names, also old and new name in any row: dataset skipped with WARN, no change |
 | ETL-11.06 | Idempotent; PUT yields clean names; column names of affected datasets change |
+| ETL-11.07 | Completed run recorded in maintenance_tasks, cleanup skipped at later startups |
 
 ### QUERY — Query Processing
 

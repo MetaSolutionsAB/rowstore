@@ -165,6 +165,9 @@ non-GET/HEAD requests and blocks Actuator, Swagger UI, `/v3/api-docs` and `/stat
 Registry tables are managed by Flyway (`src/main/resources/db/migration`):
 - `datasets` - Registry table (id UUID, status INT, created TIMESTAMP, data_table CHAR(37))
 - `aliases` - Alias lookup (id SERIAL, dataset_id UUID, alias TEXT)
+- `maintenance_tasks` - Completed one-time maintenance tasks (name TEXT, completed TIMESTAMP, DOM-4.04), e.g. the
+  cleanup of column names stored before 2.0. New one-time startup tasks should record their completion here with
+  `MaintenanceTasks` under their own name instead of repeating a check at every startup.
 
 Per-dataset data tables (`data_<uuid without hyphens>`) are created at runtime by `PgDatasets.createDataTable()`:
 rows are stored as JSONB (`rownr BIGSERIAL PRIMARY KEY, data JSONB NOT NULL`). Tables created before 2.0 keep
