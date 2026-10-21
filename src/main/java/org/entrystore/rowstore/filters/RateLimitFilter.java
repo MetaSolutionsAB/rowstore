@@ -123,10 +123,8 @@ public class RateLimitFilter implements Filter {
 
 		String dataset = request.getRequestURI();
 
-		String clientIP = request.getHeader("X-Forwarded-For");
-		if (clientIP == null || clientIP.isEmpty()) {
-			clientIP = request.getRemoteAddr();
-		}
+		// Resolved from X-Forwarded-For by TrustedProxyFilter if the request came from a trusted proxy
+		String clientIP = request.getRemoteAddr();
 
 		try {
 			if (rateLimitTypeSlidingWindow) {

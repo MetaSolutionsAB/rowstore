@@ -156,6 +156,9 @@ class DatasetReplaceIT extends BaseIntegrationTest {
                     dataTable + "' AND column_name = 'rownr'")).containsExactly("bigint");
             assertThat(queryStrings(db, "SELECT data_type FROM information_schema.sequences WHERE sequence_name = '" +
                     dataTable + "_rownr_seq'")).containsExactly("bigint");
+            // the new data has planner statistics right after the swap, which only ANALYZE creates
+            assertThat(queryStrings(db, "SELECT attname FROM pg_stats WHERE tablename = '" + dataTable + "'"))
+                    .contains("data");
         } finally {
             deleteDataset(urls.datasetUrl);
         }

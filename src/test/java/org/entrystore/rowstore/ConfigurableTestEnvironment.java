@@ -27,6 +27,10 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -174,10 +178,28 @@ public class ConfigurableTestEnvironment {
     }
 
     /**
+     * Returns the Spring context of the in-process RowStore server, e.g. for inspecting beans.
+     */
+    public ConfigurableApplicationContext getApplicationContext() {
+        return applicationContext;
+    }
+
+    /**
      * Returns the configuration used by this environment.
      */
     public Configuration getConfig() {
         return config;
+    }
+
+    /**
+     * Opens a direct JDBC connection to the test database, e.g., for failure injection.
+     */
+    public Connection openDatabaseConnection() throws SQLException {
+        if (!started) {
+            throw new IllegalStateException("Test environment has not been started");
+        }
+        return DriverManager.getConnection(sharedPostgresContainer.getJdbcUrl(),
+                sharedPostgresContainer.getUsername(), sharedPostgresContainer.getPassword());
     }
 
     private static void startSharedPostgres() {
@@ -233,6 +255,10 @@ public class ConfigurableTestEnvironment {
                 jsonConfig.put("ratelimit", rateLimit);
             }
 
+            if (config.trustedProxies != null) {
+                jsonConfig.put("trustedproxies", config.trustedProxies);
+            }
+
             // Database configuration
             JSONObject database = new JSONObject();
             database.put("type", "postgresql");
@@ -245,7 +271,15 @@ public class ConfigurableTestEnvironment {
             if (config.connectionPoolMax > 0) {
                 database.put("connectionPoolMax", config.connectionPoolMax);
             }
+            if (config.socketTimeout > 0) {
+                database.put("socketTimeout", config.socketTimeout);
+            }
             jsonConfig.put("database", database);
+
+            // Separate query database pointing to the same container
+            if (config.separateQueryDatabase) {
+                jsonConfig.put("queryDatabase", new JSONObject(database.toString()));
+            }
 
             tempConfigFile = Files.createTempFile("rowstore-config-test-", ".json");
             Files.writeString(tempConfigFile, jsonConfig.toString(2));
@@ -293,6 +327,9 @@ public class ConfigurableTestEnvironment {
         private final int rateLimitRequestsClientIp;
         private final String rateLimitType;
         private final int connectionPoolMax;
+        private final int socketTimeout;
+        private final boolean separateQueryDatabase;
+        private final List<String> trustedProxies;
         private final boolean legacyParser;
 
         private Configuration(Builder builder) {
@@ -307,6 +344,9 @@ public class ConfigurableTestEnvironment {
             this.rateLimitRequestsClientIp = builder.rateLimitRequestsClientIp;
             this.rateLimitType = builder.rateLimitType;
             this.connectionPoolMax = builder.connectionPoolMax;
+            this.socketTimeout = builder.socketTimeout;
+            this.separateQueryDatabase = builder.separateQueryDatabase;
+            this.trustedProxies = builder.trustedProxies;
             this.legacyParser = builder.legacyParser;
         }
 
@@ -326,10 +366,10 @@ public class ConfigurableTestEnvironment {
          * Returns a unique key for caching environments with this configuration.
          */
         public String getCacheKey() {
-            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,legacyParser=%b",
+            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,socketTimeout=%d,queryDb=%b,trustedProxies=%s,legacyParser=%b",
                     regexpQueries, rateLimitEnabled, rateLimitTimeRange,
                     rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitRequestsClientIp, rateLimitType,
-                    connectionPoolMax, legacyParser);
+                    connectionPoolMax, socketTimeout, separateQueryDatabase, trustedProxies, legacyParser);
         }
 
         @Override
@@ -353,6 +393,9 @@ public class ConfigurableTestEnvironment {
         private int rateLimitRequestsClientIp = -1;
         private String rateLimitType = "slidingwindow";
         private int connectionPoolMax = -1;
+        private int socketTimeout = -1;
+        private boolean separateQueryDatabase = false;
+        private List<String> trustedProxies = null;
         private boolean legacyParser = false;
 
         public Builder regexpQueries(String regexpQueries) {
@@ -407,6 +450,27 @@ public class ConfigurableTestEnvironment {
 
         public Builder connectionPoolMax(int connectionPoolMax) {
             this.connectionPoolMax = connectionPoolMax;
+            return this;
+        }
+
+        public Builder socketTimeout(int socketTimeout) {
+            this.socketTimeout = socketTimeout;
+            return this;
+        }
+
+        /**
+         * Adds a queryDatabase block identical to the database block (same container).
+         */
+        public Builder separateQueryDatabase(boolean separateQueryDatabase) {
+            this.separateQueryDatabase = separateQueryDatabase;
+            return this;
+        }
+
+        /**
+         * Sets the "trustedproxies" array; null (the default) omits the key so that the built-in default applies.
+         */
+        public Builder trustedProxies(List<String> trustedProxies) {
+            this.trustedProxies = trustedProxies;
             return this;
         }
 

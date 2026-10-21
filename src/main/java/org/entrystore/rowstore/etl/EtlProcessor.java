@@ -212,7 +212,8 @@ public class EtlProcessor {
 			if (dataset.populate(fileToLoad, etlResource.isAppending())) {
 				log.info("Dataset {} successfully populated", dataset.getId());
 			} else {
-				log.error("An error occurred while populating dataset {}", dataset.getId());
+				// the reason (an error, or a deleted dataset) has been logged by populate()
+				log.warn("Dataset {} was not populated", dataset.getId());
 			}
 		} catch (IOException | RuntimeException e) {
 			log.error("Populating dataset {} failed", dataset.getId(), e);

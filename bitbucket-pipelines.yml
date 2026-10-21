@@ -1,7 +1,8 @@
 image: maven:3-eclipse-temurin-25-alpine
 
 options:
-  max-time: 10
+  # minutes per step; the full integration test suite of 2.0 takes about 10 minutes
+  max-time: 20
 
 stepdefinitions:
   - build: &build

@@ -27,6 +27,7 @@ import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.QueryResult;
 import org.entrystore.rowstore.store.RowStore;
+import org.entrystore.rowstore.store.RowStream;
 import org.entrystore.rowstore.util.ColumnNames;
 import org.entrystore.rowstore.util.DatasetUtil;
 import org.entrystore.rowstore.util.Hashing;
@@ -108,7 +109,7 @@ public class PgDataset implements Dataset {
 
 	/**
 	 * Delays between the attempts to lock the data table for a replace: four attempts with a timeout and a last one
-	 * without. The delays are short because the load's transaction is idle meanwhile (idle_in_transaction_session_timeout).
+	 * without. The delays are short because the load's transaction is idle meanwhile and holds its connection and ETL permit.
 	 */
 	private long[] swapRetryDelaysMillis = {1000, 2000, 5000, 5000};
 
@@ -258,19 +259,27 @@ public class PgDataset implements Dataset {
 	 * RowStore instance, so a dataset that already is in PROCESSING is stale (e.g., because a load was interrupted
 	 * by a database outage) and is taken over.
 	 *
+	 * @return Returns false if the dataset does not exist anymore, e.g., because it was deleted while its load was queued.
 	 * @throws DataAccessException If the status could not be written.
 	 */
-	private void markAsProcessing() {
+	private boolean markAsProcessing() {
 		int updated = rowstore.getJdbcTemplate().update(
 				"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid AND status <> ?",
 				EtlStatus.PROCESSING, id, EtlStatus.PROCESSING);
 		if (updated == 0) {
-			log.warn("Dataset {} is already in status {}({}) without an active load (or it does not exist anymore), taking it over",
+			Integer count = rowstore.getJdbcTemplate().queryForObject(
+					"SELECT COUNT(*) FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", Integer.class, id);
+			if (count == null || count == 0) {
+				log.info("Dataset {} does not exist anymore, skipping its load", getId());
+				return false;
+			}
+			log.warn("Dataset {} is already in status {}({}) without an active load, taking it over",
 					getId(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.PROCESSING);
 		} else {
 			log.info("Setting status of {} to {}({})", getId(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.PROCESSING);
 		}
 		this.status = EtlStatus.PROCESSING;
+		return true;
 	}
 
 	/**
@@ -303,6 +312,7 @@ public class PgDataset implements Dataset {
 		// The outcome is tracked locally: the final status must not depend on reading the status
 		// back from the database, which may be unreachable if the load failed because of an outage
 		boolean success = false;
+		boolean deleted = false;
 		try {
 			String dataTable = getDataTable();
 			if (dataTable == null) {
@@ -310,7 +320,11 @@ public class PgDataset implements Dataset {
 				return false;
 			}
 
-			markAsProcessing();
+			if (!markAsProcessing()) {
+				// there is no status to set for a deleted dataset
+				deleted = true;
+				return false;
+			}
 
 			// A replace loads into a shadow table, which replaces the data table at the end of the load in the same
 			// transaction. Until then, and if the load fails, queries and exports keep serving the previous data.
@@ -458,10 +472,17 @@ public class PgDataset implements Dataset {
 						conn.rollback();
 						return false;
 					}
-				} else if (!replaceDataTable(conn, targetTable, createIndexes(conn, targetTable, labels, columnSize))) {
-					log.info("Rolling back transaction");
-					conn.rollback();
-					return false;
+				} else {
+					List<String> shadowIndexes = createIndexes(conn, targetTable, labels, columnSize);
+					// planner statistics for the new data, so that queries are planned well right after the swap
+					try (Statement analyzeStmt = conn.createStatement()) {
+						executeDdl(analyzeStmt, "ANALYZE " + targetTable);
+					}
+					if (!replaceDataTable(conn, targetTable, shadowIndexes)) {
+						log.info("Rolling back transaction");
+						conn.rollback();
+						return false;
+					}
 				}
 
 				// we commit the transaction and free the resources of the statement
@@ -508,7 +529,7 @@ public class PgDataset implements Dataset {
 			}
 		} finally {
 			// Also reached by exceptions, which propagate to the caller after the status has been set
-			if (!writeStatusWithRetry(success ? EtlStatus.AVAILABLE : EtlStatus.ERROR)) {
+			if (!deleted && !writeStatusWithRetry(success ? EtlStatus.AVAILABLE : EtlStatus.ERROR)) {
 				log.error("Dataset {} keeps its last known status {}({}) until it is loaded again{}", getId(),
 						EtlStatus.toString(status), status, status == EtlStatus.PROCESSING ? " or RowStore is restarted" : "");
 			}
@@ -802,6 +823,12 @@ public class PgDataset implements Dataset {
 	 * Replaces the data table with the shadow table, within the load's transaction: drops the data table (with its
 	 * indexes and sequence) and renames the shadow table, its indexes, primary key and sequence to the names they
 	 * would have if they had been created for the data table, so that the next replace does not collide with them.
+	 * <p>
+	 * Only the owner and the table privileges are carried over (copyOwnerAndPrivileges). Everything else that was
+	 * added to the data table outside of RowStore is lost with the dropped table, e.g., manually created indexes,
+	 * triggers, comments, storage parameters, column privileges and the membership in publications that list the
+	 * table explicitly, and dependent objects such as views make the DROP fail (ETL-6.02). Keep this in mind before
+	 * relying on anything attached to a data table.
 	 *
 	 * @param shadowIndexes The names of the indexes created for the shadow table.
 	 * @return Returns false if interrupted while waiting to lock the data table, see {@link #lockDataTableForReplace(Connection)}.
@@ -889,6 +916,12 @@ public class PgDataset implements Dataset {
 	 * @param purpose What the lock is needed for, for logging (e.g., "replace it").
 	 */
 	private boolean lockDataTable(Connection conn, String purpose) throws SQLException {
+		// The transaction is idle during the delays between the attempts, so that an idle_in_transaction_session_timeout
+		// configured for the database user would end it. Set before the first savepoint, so that rolling back an
+		// attempt does not revert it; applies to this transaction only.
+		try (Statement stmt = conn.createStatement()) {
+			executeDdl(stmt, "SET LOCAL idle_in_transaction_session_timeout = 0");
+		}
 		for (int attempt = 0; ; attempt++) {
 			boolean lastAttempt = attempt >= swapRetryDelaysMillis.length;
 			Savepoint savepoint = conn.setSavepoint();
@@ -1073,17 +1106,22 @@ public class PgDataset implements Dataset {
 		return new QueryResult(result, limit, offset, resultCount, queryTime);
 	}
 
-	public ResultSet streamAll() {
-		Connection conn = null;
+	/**
+	 * @see Dataset#streamAll()
+	 */
+	@Override
+	public RowStream streamAll() throws SQLException {
+		Connection conn = rowstore.getQueryConnection();
+		PreparedStatement stmt = null;
 		try {
-			conn = rowstore.getQueryConnection();
+			// cursor-based fetching (instead of loading all rows into memory) requires a transaction
 			conn.setAutoCommit(false);
-			PreparedStatement stmnt = conn.prepareStatement("SELECT data FROM " + getDataTable(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-			stmnt.setFetchSize(1000);
-			return stmnt.executeQuery();
-		} catch (SQLException e) {
-			log.warn(e.getMessage());
-			return null;
+			stmt = conn.prepareStatement("SELECT data FROM " + getDataTable(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+			stmt.setFetchSize(1000);
+			return new RowStream(conn, stmt, stmt.executeQuery());
+		} catch (SQLException | RuntimeException e) {
+			new RowStream(conn, stmt, null).close();
+			throw e;
 		}
 	}
 
