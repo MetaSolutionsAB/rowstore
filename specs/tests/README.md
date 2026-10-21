@@ -10,13 +10,13 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 1 |
 | `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases, storage schema | 22 |
 | `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines, byte order marks | 47 |
-| `05-querying.md` | Query functionality: filters, pagination, regex modes (JSONP test cases retired) | 28 |
+| `05-querying.md` | Query functionality: filters, pagination, regex modes, reserved `_callback` parameter (JSONP test cases retired) | 31 |
 | `06-export.md` | JSON/CSV export endpoints | 15 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
 | `08-error-handling.md` | Error codes: 400, 404, 423, 424, path parameters, corrupt CSV | 22 |
 | `09-rate-limiting.md` | Rate limiting (429), client address via trusted proxies - requires separate profiles | 10 |
 | `10-configuration.md` | rowstore.json validation and data source settings (unit and integration tests) | 13 |
-| `11-etl-processing.md` | ETL scheduling, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 41 |
+| `11-etl-processing.md` | ETL scheduling, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 49 |
 | `12-connection-limits.md` | Connection budgets: FIFO waiting, wait timeouts (503), usage in `/status`, one connection per request, lock timeouts, health checks (unit and integration tests) | 29 |
 
 Test counts are the number of test case IDs per file; a heading that covers a range (e.g. `TC-CSV-017 to TC-CSV-022`) counts each ID, and test cases marked `[REMOVED]` are not counted.
@@ -58,7 +58,8 @@ Tests are organized into profiles based on server configuration:
 | `ratelimit` | Rate limiting enabled | Rate limit tests (09-rate-limiting.md) |
 | `legacy-parser` | `legacyparser=true` | CSV tests repeated with the legacy parser (TC-CSV-017 to TC-CSV-022, TC-CSV-030 to TC-CSV-036) |
 | `connection-pool` | `connectionPoolMax=3`, separate `queryDatabase` | HikariCP pools (TC-POOL-*, TC-EXPORT-014) |
-| Unit tests | none (no server, no Docker) | `*Test.java` classes, e.g. TC-CFG-*, TC-DS-*, TC-CSV-037 to TC-CSV-040 and the unit test cases of 11-etl-processing.md |
+| Connection limits | small `maxQueryConnections`, `maxExportConnections`, `maxetlprocesses` and wait timeouts | Connection budgets (integration test cases of 12-connection-limits.md) |
+| Unit tests | none (no server, no Docker) | `*Test.java` classes, e.g. TC-CFG-*, TC-DS-*, TC-CSV-037 to TC-CSV-040 and the unit test cases of 11-etl-processing.md and 12-connection-limits.md |
 
 ### Running Different Profiles
 
@@ -138,16 +139,17 @@ Dataset creation and modification are asynchronous. Tests should:
 | Datasets List | 1 |
 | Dataset Lifecycle | 22 |
 | CSV Formats | 47 |
-| Querying | 28 |
+| Querying | 31 |
 | Export | 15 |
 | Metadata Endpoints | 11 |
 | Error Handling | 22 |
 | Rate Limiting | 10 |
 | Configuration | 13 |
-| ETL Processing | 41 |
-| **Total** | **215** |
+| ETL Processing | 49 |
+| Connection Limits | 29 |
+| **Total** | **255** |
 
-Note: The specifications define 215 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 255 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 

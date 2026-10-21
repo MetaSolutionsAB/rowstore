@@ -203,4 +203,9 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |
 | 2026-10-20 | CFG-5.01: replica queries may be cancelled by replayed replaces |
-> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`, including its own connection limits (CFG-4.05 to CFG-4.08) for the queries and exports it serves. When not configured, all queries use the primary `database` connection. Connections to `queryDatabase` are read-only also in auto-commit mode (driver `readOnlyMode=always`), with and without connection pool. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing). Replica queries of a dataset may be cancelled when a replace of the dataset is replayed, see [ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace). If `queryDatabase` uses a separate database user, it should be granted read access with `ALTER DEFAULT PRIVILEGES` (for tables created by the RowStore user), since every new dataset creates a new data table; privileges granted on an existing data table are kept by replaces (ETL-6.02).
+| 2026-10-20 | Added CFG-1.02 (fail fast on invalid config), CFG-3.08 removed (exportpagesize unused); CFG-4.02, CFG-4.04, CFG-5.01 clarified for driver settings with HikariCP |
+| 2026-10-20 | Added CFG-3.11 (`trustedproxies`); CFG-1.02 and CFG-6.03 updated: `X-Forwarded-For` only from trusted proxies |
+| 2026-10-20 | CFG-4.03: no pool unless `connectionPoolMax` > 0; CFG-3.07: limits above `querymaxlimit` fall back to the default |
+| 2026-10-21 | CFG-4.05 to CFG-4.07: connection limits per database block |
+| 2026-10-21 | CFG-3.06: querytimeout applies to all statements of short operations; CFG-4.07: lock timeout of query connections |
+| 2026-10-21 | CFG-4.08: queryLockTimeout; CFG-3.06: querytimeout applies to the JdbcTemplate statements of short operations |
