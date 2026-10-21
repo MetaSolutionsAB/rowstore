@@ -146,8 +146,8 @@ table is restored.
 
 **Assertions:**
 1. The query of step 3 returns 200 with 1 result within less than the wait timeout
-2. The export of step 3 takes at least the wait timeout and fails: 503 if the export connection is requested before
-   the response status is sent, otherwise a truncated response (API-6.05)
+2. The export of step 3 takes at least the wait timeout and fails with 503: the export connection is requested before
+   the response status is sent (API-6.05)
 3. After the lock is released, the export of step 2 returns all 5 rows, a further export of B returns 200, and no
    export connection is in use
 

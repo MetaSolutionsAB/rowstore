@@ -228,6 +228,30 @@ public class RowStoreConfig {
 		return result;
 	}
 
+	/**
+	 * Validates the connection limits of a database block (CFG-4.05 to CFG-4.07).
+	 *
+	 * @throws IllegalStateException if one of the keys is present in the block and not a number greater than 0
+	 */
+	private static void requirePositive(JSONObject block, String blockName, String... keys) {
+		for (String key : keys) {
+			if (block.has(key) && block.optInt(key, 0) <= 0) {
+				throw new IllegalStateException("rowstore.json: '" + blockName + "." + key + "' must be a number greater than 0");
+			}
+		}
+	}
+
+	/**
+	 * Validates the lock timeout of a database block (CFG-4.08).
+	 *
+	 * @throws IllegalStateException if the key is present in the block and not a number greater than or equal to 0
+	 */
+	private static void requireNonNegative(JSONObject block, String blockName, String key) {
+		if (block.has(key) && block.optInt(key, -1) < 0) {
+			throw new IllegalStateException("rowstore.json: '" + blockName + "." + key + "' must be a number greater than or equal to 0");
+		}
+	}
+
 	private static IllegalStateException missingKey(String qualifiedKey) {
 		return new IllegalStateException("rowstore.json: missing required key '" + qualifiedKey + "'");
 	}
@@ -364,6 +388,8 @@ public class RowStoreConfig {
 			setSocketTimeout(dbConfig.optInt("socketTimeout", 0));		// seconds, PG default 0
 			setConnectTimeout(dbConfig.optInt("connectTimeout", 5));	// seconds, PG default 10
 			setLoginTimeout(dbConfig.optInt("loginTimeout", 5));		// seconds, PG default 0
+			requirePositive(dbConfig, name, "maxQueryConnections", "maxExportConnections", "connectionWaitTimeout");
+			requireNonNegative(dbConfig, name, "queryLockTimeout");
 			setMaxQueryConnections(dbConfig.optInt("maxQueryConnections", DEFAULT_MAX_QUERY_CONNECTIONS));
 			setMaxExportConnections(dbConfig.optInt("maxExportConnections", DEFAULT_MAX_EXPORT_CONNECTIONS));
 			setConnectionWaitTimeout(dbConfig.optInt("connectionWaitTimeout", -1));	// seconds, see getConnectionWaitTimeout()

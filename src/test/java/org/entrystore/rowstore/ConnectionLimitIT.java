@@ -185,10 +185,8 @@ class ConnectionLimitIT extends ConfigurableTestBase {
             Response excess = given().accept("application/json").get(second.datasetUrl + "/export");
             assertThat(Duration.ofNanos(System.nanoTime() - start))
                     .isGreaterThanOrEqualTo(Duration.ofMillis(WAIT_TIMEOUT_SECONDS * 1000 - 100));
-            // 503 if the export connection is requested before the response status is sent, otherwise the export is
-            // truncated, since the status cannot be changed anymore (API-6.05)
-            assertThat(excess.statusCode() == 503 || !excess.asString().endsWith("]"))
-                    .as("excess export fails, status %d", excess.statusCode()).isTrue();
+            // the export connection is requested before the response status is sent (API-6.05)
+            assertThat(excess.statusCode()).as("excess export").isEqualTo(503);
 
             lock.rollback();
             Response exported = export.get(30, TimeUnit.SECONDS);

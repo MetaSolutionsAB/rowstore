@@ -1104,7 +1104,7 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public RowStream streamAll() throws SQLException {
-		Connection conn = rowstore.getQueryConnection();
+		Connection conn = rowstore.getExportConnection();
 		PreparedStatement stmt = null;
 		try {
 			// cursor-based fetching (instead of loading all rows into memory) requires a transaction
