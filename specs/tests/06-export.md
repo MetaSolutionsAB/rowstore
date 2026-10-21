@@ -7,7 +7,7 @@ Tests for the `/dataset/{id}/export` endpoint which provides JSON and CSV export
 ## Prerequisites
 
 - Dataset with known data (UTF-8 encoding, 5 rows)
-- Test data: `dataset1_utf8.csv`; `dataset_export_edge.csv` for TC-EXPORT-010 to TC-EXPORT-015
+- Test data: `dataset1_utf8.csv`; `dataset_export_edge.csv` for TC-EXPORT-010 to TC-EXPORT-016; `headers_only.csv` for TC-EXPORT-016
 
 ## Test Cases
 
@@ -205,3 +205,14 @@ blocked mid-stream while the client pauses reading.
 **Assertions:**
 - The body is a complete JSON array (starts with `[{`, ends with `}]`)
 - It contains all 50,003 rows (rows separated by `,\n`)
+
+### TC-EXPORT-016: CSV export without readable column names fails instead of losing all cells
+
+**Setup:** Requires direct database access (skipped when testing an external instance). A dataset is created from
+`dataset_export_edge.csv`, and the data of its first row is replaced by `{}`. Column names are taken from the first
+row, so the dataset then has rows but no column names, as if reading the column names had failed.
+
+**Assertions:**
+- `GET /dataset/{id}/export` with `Accept: text/csv` returns `500`, and no database backend is left referencing the data table
+- `GET /dataset/{id}/export` with `Accept: application/json` returns `200` with all 3 rows (the JSON export does not use the column names)
+- A dataset created from `headers_only.csv` (no rows, hence no column names) is exported as CSV with `200`

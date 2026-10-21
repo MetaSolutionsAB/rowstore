@@ -47,8 +47,9 @@ public record RowStream(Connection conn, PreparedStatement stmt, ResultSet rs) i
 		closeQuietly(stmt);
 		try {
 			// a pooled connection must not be returned with an open transaction
-			// (the driver closes the connection itself if it was terminated by the database)
-			if (!conn.isClosed()) {
+			// (the driver closes the connection itself if it was terminated by the database, and auto-commit
+			// is still on if the stream failed before the transaction was started)
+			if (!conn.isClosed() && !conn.getAutoCommit()) {
 				conn.rollback();
 			}
 		} catch (SQLException e) {
