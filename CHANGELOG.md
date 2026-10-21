@@ -19,15 +19,11 @@ RowStore 2.0 is a rewrite of the application layer on Spring Boot. The REST API 
 
 [ROWS-112](https://metasolutions.atlassian.net/browse/ROWS-112) Use BIGSERIAL for rownr in new and shadow data tables
 
-[ROWS-122](https://metasolutions.atlassian.net/browse/ROWS-122) Rewrite CLAUDE.md for the Spring Boot single-module layout
-
 ### Task
 
 [ROWS-104](https://metasolutions.atlassian.net/browse/ROWS-104) Remove the ApiKeyFilter stub and document the reverse-proxy security contract
 
 [ROWS-107](https://metasolutions.atlassian.net/browse/ROWS-107) Documentation truth pass for 2.0: README, CLAUDE.md and CHANGELOG
-
-[ROWS-143](https://metasolutions.atlassian.net/browse/ROWS-143) Run a one-off dependency vulnerability scan before tagging 2.0 (pending, to be run on the release candidate)
 
 ### Bug
 
@@ -64,12 +60,13 @@ Changes visible to operators and clients when upgrading from 1.7:
 - **JSONP removed:** responses are never wrapped in a callback; like any parameter that is not a column name, `_callback` makes a dataset query fail with HTTP 400. Browser clients of other origins use CORS (`cors.allowedorigins`, default all origins).
 - **Delete:** `DELETE /dataset/{id}` returns 204 No Content instead of 200 OK.
 - **Fail-fast configuration:** configurations that 1.x tolerated now prevent the startup, with an error naming the offending key: missing `baseurl`, `database` or `database.host`/`database`/`user`/`password` (also in `queryDatabase`, if present), these keys with a non-string value, `database`/`queryDatabase`/`ratelimit`/`cors` that are not JSON objects, `cors.allowedorigins` or `trustedproxies` that are not arrays of strings, `trustedproxies` entries that are not IP addresses or CIDR ranges, and `querymaxlimit` or `maxuploadsize` not greater than 0. `exportpagesize` was never used and is ignored.
-- **Database connection:** `"ssl": false` now disables SSL explicitly (`sslmode=disable`; 1.7 used the driver default `prefer`), so a server that requires SSL refuses the connection. The driver timeouts `socketTimeout`, `connectTimeout` and `loginTimeout` are applied with and without connection pool; 0 means unlimited. Connection pooling is configured with `connectionPoolMax` (HikariCP) and is off by default.
+- **Database connection:** `"ssl": false` now disables SSL explicitly (`sslmode=disable`; 1.7 used the driver default `prefer`), so a server that requires SSL refuses the connection.
+- **Connection pooling:** in 1.7, `database` was never pooled, and `queryDatabase` only if both `connectionPoolInit` and `connectionPoolMax` were greater than 0. In 2.0, `database` and `queryDatabase` each use a HikariCP pool as soon as their `connectionPoolMax` is greater than 0 (`connectionPoolInit` is optional). To keep the 1.7 behaviour of `database` (no pool, no idle connections), remove `connectionPoolMax` or set it to 0 or less. Without `connectionPoolMax`, no pool is used, which is recommended for deployments with many instances against one PostgreSQL cluster.
 - **Column names of existing datasets:** column names that 1.x stored with a byte order mark or soft hyphens (e.g. `\ufeff"kopare_id"` instead of `kopare_id`) are renamed automatically in the background after the first start, one dataset at a time; datasets whose cleaned names would collide are skipped and logged. Queries, `/info`, Swagger and exports then use the cleaned names; queries by the old names stop working. New uploads always yield cleaned names.
 - **Empty lines in CSV files:** an empty line between rows (or directly after the header) now fails the load (status 4, "Error"); 1.7 silently dropped all following rows (default parser) or loaded an empty row (legacy parser). Trailing empty lines are ignored, whitespace-only lines are rows, and an empty value in a single-column CSV must be quoted (`""`).
 - **Replace (PUT):** the previous data is served until the replace is complete and is kept if the replace fails (status 4 with the previous data). The database needs disk space for the old and the new data during a replace. Like 1.x, the replace waits for long-running readers of the dataset's table (e.g. `pg_dump`), and new queries of the dataset wait behind it.
 - **Upload order:** uploads to the same dataset are processed one after another in the order of arrival; a replace discards the dataset's uploads that are still waiting. `activeEtlProcesses` in `/status` counts only running loads. Datasets left in status 2 ("Processing") by a crash are set to 4 ("Error") at startup.
-- **Database outages:** requests that cannot reach the database get HTTP 503 instead of 404.
+- **Database outages:** requests for a dataset (`/dataset/{id}` and its sub-resources, including aliases) that cannot reach the database get HTTP 503 instead of 404.
 - **Per-client rate limit:** `X-Forwarded-For` is only evaluated for requests from trusted proxies (`trustedproxies`, default: loopback and private address ranges). A reverse proxy on a public IP address must be listed in `trustedproxies`, otherwise all clients share the proxy's limit.
 - **Path parameters:** request paths containing `;` are rejected with HTTP 400.
 
