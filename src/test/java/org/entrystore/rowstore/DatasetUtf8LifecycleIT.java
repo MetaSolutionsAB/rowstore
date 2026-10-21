@@ -30,6 +30,10 @@ import org.junit.jupiter.api.TestClassOrder;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.List;
 
 import static io.restassured.RestAssured.given;
@@ -490,6 +494,29 @@ class DatasetUtf8LifecycleIT extends BaseIntegrationTest {
                         .delete(dataset1bUrl)
                 .then()
                         .statusCode(204);
+            }
+        }
+    }
+
+    @Nested
+    @Order(6)
+    @DisplayName("Storage Schema Tests")
+    @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+    class StorageSchemaTests {
+
+        @Test
+        @Order(1)
+        @DisplayName("TC-DATASET1-023: Data table row number column is bigint")
+        void dataTableRownr_isBigint() throws SQLException {
+            String dataTable = "data_" + datasetId.replace("-", "");
+            try (Connection conn = openDatabaseConnection();
+                 PreparedStatement ps = conn.prepareStatement(
+                         "SELECT data_type FROM information_schema.columns WHERE table_name = ? AND column_name = 'rownr'")) {
+                ps.setString(1, dataTable);
+                try (ResultSet rs = ps.executeQuery()) {
+                    assertThat(rs.next()).as("rownr column of %s", dataTable).isTrue();
+                    assertThat(rs.getString("data_type")).isEqualTo("bigint");
+                }
             }
         }
     }

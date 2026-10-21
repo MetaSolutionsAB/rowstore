@@ -94,6 +94,13 @@ public class ConnectionPoolExtension implements BeforeAllCallback, ExecutionCond
         return environment != null ? environment.getApplicationContext() : null;
     }
 
+    /**
+     * Returns the environment started by this extension, or null when running against an external instance.
+     */
+    public static ConfigurableTestEnvironment getEnvironment() {
+        return environment;
+    }
+
     private boolean isDockerAvailable() {
         try {
             return DockerClientFactory.instance().isDockerAvailable();

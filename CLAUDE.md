@@ -4,17 +4,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build Commands
 
+All commands run from the repository root (single Maven module).
+
 ```bash
 # Build (skip tests)
 mvn -Dmaven.test.skip=true install
 
-# Build and run integration tests (requires Docker for Testcontainers)
+# Build and run all tests (integration tests require Docker for Testcontainers)
 mvn clean verify
 
-# Run standalone server
-chmod +x standalone/jetty/target/dist/bin/rowstore
-standalone/jetty/target/dist/bin/rowstore <config-file.json> [port]
+# Run the executable JAR
+java -jar target/rowstore-<version>.jar --rowstore.config.uri=file:///path/to/rowstore.json
+
+# Alternatively, pass the config URI via environment variable
+ROWSTORE_CONFIG_URI=file:///path/to/rowstore.json java -jar target/rowstore-<version>.jar
 ```
+
+Configuration is resolved in this order (see `RowStoreConfigLoader`): `--rowstore.config.uri` property,
+`ROWSTORE_CONFIG_URI` environment variable, `rowstore.json` on the classpath. The default HTTP port is 8282
+(`server.port` in `src/main/resources/application.properties`, override with `--server.port=<port>`).
+An example configuration is in `src/main/resources/rowstore.json_example`.
+
+Docker image (the `Dockerfile` copies `target/rowstore-*.jar`, so build the JAR first):
+
+```bash
+mvn -Dmaven.test.skip=true install
+docker build -t rowstore .
+docker run -p 8282:8282 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json rowstore
+```
+
+The image reads its configuration from `/srv/rowstore/rowstore.json` by default.
+
+Release versions are set with `./set-version.sh <version>`, which updates `pom.xml`, `VERSION.txt` and
+`src/main/resources/VERSION.txt` (served by `/status`).
 
 ## Testing
 
@@ -25,18 +47,20 @@ Integration tests automatically start a PostgreSQL container via Testcontainers 
 Docker 29+ compatibility is handled via `-Dapi.version=1.44` in the Maven plugin configuration (Docker 29 requires API version 1.44+).
 
 ```bash
-# Run all integration tests (no manual setup required)
-cd webapp
+# Run all tests (no manual setup required)
 mvn verify
 
-# Run integration tests only (skip unit tests)
-mvn failsafe:integration-test failsafe:verify
+# Run unit tests only (Maven Surefire, *Test.java; none exist yet, see below)
+mvn test
+
+# Build without running integration tests
+mvn install -DskipITs
 
 # Run a single test class
 mvn verify -Dit.test=StatusIT
 
 # Run a single test method
-mvn verify -Dit.test=DatasetUtf8LifecycleIT#getDatasetInfo_returnsValidStructure
+mvn verify -Dit.test=StatusIT#getStatus_returnsValidStructure
 ```
 
 To run tests against an external RowStore instance (skips Testcontainers):
@@ -45,7 +69,13 @@ To run tests against an external RowStore instance (skips Testcontainers):
 mvn verify -Drowstore.baseUrl=http://localhost:8282
 ```
 
-Test classes follow the `*IT.java` naming convention (Maven Failsafe).
+Tests that need direct database access (`BaseIntegrationTest.openDatabaseConnection()`) are skipped in that mode.
+
+Integration test classes follow the `*IT.java` naming convention (Maven Failsafe), unit tests `*Test.java` (Maven Surefire).
+`mvn test` runs only the Surefire unit tests; currently all tests are `*IT.java` integration tests, so it runs
+nothing yet (the first unit tests are added by a later change).
+Most ITs extend `BaseIntegrationTest` (shared environment from `RowStoreTestEnvironment`); ITs that need a
+differently configured server extend `ConfigurableTestBase` with a dedicated extension (e.g. `RateLimitExtension`).
 
 ### Test Specifications
 
@@ -54,52 +84,72 @@ Framework-agnostic test specifications are in `specs/tests/`. Each spec contains
 ## Architecture
 
 RowStore is a CSV-to-JSON pipeline with a REST query interface, storing tabular data in PostgreSQL's JSONB columns.
-
-### Module Structure
-
-- **webapp** - Core application (Restlet-based REST API, ETL pipeline, PostgreSQL storage)
-- **standalone/jetty** - Embedded Jetty server for standalone deployment
-- **standalone/common** - Shared standalone utilities
+It is a Spring Boot 3.5 application (Java 25, embedded Tomcat, virtual threads) built as a single Maven module that
+produces an executable JAR. See `specs/01-system-architecture.md` for the full architecture specification.
 
 ### Key Components
 
-**Application Layer** (`org.entrystore.rowstore`):
-- `RowStoreApplication` - Restlet application entry point, configures routes and filters
+All packages are below `org.entrystore.rowstore` in `src/main/java`.
 
-**Store Layer** (`org.entrystore.rowstore.store`):
+**Application** (`org.entrystore.rowstore`):
+- `RowStoreApplication` - Spring Boot entry point (`@SpringBootApplication`)
+
+**Configuration** (`config/`):
+- `RowStoreConfigLoader` - Bridges `rowstore.json` into Spring: loads the file and exposes it as a `RowStoreConfig` bean (not `application.properties`)
+- `DataSourceConfig` - Creates the primary and the read-only query `DataSource` programmatically from `rowstore.json` (`PGSimpleDataSource` by default, HikariCP when `connectionPoolMax` > 0) and runs Flyway migrations programmatically (Spring's DataSource and Flyway auto-configuration are disabled)
+- `CorsConfig` - CORS filter with origins from `cors.allowedorigins`
+- `RowStoreHealthIndicator` - Actuator health check (database connectivity, dataset count, active ETL processes)
+- `CustomErrorController` - Error responses for `/error`
+
+**REST Controllers** (`resources/`):
+- `DatasetController` - GET `/dataset/{id}` (query with column filters, JSON or HTML), PUT/POST (replace/append CSV), DELETE
+- `DatasetsController` - GET `/datasets` (list), POST (create from CSV)
+- `AliasController`, `DatasetInfoController`, `ExportController`, `StatusController`, `SwaggerController`, `WebGuiController`
+- `VersionInfo` - Reads `VERSION.txt` from the classpath
+- `resources/model/` - Typed response records (`StatusResponse`, `JvmStatusResponse`, `DatasetInfoResponse`, `DatasetAcceptedResponse`, `QueryResponse`)
+
+**Store Layer** (`store/`, implementations in `store/impl/`):
 - `RowStore` (interface) / `PgRowStore` (impl) - Main service facade
 - `Dataset` (interface) / `PgDataset` (impl) - Dataset operations (query, populate, aliases)
 - `Datasets` (interface) / `PgDatasets` (impl) - Dataset CRUD management
 - `RowStoreConfig` - JSON configuration parsing
+- `QueryResult` - Query result envelope
 
-**ETL Layer** (`org.entrystore.rowstore.etl`):
-- `EtlProcessor` - Queue-based async CSV processing with configurable concurrency
+**ETL Layer** (`etl/`):
+- `EtlProcessor` - Async CSV processing on virtual threads, concurrency limited by a `Semaphore` (`maxetlprocesses`)
 - `EtlResource` - ETL job wrapper
 - `EtlStatus` - Status constants (CREATED=0, ACCEPTED_DATA=1, PROCESSING=2, AVAILABLE=3, ERROR=4)
 
-**REST Resources** (`org.entrystore.rowstore.resources`):
-- `DatasetResource` - GET (query with column filters), PUT/POST (upload CSV), DELETE
-- `DatasetsResource` - GET (list), POST (create)
-- `AliasResource`, `DatasetInfoResource`, `ExportResource`, `StatusResource`
+**Filters** (`filters/`):
+- `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
+- `ApiKeyFilter` - No-op stub that passes all requests through; it performs no authentication
 
-**Filters** (`org.entrystore.rowstore.filters`):
-- `RateLimitFilter` - Request rate limiting (sliding window or average)
-- `JSCallbackFilter` - JSONP callback support
-- `ApiKeyFilter` - API key authentication
+**Utilities** (`util/`):
+- `DatasetUtil` - Dataset URL building, charset detection, regex heuristics and safety checks
+- `Hashing` - Hash helpers
+
+### Security Model
+
+RowStore does not authenticate requests. It is meant to run behind a reverse proxy, which is responsible for
+authentication and for restricting write access. CORS (`CorsConfig`) replaces the JSONP support of RowStore 1.x.
 
 ### Database Schema
 
-- `datasets` - Registry table (id UUID, status INT, created TIMESTAMP, data_table CHAR)
-- `aliases` - Alias lookup (dataset_id UUID, alias TEXT)
-- Per-dataset table - Rows stored as JSONB (rownr SERIAL, data JSONB)
+Registry tables are managed by Flyway (`src/main/resources/db/migration`):
+- `datasets` - Registry table (id UUID, status INT, created TIMESTAMP, data_table CHAR(37))
+- `aliases` - Alias lookup (id SERIAL, dataset_id UUID, alias TEXT)
+
+Per-dataset data tables (`data_<uuid without hyphens>`) are created at runtime by `PgDatasets.createDataTable()`:
+rows are stored as JSONB (`rownr BIGSERIAL PRIMARY KEY, data JSONB NOT NULL`). Tables created before 2.0 use
+`rownr SERIAL` and are not migrated.
 
 ### Query Processing
 
-Queries support regex matching (configurable: disabled/simple/full). Simple mode requires `^` prefix; full mode accepts any regex. Prefix query values with `~` to force regex interpretation.
+Queries support regex matching (configurable via `regexpqueries`: disabled/simple/full). Simple mode requires a `^` prefix; full mode detects regular expressions heuristically. In full mode, prefix query values with `~` to force regex interpretation.
 
 ### Configuration
 
-Set via `rowstore.json` or `ROWSTORE_CONFIG_URI` environment variable. Key settings: `baseurl`, `regexpqueries`, `maxetlprocesses`, `querytimeout`, `querymaxlimit`, `database`, `queryDatabase` (read replica), `ratelimit`.
+Set via `rowstore.json` (see resolution order above). Key settings: `baseurl`, `regexpqueries`, `maxetlprocesses`, `querytimeout`, `querymaxlimit`, `maxuploadsize`, `database`, `queryDatabase` (read replica), `cors`, `ratelimit`. See `specs/06-configuration.md` for all options.
 
 ## Specification Requirement IDs
 

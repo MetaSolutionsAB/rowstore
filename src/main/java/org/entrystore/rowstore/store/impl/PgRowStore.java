@@ -18,6 +18,7 @@ package org.entrystore.rowstore.store.impl;
 
 import jakarta.annotation.PreDestroy;
 import org.entrystore.rowstore.etl.EtlProcessor;
+import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.resources.VersionInfo;
 import org.entrystore.rowstore.store.Datasets;
 import org.entrystore.rowstore.store.RowStore;
@@ -25,12 +26,14 @@ import org.entrystore.rowstore.store.RowStoreConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.List;
 
 /**
  * A PostgreSQL-specific implementation of the RowStore interface.
@@ -71,7 +74,31 @@ public class PgRowStore implements RowStore {
 		this.queryJdbcTemplate = new JdbcTemplate(queryDatasource);
 
 		etlProcessor = new EtlProcessor(this);
+		resetInterruptedLoads();
 		log.info("Started RowStore {}", versionInfo.getVersion());
+	}
+
+	/**
+	 * Sets the status of all datasets in PROCESSING to ERROR. Called at startup: since a database must not be used
+	 * by more than one RowStore instance, such datasets were left behind by loads that were interrupted, e.g., by a
+	 * crash. Datasets in ACCEPTED_DATA are left untouched.
+	 *
+	 * @return Returns the IDs of the datasets that were reset.
+	 */
+	public List<String> resetInterruptedLoads() {
+		try {
+			List<String> ids = jdbcTemplate.queryForList(
+					"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE status = ? RETURNING id::text",
+					String.class, EtlStatus.ERROR, EtlStatus.PROCESSING);
+			if (!ids.isEmpty()) {
+				log.warn("Set status of {} dataset(s) from {} to {} because their loads were interrupted: {}",
+						ids.size(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.toString(EtlStatus.ERROR), ids);
+			}
+			return ids;
+		} catch (DataAccessException e) {
+			log.error("Unable to reset datasets with interrupted loads: {}", e.getMessage());
+			return List.of();
+		}
 	}
 
 	/**

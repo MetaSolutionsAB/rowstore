@@ -53,7 +53,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-3.08** [REMOVED] `exportpagesize` — Was never used by the export implementation. The key is ignored if present.
 
-> **CFG-3.09** `maxuploadsize` (long, default `104857600`) — Maximum CSV upload size in bytes (default 100 MB). Uploads exceeding this limit are rejected. Must be greater than 0. See [SEC-4.09](07-security.md#sec-4-input-validation).
+> **CFG-3.09** `maxuploadsize` (long, default `104857600`) — Maximum CSV upload size in bytes (default 100 MB). Uploads exceeding this limit are rejected. Must be greater than 0; there is no setting for unlimited uploads (RowStore 1.x had no limit), so set a large value instead. See [SEC-4.09](07-security.md#sec-4-input-validation).
 
 > **CFG-3.10** `cors.allowedorigins` (JSON array, default `["*"]`) — List of allowed origins for CORS. When set to `["*"]`, all origins are permitted. See [SEC-6.01](07-security.md#sec-6-cors).
 
@@ -72,7 +72,7 @@ Covers the JSON configuration file format, all application and database options,
 > | `user` | String | — | Database user (required) |
 > | `password` | String | — | Database password (required) |
 
-> **CFG-4.02** `ssl` (boolean, default `false`) — Enables SSL for the PostgreSQL connection. `true` sets the driver's `sslmode=require`, `false` sets `sslmode=disable` (instead of the pgjdbc default `prefer`), with and without connection pool.
+> **CFG-4.02** `ssl` (boolean, optional) — SSL for the PostgreSQL connection, with and without connection pool. `true` sets the driver's `sslmode=require`, `false` sets `sslmode=disable`. When `ssl` is not set, the pgjdbc default `sslmode=prefer` applies (SSL if the server offers it), as in RowStore 1.7.
 
 > **CFG-4.03** Connection pool settings (HikariCP):
 > - `connectionPoolInit` (int, default `-1`) — Minimum idle connections (`minimumIdle`). `-1` uses HikariCP defaults.
@@ -194,3 +194,4 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |
 | 2026-10-20 | Added CFG-1.02 (fail fast on invalid config), CFG-3.08 removed (exportpagesize unused); CFG-4.02, CFG-4.04, CFG-5.01 clarified for driver settings with HikariCP |
 | 2026-10-20 | Added CFG-3.11 (`trustedproxies`); CFG-1.02 and CFG-6.03 updated: `X-Forwarded-For` only from trusted proxies |
+| 2026-10-21 | CFG-4.02: sslmode prefer when `ssl` is not set (as in 1.7); CFG-3.09: no unlimited upload size |

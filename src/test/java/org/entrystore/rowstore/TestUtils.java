@@ -23,6 +23,11 @@ import io.restassured.specification.RequestSpecification;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.List;
 
@@ -214,6 +219,46 @@ public final class TestUtils {
                 .extract()
                 .jsonPath()
                 .getList("");
+    }
+
+    /**
+     * Looks up the name of a dataset's data table directly in the database.
+     */
+    public static String getDataTableName(Connection db, String datasetId) throws SQLException {
+        try (PreparedStatement ps = db.prepareStatement("SELECT data_table FROM datasets WHERE id = ?::uuid")) {
+            ps.setString(1, datasetId);
+            try (ResultSet rs = ps.executeQuery()) {
+                assertThat(rs.next()).as("Dataset %s should exist in the database", datasetId).isTrue();
+                return rs.getString(1).trim();
+            }
+        }
+    }
+
+    /**
+     * Renames a table to simulate a database failure on access: {@code hidden=true} makes the
+     * table unavailable under its name, {@code hidden=false} restores it.
+     */
+    public static void setTableHidden(Connection db, String table, boolean hidden) throws SQLException {
+        String from = hidden ? table : table + "_hidden";
+        String to = hidden ? table + "_hidden" : table;
+        try (Statement st = db.createStatement()) {
+            st.execute("ALTER TABLE " + from + " RENAME TO " + to);
+        }
+    }
+
+    /**
+     * Counts database backends (other than the calling one) whose current or last
+     * query references the given table. Used to detect leaked connections.
+     */
+    public static int countBackendsReferencing(Connection db, String table) throws SQLException {
+        try (PreparedStatement ps = db.prepareStatement(
+                "SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND query LIKE ?")) {
+            ps.setString(1, "%" + table + "%");
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
     }
 
     /**
