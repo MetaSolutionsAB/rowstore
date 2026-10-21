@@ -24,8 +24,12 @@ import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.List;
+
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Base class for RowStore integration tests.
@@ -78,6 +82,17 @@ public abstract class BaseIntegrationTest {
             return externalUrl;
         }
         return RowStoreTestEnvironment.getInstance().getBaseUrl();
+    }
+
+    /**
+     * Opens a JDBC connection to the test database. Tests using this are skipped
+     * when running against an external RowStore instance (no database access).
+     */
+    protected static Connection openDatabaseConnection() throws SQLException {
+        String externalUrl = System.getProperty("rowstore.baseUrl");
+        assumeTrue(externalUrl == null || externalUrl.isEmpty(),
+                "Database access is not available when running against an external RowStore");
+        return RowStoreTestEnvironment.getInstance().openDatabaseConnection();
     }
 
     protected byte[] loadTestData(String filename) {
