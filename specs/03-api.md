@@ -34,7 +34,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.05** `POST /dataset/{id}` — Appends CSV data to an existing dataset. Column structure must match. Returns 202 Accepted.
 
-> **API-3.06** `PUT /dataset/{id}` — Replaces all data in an existing dataset with new CSV data. Truncates the data table before loading. Returns 202 Accepted.
+> **API-3.06** `PUT /dataset/{id}` — Replaces all data in an existing dataset with new CSV data. The previous data is served until the new data has been loaded successfully and is kept if the load fails (see ETL-6.02, ETL-6.03). Returns 202 Accepted.
 
 > **API-3.07** `DELETE /dataset/{id}` — Deletes a dataset, its data table, and all aliases. Only permitted when status is AVAILABLE (3) or ERROR (4). Returns **204 No Content** on success, 423 Locked if dataset is still processing.
 
@@ -50,9 +50,18 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.10** `GET /dataset/{id}/export` — Exports the full dataset. Content negotiation determines format:
 > - `Accept: application/json` → JSON array, streamed, flushed every 10,000 rows
-> - `Accept: text/csv` → CSV file, multi-threaded writing, flushed every 10,000 rows
+> - `Accept: text/csv` → CSV file, streamed, flushed every 10,000 rows
 >
 > Sets `Content-Disposition` header with filename. Returns 404 if not found, 424 if status is CREATED.
+>
+> CSV rows have one cell per header column in header order; cells missing in a stored row are exported as empty values.
+> If the rows cannot be read from the database, 500 is returned. A CSV export also returns 500 if the dataset has rows but its column names
+> (taken from the first row) cannot be read, instead of exporting rows without cells; a dataset without rows is
+> exported with an empty header. A failure after streaming has started (status and
+> headers already sent) aborts the connection without completing the response, e.g. a JSON export lacks the closing `]`.
+> Exports have no overall time limit, as in 1.x: the async request timeout is disabled (`spring.mvc.async.request-timeout=-1`),
+> so slow clients or large datasets are not cut off after the servlet container's default of 30 seconds. A client that
+> makes no reading progress for the connector's `connectionTimeout` (Tomcat default 60 seconds) is disconnected.
 
 > **API-3.11** `GET /dataset/{id}/swagger` — Returns a dynamically generated OpenAPI specification for the dataset, with query parameters derived from column names and server configuration.
 
@@ -97,7 +106,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 > - **204 No Content** — Successful alias update or dataset deletion with no response body
 
 > **API-6.02** Client error statuses:
-> - **400 Bad Request** — Invalid parameters, empty filter values, non-numeric limit/offset, invalid alias format
+> - **400 Bad Request** — Invalid parameters, empty filter values, non-numeric limit/offset, invalid alias format, path parameters (`;` in the request path, [SEC-4.11](07-security.md#sec-4-input-validation))
 > - **404 Not Found** — Dataset or alias not found
 > - **415 Unsupported Media Type** — Non-CSV content type for upload endpoints
 
@@ -108,7 +117,9 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-6.04** Server error statuses:
 > - **500 Internal Server Error** — Unexpected server-side failure
-> - **503 Service Unavailable** — Query timeout exceeded (PostgreSQL SQL state `57014`)
+> - **503 Service Unavailable** — Query timeout exceeded (PostgreSQL SQL state `57014`), or the database is unavailable (API-6.05)
+
+> **API-6.05** A database connectivity failure (e.g., the database is unreachable) that occurs while handling a request, such as looking up a dataset, results in **503 Service Unavailable** with an empty body, not in 404. 404 is returned only if no dataset or alias with the given identifier exists or the identifier is not a valid UUID or alias. Other unexpected database errors result in 500. Streamed responses (export) whose status has already been sent are not affected.
 
 ## API-7 JSONP Support
 
@@ -126,7 +137,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 - No PATCH support for partial dataset updates
 - No bulk operations endpoint
-- No authentication on any endpoint (see [07-security.md](07-security.md))
+- No authentication in the application; the reverse proxy authenticates the private API (see [SEC-9](07-security.md#sec-9-reverse-proxy-contract))
 - No versioning in URL path (no `/v1/` prefix)
 - `_sort` parameter is recognized but not implemented
 
@@ -146,3 +157,5 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: JSONP removed, CORS added, DELETE returns 204, source references updated |
+| 2026-10-20 | API-6.05: database connectivity failures yield 503 instead of 404 |
+| 2026-10-20 | API-3.06: a replace keeps serving the previous data until it succeeds and keeps it if it fails |

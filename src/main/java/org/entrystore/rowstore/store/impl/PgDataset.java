@@ -27,6 +27,7 @@ import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.QueryResult;
 import org.entrystore.rowstore.store.RowStore;
+import org.entrystore.rowstore.store.RowStream;
 import org.entrystore.rowstore.util.DatasetUtil;
 import org.entrystore.rowstore.util.Hashing;
 import org.json.JSONException;
@@ -36,17 +37,21 @@ import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.Reader;
 import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Savepoint;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Date;
@@ -70,6 +75,8 @@ public class PgDataset implements Dataset {
 
 	private String id;
 
+	private String canonicalId;
+
 	private int status;
 
 	private Date created;
@@ -81,6 +88,28 @@ public class PgDataset implements Dataset {
 	private final Map<String, Integer> columnSize = new HashMap<>();
 
 	private final int maxSizeForIndex = 256;
+
+	/**
+	 * Delays between the attempts to write the final status of a load: six attempts over about 1.5 minutes.
+	 */
+	private long[] statusRetryDelaysMillis = {1000, 5000, 15000, 30000, 45000};
+
+	/**
+	 * Maximum time an attempt to lock the data table for a replace waits, except the last attempt, which waits
+	 * without a timeout, see lockDataTableForReplace().
+	 */
+	static final String SWAP_LOCK_TIMEOUT = "3s";
+
+	/**
+	 * Delays between the attempts to lock the data table for a replace: four attempts with a timeout and a last one
+	 * without. The delays are short because the load's transaction is idle meanwhile and holds its connection and ETL permit.
+	 */
+	private long[] swapRetryDelaysMillis = {1000, 2000, 5000, 5000};
+
+	/**
+	 * SQL state of a lock that could not be acquired within lock_timeout.
+	 */
+	private static final String LOCK_NOT_AVAILABLE = "55P03";
 
 	protected PgDataset(RowStore rowstore, String id) {
 		if (rowstore == null) {
@@ -116,6 +145,7 @@ public class PgDataset implements Dataset {
 		}
 		this.rowstore = rowstore;
 		this.id = id;
+		this.canonicalId = id;
 		this.status = status;
 		this.created = created;
 		this.dataTable = dataTable;
@@ -127,6 +157,14 @@ public class PgDataset implements Dataset {
 	@Override
 	public String getId() {
 		return id;
+	}
+
+	/**
+	 * @see Dataset#getCanonicalId()
+	 */
+	@Override
+	public String getCanonicalId() {
+		return canonicalId;
 	}
 
 	/**
@@ -144,19 +182,97 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public void setStatus(int status) {
+		try {
+			writeStatus(status);
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+		}
+	}
+
+	/**
+	 * Writes the status to the database. The status field is only updated if this succeeds, so that it is the last
+	 * status known to be stored.
+	 *
+	 * @throws DataAccessException If the status could not be written.
+	 */
+	private void writeStatus(int status) {
 		long before = System.currentTimeMillis();
 		try {
 			log.info("Setting status of {} to {}({})", getId(), EtlStatus.toString(status), status);
 			rowstore.getJdbcTemplate().update(
 					"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid",
 					status, id);
-		} catch (DataAccessException e) {
-			log.error(e.getMessage());
+			this.status = status;
 		} finally {
 			log.debug("Setting status took {} ms", System.currentTimeMillis() - before);
 		}
+	}
 
-		this.status = status;
+	/**
+	 * Writes the status to the database and retries with backoff if this fails, e.g., because the database is
+	 * temporarily unreachable. Used for the final status of a load, which must not be lost.
+	 *
+	 * @return Returns true if the status was written.
+	 */
+	private boolean writeStatusWithRetry(int status) {
+		for (int attempt = 0; ; attempt++) {
+			try {
+				writeStatus(status);
+				return true;
+			} catch (DataAccessException e) {
+				if (attempt >= statusRetryDelaysMillis.length) {
+					log.error("Giving up setting status of {} to {}({}) after {} attempts",
+							getId(), EtlStatus.toString(status), status, attempt + 1, e);
+					return false;
+				}
+				long delay = statusRetryDelaysMillis[attempt];
+				log.warn("Unable to set status of {} to {}({}), retrying in {} ms: {}",
+						getId(), EtlStatus.toString(status), status, delay, e.getMessage());
+				try {
+					Thread.sleep(delay);
+				} catch (InterruptedException ie) {
+					Thread.currentThread().interrupt();
+					log.error("Interrupted while retrying to set status of {} to {}({})", getId(), EtlStatus.toString(status), status);
+					return false;
+				}
+			}
+		}
+	}
+
+	/**
+	 * Sets the delays between the attempts to write the final status of a load. Intended for tests.
+	 */
+	void setStatusRetryDelays(long... delaysMillis) {
+		this.statusRetryDelaysMillis = delaysMillis.clone();
+	}
+
+	/**
+	 * Sets the status to PROCESSING with a conditional update. The caller must run the load as the dataset's
+	 * only job in this RowStore instance (see EtlProcessor), and a database must not be used by more than one
+	 * RowStore instance, so a dataset that already is in PROCESSING is stale (e.g., because a load was interrupted
+	 * by a database outage) and is taken over.
+	 *
+	 * @return Returns false if the dataset does not exist anymore, e.g., because it was deleted while its load was queued.
+	 * @throws DataAccessException If the status could not be written.
+	 */
+	private boolean markAsProcessing() {
+		int updated = rowstore.getJdbcTemplate().update(
+				"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid AND status <> ?",
+				EtlStatus.PROCESSING, id, EtlStatus.PROCESSING);
+		if (updated == 0) {
+			Integer count = rowstore.getJdbcTemplate().queryForObject(
+					"SELECT COUNT(*) FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", Integer.class, id);
+			if (count == null || count == 0) {
+				log.info("Dataset {} does not exist anymore, skipping its load", getId());
+				return false;
+			}
+			log.warn("Dataset {} is already in status {}({}) without an active load, taking it over",
+					getId(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.PROCESSING);
+		} else {
+			log.info("Setting status of {} to {}({})", getId(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.PROCESSING);
+		}
+		this.status = EtlStatus.PROCESSING;
+		return true;
 	}
 
 	/**
@@ -186,21 +302,27 @@ public class PgDataset implements Dataset {
 			throw new IllegalArgumentException("Argument must not be null");
 		}
 
-		String dataTable = getDataTable();
-		if (dataTable == null) {
-			log.error("Dataset has no data table assigned");
-			return false;
-		}
-
+		// The outcome is tracked locally: the final status must not depend on reading the status
+		// back from the database, which may be unreachable if the load failed because of an outage
+		boolean success = false;
+		boolean deleted = false;
 		try {
-			setStatus(EtlStatus.PROCESSING);
-
-			if (!append) {
-				if (!truncateTable()) {
-					setStatus(EtlStatus.ERROR);
-					return false;
-				}
+			String dataTable = getDataTable();
+			if (dataTable == null) {
+				log.error("Dataset has no data table assigned");
+				return false;
 			}
+
+			if (!markAsProcessing()) {
+				// there is no status to set for a deleted dataset
+				deleted = true;
+				return false;
+			}
+
+			// A replace loads into a shadow table, which replaces the data table at the end of the load in the same
+			// transaction. Until then, and if the load fails, queries and exports keep serving the previous data.
+			String targetTable = append ? dataTable : PgDatasets.shadowTableName(dataTable);
+			columnSize.clear();
 
 			Date before = new Date();
 			Connection conn = null;
@@ -222,7 +344,9 @@ public class PgDataset implements Dataset {
 							withQuoteChar('"').
 							build();
 				}
-				cr = new CSVReaderBuilder(Files.newBufferedReader(csvFile.toPath(), DatasetUtil.detectCharset(csvFile))).
+				LineTrackingReader lineReader = new LineTrackingReader(new InputStreamReader(
+						Files.newInputStream(csvFile.toPath()), DatasetUtil.detectCharset(csvFile).newDecoder()));
+				cr = new CSVReaderBuilder(lineReader).
 						withSkipLines(0).
 						withCSVParser(csvParser).
 						build();
@@ -232,8 +356,36 @@ public class PgDataset implements Dataset {
 
 				conn.setAutoCommit(false);
 
-				stmt = conn.prepareStatement("INSERT INTO " + dataTable + " (data) VALUES (?)");
-				while ((line = cr.readNext()) != null) {
+				if (!append) {
+					createShadowTable(conn, targetTable);
+				}
+
+				stmt = conn.prepareStatement("INSERT INTO " + targetTable + " (data) VALUES (?)");
+				long emptyLineNumber = 0;
+				while (true) {
+					long linesBefore = cr.getLinesRead();
+					line = cr.readNext();
+					long linesRead = cr.getLinesRead();
+					if (linesRead == linesBefore) {
+						// end of file
+						break;
+					}
+					// An empty line (outside a quoted value) is not a record. The parsers do not report it reliably:
+					// RFC4180Parser returns null, which is not the end of the file, and CSVParser returns the same
+					// record as for a quoted empty value. Therefore the line itself is checked.
+					if (line == null || (linesRead == linesBefore + 1 && lineReader.getLastLine().isEmpty())) {
+						if (emptyLineNumber == 0) {
+							emptyLineNumber = linesRead;
+						}
+						continue;
+					}
+					// empty lines are only allowed at the end of the file
+					if (emptyLineNumber > 0) {
+						log.error("Line {} of CSV is empty, but it is followed by further rows", emptyLineNumber);
+						log.info("Rolling back transaction");
+						conn.rollback();
+						return false;
+					}
 					if (lineCount == 0) {
 						// We convert all column names to lower case,
 						// otherwise all queries must be case sensitive later
@@ -268,7 +420,6 @@ public class PgDataset implements Dataset {
 							log.error("Error occured when processing line {} of CSV: {}", lineCount, line);
 							log.info("Rolling back transaction");
 							conn.rollback();
-							setStatus(EtlStatus.ERROR);
 							return false;
 						}
 						PGobject jsonb = new PGobject();
@@ -290,12 +441,24 @@ public class PgDataset implements Dataset {
 				log.debug("Executing: " + stmt);
 				stmt.executeBatch();
 
-				createIndexes(conn, labels);
+				if (append) {
+					createIndexes(conn, targetTable, labels);
+				} else {
+					List<String> shadowIndexes = createIndexes(conn, targetTable, labels);
+					// planner statistics for the new data, so that queries are planned well right after the swap
+					try (Statement analyzeStmt = conn.createStatement()) {
+						executeDdl(analyzeStmt, "ANALYZE " + targetTable);
+					}
+					if (!replaceDataTable(conn, targetTable, shadowIndexes)) {
+						log.info("Rolling back transaction");
+						conn.rollback();
+						return false;
+					}
+				}
 
 				// we commit the transaction and free the resources of the statement
 				conn.commit();
-
-				setStatus(EtlStatus.AVAILABLE);
+				success = true;
 			} catch (SQLException e) {
 				SqlExceptionLogUtil.error(log, e);
 				try {
@@ -306,7 +469,6 @@ public class PgDataset implements Dataset {
                 } catch (SQLException e1) {
 					SqlExceptionLogUtil.error(log, e1);
 				}
-				setStatus(EtlStatus.ERROR);
 				return false;
 			} catch (CsvValidationException e) {
 				log.error(e.getMessage());
@@ -316,7 +478,6 @@ public class PgDataset implements Dataset {
 				} catch (SQLException e1) {
 					SqlExceptionLogUtil.error(log, e1);
 				}
-				setStatus(EtlStatus.ERROR);
 				return false;
 			} finally {
 				if (cr != null) {
@@ -338,20 +499,25 @@ public class PgDataset implements Dataset {
 				log.debug("Populating dataset took " + (new Date().getTime() - before.getTime()) + " ms");
 			}
 		} finally {
-			if (getStatus() == EtlStatus.PROCESSING) {
-				// something has gone wrong if the status is still "processing"
-				// at this point, so we set it to "error", just in case
-				setStatus(EtlStatus.ERROR);
-				return false;
+			// Also reached by exceptions, which propagate to the caller after the status has been set
+			if (!deleted && !writeStatusWithRetry(success ? EtlStatus.AVAILABLE : EtlStatus.ERROR)) {
+				log.error("Dataset {} keeps its last known status {}({}) until it is loaded again{}", getId(),
+						EtlStatus.toString(status), status, status == EtlStatus.PROCESSING ? " or RowStore is restarted" : "");
 			}
 		}
 
-		return true;
+		return success;
 	}
 
-	private void createIndexes(Connection conn, Set<String> fields) throws SQLException {
+	/**
+	 * Creates an index for each field that has no index yet and whose values are not too large.
+	 *
+	 * @return Returns the names of the created indexes.
+	 */
+	private List<String> createIndexes(Connection conn, String table, Set<String> fields) throws SQLException {
 		long before = System.currentTimeMillis();
-		Set<String> existingIndices = getIndexNames();
+		List<String> createdIndexes = new ArrayList<>();
+		Set<String> existingIndices = getIndexNames(conn, table);
 		for (String field : fields) {
 			// We do not try to index fields that are too large as we would get an error from PostgreSQL
 			// TODO instead of just skipping the index we could run a fulltext-index on such fields
@@ -360,7 +526,7 @@ public class PgDataset implements Dataset {
 				log.warn("Skipping index creation for field \"" + field + "\"; the configured max field size is " + maxSizeForIndex + ", but the actual size is " + fieldSize);
 				continue;
 			}
-			String indexName = dataTable + "_jsonidx_" + Hashing.md5(field).substring(0, 8);
+			String indexName = table + "_jsonidx_" + Hashing.md5(field).substring(0, 8);
 			if (existingIndices.contains(indexName)) {
 				log.debug("Index with name " + indexName + " already exists, skipping creation");
 				continue;
@@ -371,13 +537,14 @@ public class PgDataset implements Dataset {
 			String sql = new StringBuilder("CREATE INDEX ").
 					append(indexName).
 					append(" ON ").
-					append(dataTable).
+					append(table).
 					append(" ((data->>'").
 					append(conn.unwrap(BaseConnection.class).escapeString(field)).
 					append("') text_pattern_ops)").
 					toString();
 			log.debug("Executing: " + sql);
 			try (Statement stmt = conn.createStatement()) { stmt.execute(sql); }
+			createdIndexes.add(indexName);
 		}
 		/*
 		The index below may be used for more advanced JSON-specific indexing
@@ -389,39 +556,172 @@ public class PgDataset implements Dataset {
 		*/
 
 		log.debug("Creating indexes took {} ms", System.currentTimeMillis() - before);
+		return createdIndexes;
 	}
 
-	private boolean truncateTable() {
-		long before = System.currentTimeMillis();
-		try (Connection conn = rowstore.getConnection();
-			 Statement stmt = conn.createStatement()) {
-			conn.setAutoCommit(false);
-
-			log.debug("Truncating contents of table " + dataTable);
-			String truncTable = "TRUNCATE " + dataTable;
-			stmt.executeUpdate(truncTable);
-			log.debug("Executing: " + truncTable);
-
-			log.debug("Removing all indexes from table " + dataTable);
-			Set<String> existingIndices = getIndexNames();
-			for (String index : existingIndices) {
-				String sql = "DROP INDEX IF EXISTS " + index;
-				log.debug("Executing: " + sql);
-				stmt.executeUpdate(sql);
-			}
-
-			conn.commit();
-		} catch (SQLException e) {
-			SqlExceptionLogUtil.error(log, e);
-			return false;
-		} finally {
-			log.debug("Truncating table took {} ms", System.currentTimeMillis() - before);
+	/**
+	 * Creates the shadow table for a replace, within the load's transaction. A shadow table is never committed under
+	 * its own name, but a table left behind under this name must not be loaded into, so it is dropped first.
+	 */
+	private void createShadowTable(Connection conn, String shadowTable) throws SQLException {
+		try (Statement stmt = conn.createStatement()) {
+			executeDdl(stmt, "DROP TABLE IF EXISTS " + shadowTable);
 		}
-
-		return true;
+		PgDatasets.createDataTable(conn, shadowTable);
 	}
 
-	private Set<String> getIndexNames() {
+	/**
+	 * Replaces the data table with the shadow table, within the load's transaction: drops the data table (with its
+	 * indexes and sequence) and renames the shadow table, its indexes, primary key and sequence to the names they
+	 * would have if they had been created for the data table, so that the next replace does not collide with them.
+	 * <p>
+	 * Only the owner and the table privileges are carried over (copyOwnerAndPrivileges). Everything else that was
+	 * added to the data table outside of RowStore is lost with the dropped table, e.g., manually created indexes,
+	 * triggers, comments, storage parameters, column privileges and the membership in publications that list the
+	 * table explicitly, and dependent objects such as views make the DROP fail (ETL-6.02). Keep this in mind before
+	 * relying on anything attached to a data table.
+	 *
+	 * @param shadowIndexes The names of the indexes created for the shadow table.
+	 * @return Returns false if interrupted while waiting to lock the data table, see {@link #lockDataTableForReplace(Connection)}.
+	 */
+	private boolean replaceDataTable(Connection conn, String shadowTable, List<String> shadowIndexes) throws SQLException {
+		long before = System.currentTimeMillis();
+		try {
+			if (!lockDataTableForReplace(conn)) {
+				return false;
+			}
+			try (Statement stmt = conn.createStatement()) {
+				copyOwnerAndPrivileges(conn, stmt, shadowTable);
+				executeDdl(stmt, "DROP TABLE " + dataTable);
+				executeDdl(stmt, "ALTER TABLE " + shadowTable + " RENAME TO " + dataTable);
+				for (String index : shadowIndexes) {
+					executeDdl(stmt, "ALTER INDEX " + index + " RENAME TO " + dataTable + index.substring(shadowTable.length()));
+				}
+				// PostgreSQL chooses the names of the primary key and the sequence, which may have a numeric suffix
+				String primaryKey = queryForIdentifier(conn, "SELECT quote_ident(conname) FROM pg_constraint " +
+						"WHERE conrelid = '" + dataTable + "'::regclass AND contype = 'p'");
+				executeDdl(stmt, "ALTER TABLE " + dataTable + " RENAME CONSTRAINT " + primaryKey + " TO " + dataTable + "_pkey");
+				String sequence = queryForIdentifier(conn, "SELECT pg_get_serial_sequence('" + dataTable + "', 'rownr')");
+				executeDdl(stmt, "ALTER SEQUENCE " + sequence + " RENAME TO " + dataTable + "_rownr_seq");
+			}
+			return true;
+		} finally {
+			log.debug("Replacing data table took {} ms", System.currentTimeMillis() - before);
+		}
+	}
+
+	/**
+	 * Gives the shadow table the owner and the table privileges of the data table, which would otherwise be lost when
+	 * the shadow table replaces the data table (e.g., SELECT granted to a separate user of a read replica).
+	 */
+	private void copyOwnerAndPrivileges(Connection conn, Statement stmt, String shadowTable) throws SQLException {
+		List<String> owner = queryForStrings(conn, "SELECT quote_ident(pg_get_userbyid(d.relowner)) " +
+				"FROM pg_class d, pg_class s WHERE d.oid = '" + dataTable + "'::regclass " +
+				"AND s.oid = '" + shadowTable + "'::regclass AND d.relowner <> s.relowner");
+		for (String o : owner) {
+			executeDdl(stmt, "ALTER TABLE " + shadowTable + " OWNER TO " + o);
+		}
+		// Without explicit privileges (NULL ACL), both tables have the default privileges. Otherwise the privileges
+		// are copied exactly: all privileges of the shadow table are revoked (including the owner's and those from
+		// default privileges), and every recorded privilege is granted, including the owner's own, so that
+		// privileges the owner revoked from itself stay revoked
+		List<String> statements = queryForStrings(conn, "SELECT DISTINCT 'REVOKE ALL ON " + shadowTable + " FROM ' || " +
+				"CASE WHEN g = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(g)) END || ' CASCADE' " +
+				"FROM (SELECT 0::oid AS g UNION SELECT relowner FROM pg_class WHERE oid = '" + shadowTable + "'::regclass " +
+				"UNION SELECT a.grantee FROM pg_class s CROSS JOIN LATERAL aclexplode(s.relacl) a " +
+				"WHERE s.oid = '" + shadowTable + "'::regclass) g " +
+				"WHERE (SELECT relacl IS NOT NULL FROM pg_class WHERE oid = '" + dataTable + "'::regclass)");
+		statements.addAll(queryForStrings(conn, "SELECT 'GRANT ' || a.privilege_type || ' ON " + shadowTable + " TO ' || " +
+				"CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END || " +
+				"CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END " +
+				"FROM pg_class d CROSS JOIN LATERAL aclexplode(d.relacl) a " +
+				"WHERE d.oid = '" + dataTable + "'::regclass"));
+		for (String statement : statements) {
+			executeDdl(stmt, statement);
+		}
+	}
+
+	/**
+	 * Locks the data table exclusively for replacing it, within the load's transaction. The lock has to wait for
+	 * readers of the data table, e.g., a long streaming export, and while it waits, it blocks new queries of the
+	 * data table. Therefore the first attempts wait at most {@link #SWAP_LOCK_TIMEOUT} each and are retried after a
+	 * delay, so that queries are not blocked for longer than that at a time. The last attempt waits without a
+	 * timeout, so that a replace eventually succeeds even if the data table is read for a long time (e.g., by a
+	 * backup); meanwhile new queries of the data table wait as well.
+	 *
+	 * After the lock has been acquired, the attempt's lock_timeout stays in force until the end of the transaction.
+	 * This is harmless, since the remaining statements only touch the locked data table, objects that depend on it,
+	 * and the shadow table, which was created in the same transaction.
+	 *
+	 * @return Returns true if the lock was acquired, false if interrupted while waiting for the next attempt.
+	 * @throws SQLException If locking failed for another reason than a lock timeout of an attempt with a timeout.
+	 */
+	boolean lockDataTableForReplace(Connection conn) throws SQLException {
+		// The transaction is idle during the delays between the attempts, so that an idle_in_transaction_session_timeout
+		// configured for the database user would end it. Set before the first savepoint, so that rolling back an
+		// attempt does not revert it; applies to this transaction only.
+		try (Statement stmt = conn.createStatement()) {
+			executeDdl(stmt, "SET LOCAL idle_in_transaction_session_timeout = 0");
+		}
+		for (int attempt = 0; ; attempt++) {
+			boolean lastAttempt = attempt >= swapRetryDelaysMillis.length;
+			Savepoint savepoint = conn.setSavepoint();
+			try (Statement stmt = conn.createStatement()) {
+				executeDdl(stmt, "SET LOCAL lock_timeout = '" + (lastAttempt ? "0" : SWAP_LOCK_TIMEOUT) + "'");
+				executeDdl(stmt, "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
+				return true;
+			} catch (SQLException e) {
+				if (lastAttempt || !LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+					throw e;
+				}
+				// also reverts SET LOCAL
+				conn.rollback(savepoint);
+			}
+			long delay = swapRetryDelaysMillis[attempt];
+			log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to replace it in {} ms{}",
+					dataTable, getId(), delay, attempt == swapRetryDelaysMillis.length - 1 ? " without a lock timeout" : "");
+			try {
+				Thread.sleep(delay);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				log.error("Interrupted while waiting to replace data table {} of dataset {}", dataTable, getId());
+				return false;
+			}
+		}
+	}
+
+	/**
+	 * Sets the delays between the attempts to lock the data table for a replace. Intended for tests.
+	 */
+	void setSwapRetryDelays(long... delaysMillis) {
+		this.swapRetryDelaysMillis = delaysMillis.clone();
+	}
+
+	private static void executeDdl(Statement stmt, String sql) throws SQLException {
+		log.debug("Executing: " + sql);
+		stmt.execute(sql);
+	}
+
+	private static List<String> queryForStrings(Connection conn, String sql) throws SQLException {
+		List<String> result = new ArrayList<>();
+		try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
+			while (rs.next()) {
+				result.add(rs.getString(1));
+			}
+		}
+		return result;
+	}
+
+	private static String queryForIdentifier(Connection conn, String sql) throws SQLException {
+		try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
+			if (!rs.next() || rs.getString(1) == null) {
+				throw new SQLException("No result for: " + sql);
+			}
+			return rs.getString(1);
+		}
+	}
+
+	private Set<String> getIndexNames(Connection conn, String table) throws SQLException {
 		long before = System.currentTimeMillis();
 		String sql = "SELECT ci.relname AS indexname " +
 				"FROM pg_index i, pg_class ci, pg_class ct " +
@@ -429,11 +729,15 @@ public class PgDataset implements Dataset {
 				"i.indrelid = ct.oid AND " +
 				"ct.relname = ? AND " +
 				"ci.relname LIKE '%_jsonidx_%'";
-		try {
-			return new HashSet<>(rowstore.getJdbcTemplate().queryForList(sql, String.class, dataTable));
-		} catch (DataAccessException e) {
-			log.error(e.getMessage());
-			return new HashSet<>();
+		try (PreparedStatement ps = conn.prepareStatement(sql)) {
+			ps.setString(1, table);
+			Set<String> result = new HashSet<>();
+			try (ResultSet rs = ps.executeQuery()) {
+				while (rs.next()) {
+					result.add(rs.getString(1));
+				}
+			}
+			return result;
 		} finally {
 			log.debug("Fetching index names took {} ms", System.currentTimeMillis() - before);
 		}
@@ -543,17 +847,22 @@ public class PgDataset implements Dataset {
 		return new QueryResult(result, limit, offset, resultCount, queryTime);
 	}
 
-	public ResultSet streamAll() {
-		Connection conn = null;
+	/**
+	 * @see Dataset#streamAll()
+	 */
+	@Override
+	public RowStream streamAll() throws SQLException {
+		Connection conn = rowstore.getQueryConnection();
+		PreparedStatement stmt = null;
 		try {
-			conn = rowstore.getQueryConnection();
+			// cursor-based fetching (instead of loading all rows into memory) requires a transaction
 			conn.setAutoCommit(false);
-			PreparedStatement stmnt = conn.prepareStatement("SELECT data FROM " + getDataTable(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-			stmnt.setFetchSize(1000);
-			return stmnt.executeQuery();
-		} catch (SQLException e) {
-			log.warn(e.getMessage());
-			return null;
+			stmt = conn.prepareStatement("SELECT data FROM " + getDataTable(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+			stmt.setFetchSize(1000);
+			return new RowStream(conn, stmt, stmt.executeQuery());
+		} catch (SQLException | RuntimeException e) {
+			new RowStream(conn, stmt, null).close();
+			throw e;
 		}
 	}
 
@@ -581,6 +890,10 @@ public class PgDataset implements Dataset {
 
 	/**
 	 * Initializes the object by loading all information from the database.
+	 *
+	 * @throws IllegalStateException If there is no dataset with this ID.
+	 * @throws IllegalArgumentException If the ID is not a valid UUID.
+	 * @throws DataAccessException If the database could not be queried, e.g., because it is unreachable.
 	 */
 	private void initFromDb() {
 		long before = System.currentTimeMillis();
@@ -588,6 +901,7 @@ public class PgDataset implements Dataset {
 			log.debug("Loading dataset {} from database", getId());
 			Map<String, Object> row = rowstore.getJdbcTemplate().queryForMap(
 					"SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", getId());
+			this.canonicalId = row.get("id").toString();
 			this.status = (int) row.get("status");
 			this.created = (java.sql.Timestamp) row.get("created");
 			String loadedTable = (String) row.get("data_table");
@@ -600,14 +914,19 @@ public class PgDataset implements Dataset {
 			throw new IllegalStateException("Unable to initialize Dataset object from database");
 		} catch (DataAccessException e) {
 			Throwable cause = e.getCause();
-			if (cause instanceof SQLException se) {
-				if (!"22P02".equalsIgnoreCase(se.getSQLState())) {
-					SqlExceptionLogUtil.error(log, se);
-				} else {
-					log.info(se.getMessage().replaceFirst("ERROR: ", ""));
-				}
+			if (cause instanceof SQLException se && "22P02".equalsIgnoreCase(se.getSQLState())) {
+				// invalid UUID input, treated like an unknown dataset
+				log.info(se.getMessage().replaceFirst("ERROR: ", ""));
+				throw new IllegalArgumentException(e);
 			}
-			throw new IllegalArgumentException(e);
+			// any other failure must not be mistaken for an unknown dataset; connectivity failures
+			// (DataAccessResourceFailureException) are mapped to 503 by DatabaseExceptionHandler
+			if (cause instanceof SQLException se) {
+				SqlExceptionLogUtil.error(log, se);
+			} else {
+				log.error(e.getMessage());
+			}
+			throw e;
 		} finally {
 			log.debug("Loading dataset took {} ms", System.currentTimeMillis() - before);
 		}
@@ -718,6 +1037,11 @@ public class PgDataset implements Dataset {
 					"SELECT dataset_id FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?",
 					(rs, rowNum) -> (UUID) rs.getObject("dataset_id"), alias);
 			return results.isEmpty() ? null : results.get(0).toString();
+		} catch (DataAccessResourceFailureException e) {
+			// An unreachable database must not be mistaken for an unknown alias (mapped to 503). Unlike in
+			// initFromDb(), other failures are still treated as an unknown alias because the alias is
+			// unvalidated user input, which may be rejected by the database (e.g., invalid byte sequences).
+			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 			return null;
@@ -794,6 +1118,29 @@ public class PgDataset implements Dataset {
 			}
 		}
 		return result;
+	}
+
+	/**
+	 * Remembers the last line that was read, so that empty lines can be detected.
+	 */
+	private static final class LineTrackingReader extends BufferedReader {
+
+		private String lastLine;
+
+		LineTrackingReader(Reader in) {
+			super(in);
+		}
+
+		@Override
+		public String readLine() throws IOException {
+			lastLine = super.readLine();
+			return lastLine;
+		}
+
+		String getLastLine() {
+			return lastLine;
+		}
+
 	}
 
 }

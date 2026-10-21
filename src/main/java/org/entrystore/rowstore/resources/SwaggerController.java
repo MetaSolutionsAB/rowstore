@@ -112,12 +112,13 @@ public class SwaggerController {
 
 		URI base = URI.create(rowStore.getConfig().getBaseURL());
 
+		// Literal replacement: replaceAll() would interpret backslashes and dollar signs in the values
 		String result = swaggerTemplate.
-				replaceAll("__ROWSTORE_VERSION__", versionInfo.getVersion()).
-				replaceAll("__HOST__", base.getHost()).
-				replaceAll("__BASEPATH__", base.getPath()).
-				replaceAll("__DATASET_ID__", dataset.getId()).
-				replaceAll("__DATASET_PARAMETERS__", apiParams.toString());
+				replace("__ROWSTORE_VERSION__", versionInfo.getVersion()).
+				replace("__HOST__", base.getHost()).
+				replace("__BASEPATH__", base.getPath()).
+				replace("__DATASET_ID__", dataset.getId()).
+				replace("__DATASET_PARAMETERS__", apiParams.toString());
 
 		return ResponseEntity.ok(result);
 	}

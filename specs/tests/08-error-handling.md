@@ -176,6 +176,27 @@ Note: UUID-like aliases might be rejected to prevent confusion with actual datas
 **Expected Response:**
 - Status: `404`
 
+## Path Parameters
+
+### TC-ERROR-017: Request paths with path parameters (;) are rejected with 400
+
+**Request (one per case, URL not encoded by the client):**
+- Method: `GET`
+- URL: `/v3;x/api-docs`, `/status;x?jvm`, `/status;x`, `/swagger-ui;x/index.html`, `/actuator;x/health`, `/actuator/health;x`, `/datasets;a`, `/;x`
+
+**Expected Response:**
+- Status: `400` (before SEC-4.11 these were served like the paths without `;...`)
+
+### TC-ERROR-018: Dataset paths with path parameters are rejected, other requests are unaffected
+
+**Setup:** An available dataset.
+
+**Assertions:**
+1. `GET /dataset/{id};x`, `GET /dataset/{id};1/info` and `DELETE /dataset/{id};x` return `400`
+2. `GET /dataset/{id}` and `GET /dataset/{id}/info` return `200`
+3. `GET /dataset/{id}?Name=a;b` returns `200` (`;` in the query string is not a path parameter)
+4. `GET /dataset/{id}%3Bx` returns `404` (encoded `;` is not a delimiter, the ID does not exist)
+
 ## Corrupt CSV Error Handling
 
 These tests are in `DatasetCorruptIT.java`.

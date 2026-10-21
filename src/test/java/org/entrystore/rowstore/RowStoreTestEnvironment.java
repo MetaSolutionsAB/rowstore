@@ -27,6 +27,9 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 
 /**
  * Manages the test environment for RowStore integration tests.
@@ -132,6 +135,42 @@ public class RowStoreTestEnvironment {
      */
     public String getBaseUrl() {
         return "http://localhost:" + serverPort;
+    }
+
+    /**
+     * Opens a JDBC connection to the PostgreSQL container, for tests that need to
+     * inspect the database schema directly. The caller must close the connection.
+     */
+    public Connection openDatabaseConnection() throws SQLException {
+        if (!started) {
+            throw new IllegalStateException("Test environment is not started");
+        }
+        return DriverManager.getConnection(postgresContainer.getJdbcUrl(),
+                postgresContainer.getUsername(), postgresContainer.getPassword());
+    }
+
+    /**
+     * Opens a JDBC connection to the maintenance database "postgres" of the PostgreSQL container, for tests that
+     * administer the test database (some statements cannot be run on the database the session is connected to).
+     * The caller must close the connection.
+     */
+    public Connection openMaintenanceDatabaseConnection() throws SQLException {
+        if (!started) {
+            throw new IllegalStateException("Test environment is not started");
+        }
+        String url = "jdbc:postgresql://" + postgresContainer.getHost() + ":" +
+                postgresContainer.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + "/postgres";
+        return DriverManager.getConnection(url, postgresContainer.getUsername(), postgresContainer.getPassword());
+    }
+
+    /**
+     * Returns a bean of the running RowStore application, for tests that need to call into it directly.
+     */
+    public <T> T getBean(Class<T> type) {
+        if (!started) {
+            throw new IllegalStateException("Test environment is not started");
+        }
+        return applicationContext.getBean(type);
     }
 
     /**

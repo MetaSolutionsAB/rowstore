@@ -65,11 +65,12 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 > **DOM-4.03** Each dataset gets a dedicated **data table**:
 > ```sql
 > CREATE TABLE IF NOT EXISTS data_<uuid_no_hyphens> (
->     rownr SERIAL PRIMARY KEY,
+>     rownr BIGSERIAL PRIMARY KEY,
 >     data JSONB NOT NULL
 > )
 > ```
 > The table name is `data_` followed by the dataset UUID with hyphens removed (32 hex characters), yielding a 37-character table name.
+> Tables created before 2.0 use `rownr SERIAL` (32-bit); they are not migrated at upgrade, but a data table becomes `BIGSERIAL` on its first replace (PUT) after the upgrade, since a replace loads into a newly created table (ETL-6.02).
 
 ## DOM-5 Index Strategy
 
@@ -86,6 +87,8 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 ## DOM-6 Data Table Naming Convention
 
 > **DOM-6.01** Data table names follow the pattern `data_` + UUID with hyphens removed. For example, dataset `550e8400-e29b-41d4-a716-446655440000` gets data table `data_550e8400e29b41d4a716446655440000`.
+
+> **DOM-6.02** A replace loads into a shadow table named after the data table with the suffix `_new` (pattern `data_[a-f0-9]{32}_new`, validated separately from the data table pattern `data_[a-f0-9]{32}`). The shadow table is renamed to the data table at the end of a successful replace; its name is never stored in `datasets.data_table`. See [ETL-6.02](04-etl-pipeline.md#etl-6-append-vs-replace).
 
 ## DOM-7 JSON-LD Output
 
@@ -124,3 +127,4 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated source references for Spring Boot migration |
+| 2026-10-20 | Shadow table naming for replaces (DOM-6.02); pre-2.0 SERIAL data tables become BIGSERIAL on their first replace (DOM-4.03) |

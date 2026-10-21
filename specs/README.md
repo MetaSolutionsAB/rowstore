@@ -115,7 +115,7 @@ Current limitations relevant to this area.
 | ARCH-4.01 | Single Maven module — executable JAR |
 | ARCH-4.02 | [REMOVED] standalone/jetty — replaced by Spring Boot embedded server |
 | ARCH-4.03 | [REMOVED] standalone/common — replaced by Spring Boot embedded server |
-| ARCH-5.01 | Filter chain: CorsFilter → ApiKeyFilter → RateLimitFilter → DispatcherServlet → Controllers |
+| ARCH-5.01 | Filter chain: PathParameterFilter → CorsFilter → TrustedProxyFilter → RateLimitFilter → DispatcherServlet → Controllers |
 | ARCH-5.02 | Read path: GET → controller → PgDataset.query → PostgreSQL |
 | ARCH-5.03 | Write path: POST CSV → temp file → EtlProcessor.submit → virtual thread → PgDataset.populate |
 | ARCH-6.01 | Why JSONB (schemaless, per-column indexing) |
@@ -141,6 +141,7 @@ Current limitations relevant to this area.
 | DOM-5.02 | MD5-hashed index names |
 | DOM-5.03 | Fields > 256 chars not indexed |
 | DOM-6.01 | Data table naming: data_ + UUID without hyphens |
+| DOM-6.02 | Shadow table naming: data table + _new, separate strict pattern, never stored |
 | DOM-7.01 | JSON-LD output with @context and @id |
 
 ### API — REST API
@@ -173,6 +174,7 @@ Current limitations relevant to this area.
 | API-6.02 | Client errors: 400, 404, 415 |
 | API-6.03 | Constraints: 423, 424, 429 |
 | API-6.04 | Server errors: 500, 503 |
+| API-6.05 | Database connectivity failure → 503, not 404 |
 | API-7.01 | [REMOVED] _callback wraps JSON in function call — JSONP removed |
 | API-8.01 | Server header: RowStore |
 | API-9.01 | Per-dataset OpenAPI spec from column names |
@@ -190,13 +192,25 @@ Current limitations relevant to this area.
 | ETL-4.02 | Separator detection: semicolon if consistent in first 2 lines, else comma |
 | ETL-4.03 | Parser: RFC4180Parser (default) or CSVParser (legacy) |
 | ETL-4.04 | Column names: lowercase, trimmed, empty skipped |
+| ETL-4.05 | Empty lines: trailing ignored, otherwise the load fails (line number logged), both parsers alike |
 | ETL-5.01 | Batch insert every 200 rows, rollback on error |
 | ETL-6.01 | POST = append (validates column match) |
-| ETL-6.02 | PUT = truncate + reload |
+| ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate); owner and privileges kept |
+| ETL-6.03 | Replace status: PROCESSING, AVAILABLE or ERROR; previous data served until replaced and kept on failure |
+| ETL-6.04 | Swap lock: four 3 s lock_timeout probes with short delays, then an unbounded wait; timeouts to configure; replica query cancellation |
+| ETL-6.05 | Leftover shadow tables dropped at next replace, on delete and at startup |
 | ETL-7.01 | text_pattern_ops index per column, escapeString for DDL |
 | ETL-7.02 | Skip index for fields > 256 chars |
-| ETL-8.01 | Concurrency: Semaphore + AtomicInteger, busy-wait if PROCESSING |
-| ETL-9.01 | Temp file: deleteOnExit + explicit deletion |
+| ETL-8.01 | [REMOVED] Busy-wait if PROCESSING — superseded by ETL-8.02 to ETL-8.07 |
+| ETL-8.02 | Per-dataset job queue (canonical ID): one job at a time per dataset, in submission order |
+| ETL-8.03 | Replace discards queued (not started) loads of the same dataset |
+| ETL-8.04 | Semaphore permit only for the next job of a dataset; activeEtlProcesses counts running jobs |
+| ETL-8.05 | Stale PROCESSING taken over via conditional UPDATE (one instance per database) |
+| ETL-8.06 | Startup reset: PROCESSING → ERROR, ACCEPTED_DATA untouched |
+| ETL-8.07 | Error in a job: remaining queued jobs of the dataset discarded, new worker for later jobs |
+| ETL-9.01 | Temp file: deleteOnExit + explicit deletion (after load, on discard, on early failure) |
+| ETL-10.01 | Final status from locally tracked outcome; exceptions logged with stack trace |
+| ETL-10.02 | Final status write retried with backoff (96 s of delays plus connection timeouts) |
 
 ### QUERY — Query Processing
 
@@ -227,6 +241,7 @@ Current limitations relevant to this area.
 | ID | Description |
 |----|-------------|
 | CFG-1.01 | JSON configuration file format |
+| CFG-1.02 | Startup fails on invalid config; error names the offending key |
 | CFG-2.01 | Resolution: Spring property → env var → classpath |
 | CFG-2.02 | Schemes: file, http, https |
 | CFG-3.01 | baseurl (String, required) |
@@ -236,14 +251,15 @@ Current limitations relevant to this area.
 | CFG-3.05 | legacyparser (boolean, default false) |
 | CFG-3.06 | querytimeout (int seconds, default -1) |
 | CFG-3.07 | querymaxlimit (int, default 100) |
-| CFG-3.08 | exportpagesize (int, default 100000) |
+| CFG-3.08 | [REMOVED] exportpagesize — never used, key ignored |
 | CFG-3.09 | maxuploadsize (long bytes, default 104857600) |
 | CFG-3.10 | cors.allowedorigins (JSON array, default ["*"]) |
+| CFG-3.11 | trustedproxies (IPs/CIDR ranges; default: trust the connecting peer; [] trusts nobody) |
 | CFG-4.01 | database object: type, host, port, database, user, password |
-| CFG-4.02 | ssl (boolean, default false) |
+| CFG-4.02 | ssl (boolean, optional) → sslmode require/disable, prefer when not set |
 | CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1) |
 | CFG-4.04 | socketTimeout (0), connectTimeout (5), loginTimeout (5) |
-| CFG-5.01 | queryDatabase (optional, falls back to database) |
+| CFG-5.01 | queryDatabase (optional, falls back to database, read-only) |
 | CFG-6.01 | ratelimit.type (slidingwindow/average) |
 | CFG-6.02 | ratelimit.timerange (seconds) |
 | CFG-6.03 | ratelimit.global, .dataset, .clientip (requests per timerange) |
@@ -260,8 +276,8 @@ Current limitations relevant to this area.
 
 | ID | Description |
 |----|-------------|
-| SEC-1.01 | ApiKeyFilter is a stub — always passes through |
-| SEC-1.02 | No authentication enforced |
+| SEC-1.01 | [REMOVED] ApiKeyFilter stub — deleted, authentication by reverse proxy |
+| SEC-1.02 | No authentication in the application; reverse proxy authenticates (SEC-9) |
 | SEC-2.01 | No RBAC, no user management, no access control |
 | SEC-3.01 | Prepared statements for all data queries |
 | SEC-3.02 | escapeString() for dynamic DDL |
@@ -275,13 +291,20 @@ Current limitations relevant to this area.
 | SEC-4.08 | ReDoS protection: isSafeRegex() validates length and pattern complexity |
 | SEC-4.09 | Upload size limit: maxuploadsize (default 100 MB) |
 | SEC-4.10 | Alias row locking: SELECT FOR UPDATE prevents concurrent modification |
+| SEC-4.11 | Path parameters (";" in the request path) rejected with 400 |
 | SEC-5.01 | Sliding window: Guava Cache, Retry-After header |
 | SEC-5.02 | Average: Guava RateLimiter, no Retry-After |
 | SEC-5.03 | Scopes: global, per-dataset, per-client-IP |
 | SEC-5.04 | GET/HEAD only; /status exempt; cache max 32768 |
+| SEC-5.05 | Client address: X-Forwarded-For only from trusted proxies; last entry by default, walked right to left with a list |
+| SEC-5.06 | Trusted proxy default: the connecting peer, last X-Forwarded-For entry; empty array trusts nobody |
 | SEC-6.01 | CORS: configurable allowed origins via cors.allowedorigins |
 | SEC-7.01 | [REMOVED] JSONP via _callback param — replaced by CORS |
 | SEC-8.01 | Temp files: deleteOnExit + explicit deletion |
+| SEC-9.01 | Always behind a reverse proxy, never directly reachable |
+| SEC-9.02 | Proxy authenticates all non-GET/HEAD requests |
+| SEC-9.03 | Proxy blocks /actuator/**, /swagger-ui*, /v3/api-docs*, /status?jvm (and `;` paths, defence in depth) |
+| SEC-9.04 | Proxy is the only X-Forwarded-For source (and listed in trustedproxies if set) |
 
 ### DEPL — Deployment
 
@@ -291,6 +314,7 @@ Current limitations relevant to this area.
 | DEPL-1.02 | Run: java -jar rowstore-\<version\>.jar --rowstore.config.uri=file:///path/to/config.json |
 | DEPL-1.03 | Spring Boot standard properties (--server.port, etc.) |
 | DEPL-1.04 | [REMOVED] HTTP/2 and useForwardedForHeader — Jetty-specific |
+| DEPL-1.05 | Reverse proxy required, contract in SEC-9 |
 | DEPL-2.01 | Docker image: metasolutions/rowstore |
 | DEPL-2.02 | Dockerfile in the RowStore repository |
 | DEPL-2.03 | Docker tags: version, major.minor, develop |

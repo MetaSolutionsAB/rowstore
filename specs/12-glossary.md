@@ -46,9 +46,9 @@ All terms specific to the RowStore domain. General programming or database terms
 
 > **GLO-1.18 Regex Mode** — The query matching strategy: `disabled` (exact match only), `simple` (regex only with `^` prefix), or `full` (heuristic detection plus `~` prefix override). See [QUERY-4](05-querying.md#query-4-regex-modes).
 
-> **GLO-1.19 Replace Mode** — CSV upload mode (via PUT) that truncates the existing data table and reloads from the new CSV. See [ETL-6.02](04-etl-pipeline.md#etl-6-append-vs-replace).
+> **GLO-1.19 Replace Mode** — CSV upload mode (via PUT) that replaces all rows of a dataset with the rows of the new CSV. The new CSV is loaded into a shadow table that replaces the data table only if the load succeeds; until then, and if it fails, the previous data is served. See [ETL-6.02](04-etl-pipeline.md#etl-6-append-vs-replace) and [ETL-6.03](04-etl-pipeline.md#etl-6-append-vs-replace).
 
-> **GLO-1.20 Row** — A single record within a dataset, stored as a JSONB object in the data table. Each row has a sequential `rownr` (serial primary key) and a `data` column containing the key-value pairs.
+> **GLO-1.20 Row** — A single record within a dataset, stored as a JSONB object in the data table. Each row has a sequential `rownr` (bigserial primary key) and a `data` column containing the key-value pairs.
 
 > **GLO-1.21 RowStore** — A CSV-to-JSON pipeline with a REST query interface. Accepts CSV uploads, processes them asynchronously, stores the data in PostgreSQL JSONB columns, and exposes it via a RESTful API.
 
@@ -71,3 +71,4 @@ All terms specific to the RowStore domain. General programming or database terms
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: JSONP removed, CORS added |
+| 2026-10-20 | GLO-1.19: replace mode loads into a shadow table instead of truncating |
