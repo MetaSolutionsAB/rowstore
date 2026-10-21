@@ -11,8 +11,8 @@ TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027 and TC-ETL-028 ar
 `PgDatasetPopulateTest`, `PgDatasetSwapLockTest`) that use fakes instead of a database. TC-ETL-010 to TC-ETL-014
 and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026 and TC-ETL-029 integration tests of
 replaces (`DatasetReplaceIT`). TC-ETL-030 is a unit test (`EtlProcessorTest`), TC-ETL-031 to TC-ETL-037,
-TC-ETL-045 and TC-ETL-046 are integration tests of the column name cleanup (`ColumnNameCleanupIT`), TC-ETL-038 to
-TC-ETL-044 unit tests of the cleaning rule (`ColumnNamesTest`), and TC-ETL-047 a unit test of the cleanup's stop
+TC-ETL-045, TC-ETL-046 and TC-ETL-049 are integration tests of the column name cleanup (`ColumnNameCleanupIT`),
+TC-ETL-038 to TC-ETL-044 and TC-ETL-048 unit tests of the cleaning rule (`ColumnNamesTest`), and TC-ETL-047 a unit test of the cleanup's stop
 condition (`PgRowStoreConnectionFailureTest`).
 
 ## Prerequisites
@@ -20,7 +20,7 @@ condition (`PgRowStoreConnectionFailureTest`).
 - Unit tests: none
 - Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013, TC-ETL-014, TC-ETL-020 to TC-ETL-026 and TC-ETL-029
   additionally require direct database access (superuser) and are skipped when testing an external instance; so do
-  TC-ETL-031 to TC-ETL-037, TC-ETL-045 and TC-ETL-046, which also call into the RowStore application (TC-ETL-035 additionally starts separate
+  TC-ETL-031 to TC-ETL-037, TC-ETL-045, TC-ETL-046 and TC-ETL-049, which also call into the RowStore application (TC-ETL-035 additionally starts separate
   RowStore instances on a separate database)
 
 ## Test Data
@@ -548,7 +548,6 @@ stored name with that parser yields the 2.0 name, and that cleaning it again cha
 | legacy | `"""a""b"""` | `<BOM>""a"b"` | `"a"b"` |
 | legacy | `""""` | `<BOM>""` | `"` |
 | legacy | `""""""` | `<BOM>"""` | `""` |
-| legacy | `""x""` | `<BOM>"x"` | `x"` |
 | legacy | `"x"""` | `<BOM>x"` | `x"` |
 | legacy | ` "x"`, `" x "` | `<BOM> x` | `x` |
 | legacy | `""` | `<BOM>"` | (empty) |
@@ -565,11 +564,15 @@ and `<BOM>"` (empty cleaned name) yield no result (skip).
 
 ### TC-ETL-042: Ambiguous stored column names are cleaned to the name of the more likely header
 
-Verified with the actual parsers as in TC-ETL-039, for the less likely raw header:
+Verified with the actual parsers as in TC-ETL-039, for the less likely raw header. `<BOM>"x"` stems from the plain
+quoted header `"x"` stored by the default parser in the common case. For the quote-only names, no header yields the
+cleaned name: the cleaned name has one quote less than the name of the header in 2.0; the empty name skips the
+dataset, `"` is accepted.
 
 | Parser | Less likely raw first label | Stored by 1.x | Cleaned name | Name of that header in 2.0 |
 |--------|-----------------------------|---------------|--------------|----------------------------|
 | default | `""x""` | `<BOM>"x"` | `x` | `"x"` |
+| legacy | `""x""` | `<BOM>"x"` | `x` | `x"` |
 | default | `""""` | `<BOM>""` | (empty) | `"` |
 | default | `""""""` | `<BOM>"""` | `"` | `""` |
 | legacy | `"x" ` | `<BOM>x"` | `x"` | `x` |
@@ -582,8 +585,9 @@ With both parsers: `na<SHY>mn`, `<SHY>namn`, `<U+2003>namn` and `<U+0001>namn` b
 ### TC-ETL-044: An append renames stored names to the labels they are cleaned to with exactly one candidate
 
 Names equal to the labels need no renames; `<BOM>"kopare_id"`, `na<SHY>mn` with the labels `kopare_id`, `namn` are
-renamed to them; `<BOM>"x"` with the labels `x"`, `namn` is renamed to `x"` (legacy parser's name). No result (append
-fails) if both candidates of a name are labels (`<BOM>"x"` with `x` and `x"`), if no candidate is a label, if the
+renamed to them; `<BOM>""x""` (`"x"` with the default parser, `"x""` with the legacy parser) is renamed to whichever
+of the two is a label. No result (append fails) if both candidates of a name are labels (`<BOM>""x""` with `"x"` and
+`"x""`), if no candidate is a label, if the
 numbers of names and labels differ, or if two names would get the same label.
 
 ### TC-ETL-047: Connection failures, also as causes, stop the column name cleanup, other failures do not
@@ -591,3 +595,25 @@ numbers of names and labels differ, or if two names would get the same label.
 `CannotGetJdbcConnectionException`, `SQLTransientConnectionException`, an `SQLException` with SQL state class 08, and
 such an exception as a cause (e.g., in a `CompletionException`) are connection failures; an `SQLException` with
 another SQL state, an `UncategorizedSQLException` with such a cause, and other exceptions are not.
+
+### TC-ETL-048: A plain quoted label stored by the default parser is unquoted also if the legacy parser is configured
+
+For the raw first labels `"kopare_id"`, `"a ""b"""`, `"a""b"` and `" x "`, the name stored by the default parser of 1.x
+(`<BOM>"kopare_id"`, `<BOM>"a "b""`, `<BOM>"a"b"`, `<BOM>" x "`, verified with the actual parser) is cleaned with the
+legacy parser configured to the name a fresh import with the legacy parser yields (`kopare_id`, `a "b"`, `a"b`, `x`).
+
+### TC-ETL-049: An index of a new name keeps its canonical name if an index of an old name had it, by the cleanup and by an append
+
+**Steps:**
+1. Verify that `field_<SHY>11246` and `field_100652` have the same first 8 hex digits of their MD5 (`3ef7c3b0`)
+2. Create two datasets from `field_11246,field_100652\na,b\nc,d\n`
+3. Rename `field_100652` to `field_<SHY>100652` and then `field_11246` to `field_<SHY>11246` in the first dataset (the
+   index of `field_<SHY>11246` now has the canonical index name of `field_100652`); invoke the cleanup
+4. Break the second dataset the same way; `POST /dataset/{id}` with `field_11246,field_100652\ne,f\n`
+
+**Assertions (both datasets):**
+1. The keys are `field_11246`, `field_100652`; the `_jsonidx_` indexes are exactly the canonical ones of these names
+   (no `_tmp` index left), and their definitions refer to the right column
+2. `?field_100652=d` returns `{field_11246: c, field_100652: d}`
+3. Without the temporary index name, the index of `field_100652` was not created (its name existed) and then dropped
+   with the index of the old name, leaving the column unindexed
