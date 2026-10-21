@@ -60,7 +60,7 @@ Covers the system from a structural and architectural perspective. For detailed 
 > HTTP Request (from the reverse proxy, see SEC-9)
 >   → PathParameterFilter (400 for ";" in the request path, SEC-4.11)
 >     → CorsFilter (CORS headers, preflight requests)
->       → TrustedProxyFilter (client address from X-Forwarded-For if the peer is a trusted proxy)
+>       → TrustedProxyFilter (client address from X-Forwarded-For if the peer is a trusted proxy, by default any peer)
 >         → RateLimitFilter (optional, if configured)
 >           → DispatcherServlet
 >             → Controller handler method
@@ -102,3 +102,4 @@ Covers the system from a structural and architectural perspective. For detailed 
 | 2026-02-09 | Updated for Spring Boot 3.5.10 migration (Java 25, Tomcat, HikariCP, Flyway, virtual threads) |
 | 2026-10-20 | ARCH-5.01: ApiKeyFilter removed, TrustedProxyFilter added, actual filter order documented |
 | 2026-10-20 | ARCH-5.01: PathParameterFilter added; CorsFilter moved before RateLimitFilter |
+| 2026-10-21 | ARCH-5.01: TrustedProxyFilter trusts the connecting peer by default |

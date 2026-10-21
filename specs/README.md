@@ -248,7 +248,7 @@ Current limitations relevant to this area.
 | CFG-3.08 | [REMOVED] exportpagesize — never used, key ignored |
 | CFG-3.09 | maxuploadsize (long bytes, default 104857600) |
 | CFG-3.10 | cors.allowedorigins (JSON array, default ["*"]) |
-| CFG-3.11 | trustedproxies (IPs/CIDR ranges, default private ranges, [] trusts nobody) |
+| CFG-3.11 | trustedproxies (IPs/CIDR ranges; default: trust the connecting peer; [] trusts nobody) |
 | CFG-4.01 | database object: type, host, port, database, user, password |
 | CFG-4.02 | ssl (boolean, optional) → sslmode require/disable, prefer when not set |
 | CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1) |
@@ -290,15 +290,15 @@ Current limitations relevant to this area.
 | SEC-5.02 | Average: Guava RateLimiter, no Retry-After |
 | SEC-5.03 | Scopes: global, per-dataset, per-client-IP |
 | SEC-5.04 | GET/HEAD only; /status exempt; cache max 32768 |
-| SEC-5.05 | Client address: X-Forwarded-For only from trusted proxies, walked right to left |
-| SEC-5.06 | Trusted proxy default: private ranges; empty array trusts nobody |
+| SEC-5.05 | Client address: X-Forwarded-For only from trusted proxies; last entry by default, walked right to left with a list |
+| SEC-5.06 | Trusted proxy default: the connecting peer, last X-Forwarded-For entry; empty array trusts nobody |
 | SEC-6.01 | CORS: configurable allowed origins via cors.allowedorigins |
 | SEC-7.01 | [REMOVED] JSONP via _callback param — replaced by CORS |
 | SEC-8.01 | Temp files: deleteOnExit + explicit deletion |
 | SEC-9.01 | Always behind a reverse proxy, never directly reachable |
 | SEC-9.02 | Proxy authenticates all non-GET/HEAD requests |
 | SEC-9.03 | Proxy blocks /actuator/**, /swagger-ui*, /v3/api-docs*, /status?jvm (and `;` paths, defence in depth) |
-| SEC-9.04 | Proxy is the only X-Forwarded-For source and listed in trustedproxies |
+| SEC-9.04 | Proxy is the only X-Forwarded-For source (and listed in trustedproxies if set) |
 
 ### DEPL — Deployment
 

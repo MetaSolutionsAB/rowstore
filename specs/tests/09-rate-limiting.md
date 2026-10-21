@@ -150,9 +150,15 @@ Rate limiting must be enabled in `rowstore.json`:
 
 | `trustedproxies` | Peer | `X-Forwarded-For` | Remote address |
 |---|---|---|---|
-| default | 127.0.0.1, 10.1.2.3, 172.31.0.1, ::1 | `203.0.113.7` | `203.0.113.7` |
-| default | fd00::5 | `2001:db8::1` | `2001:db8::1` |
-| default | 172.32.0.1, 198.51.100.1 (not private) | `203.0.113.7` | peer |
+| not set | 127.0.0.1, 198.51.100.1 (any peer) | `203.0.113.7` | `203.0.113.7` |
+| not set | 10.1.2.3 | `6.6.6.6, 203.0.113.7` | `203.0.113.7` |
+| not set | 10.1.2.3 | `6.6.6.6, 10.9.8.7` (private last entry is not skipped) | `10.9.8.7` |
+| not set | 127.0.0.1 | two header lines `6.6.6.6` and `203.0.113.7` | `203.0.113.7` |
+| not set | 127.0.0.1 | `6.6.6.6, localhost` (used as written, not resolved) | `localhost` |
+| not set | 127.0.0.1 | none, or only separators | 127.0.0.1 |
+| private ranges¹ | 127.0.0.1, 10.1.2.3, 172.31.0.1, ::1 | `203.0.113.7` | `203.0.113.7` |
+| private ranges¹ | fd00::5 | `2001:db8::1` | `2001:db8::1` |
+| private ranges¹ | 172.32.0.1, 198.51.100.1 (not private) | `203.0.113.7` | peer |
 | `[]` | 127.0.0.1 | `203.0.113.7` | 127.0.0.1 |
 | `["192.0.2.10"]` | 192.0.2.11 | `203.0.113.7` | 192.0.2.11 |
 | `["192.0.2.10"]` | 192.0.2.10 | `6.6.6.6, 203.0.113.7` | `203.0.113.7` |
@@ -160,10 +166,13 @@ Rate limiting must be enabled in `rowstore.json`:
 | `["192.0.2.10"]` | 192.0.2.10 | two header lines `6.6.6.6` and `203.0.113.7` | `203.0.113.7` |
 | `["192.0.2.0/24"]` | 192.0.2.10 | `192.0.2.30, 192.0.2.20` (all trusted) | `192.0.2.30` (leftmost) |
 | `["192.0.2.10"]` | 192.0.2.10 | `unknown` | `unknown` |
-| default | 127.0.0.1 | `6.6.6.6, localhost` (host name not resolved) | `localhost` |
-| default | 127.0.0.1 | `::1%zz`, `203.0.113.9, ::1%zz`, `203.0.113.9, fe80::1%lo` (zone ID, no exception) | rightmost entry as given |
-| default | 127.0.0.1 | `203.0.113.9, 10.0.0.1:4711` (port, not an IP literal) | `10.0.0.1:4711` |
+| private ranges¹ | 127.0.0.1 | `6.6.6.6, localhost` (host name not resolved) | `localhost` |
+| private ranges¹ | 127.0.0.1 | `::1%zz`, `203.0.113.9, ::1%zz`, `203.0.113.9, fe80::1%lo` (zone ID, no exception) | rightmost entry as given |
+| private ranges¹ | fe80::1%2 (zone ID of the socket peer is ignored) | `203.0.113.7` | `203.0.113.7` |
+| private ranges¹ | 127.0.0.1 | `203.0.113.9, 10.0.0.1:4711` (port, not an IP literal) | `10.0.0.1:4711` |
 | `["192.0.2.10"]` | 192.0.2.10 | none, or only separators | 192.0.2.10 |
+
+¹ `["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10", "::1", "fc00::/7", "fe80::/10"]` (Tomcat's `internalProxies`)
 
 ### TC-RATE-012: X-Forwarded-For from an untrusted peer is logged once per peer
 
@@ -174,7 +183,18 @@ Rate limiting must be enabled in `rowstore.json`:
 **Assertions:**
 1. Two requests with `X-Forwarded-For` from untrusted peer 198.51.100.1, one request without the header from 198.51.100.2 and one from the trusted proxy produce exactly one warning, naming 198.51.100.1 and `trustedproxies`
 2. A request with the header from 198.51.100.2 produces a second warning
-3. With `trustedproxies: []`, no warning is logged
+3. With `trustedproxies: []`, and without `trustedproxies` (the connecting peer is trusted), no warning is logged
+
+### TC-RATE-013: Without trustedproxies, the last X-Forwarded-For entry of the connecting peer is the client
+
+**Setup:**
+- Same rate limit as TC-RATE-009, without `trustedproxies`, so the test client is trusted as the reverse proxy
+
+**Steps and assertions:**
+1. 5 requests with `X-Forwarded-For: <random>, 10.0.0.1` return `200` (the client-supplied left part is ignored)
+2. The next request with `X-Forwarded-For: <random>, 10.0.0.1` returns `429`
+3. `X-Forwarded-For: 10.0.0.2` returns `200` (another client behind the proxy has its own limit)
+4. `X-Forwarded-For: 10.0.0.3, 10.0.0.1` returns `429` (keyed on the last entry; private addresses are not skipped)
 
 ## Rate Limit Methods
 

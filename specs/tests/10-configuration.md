@@ -63,12 +63,12 @@ Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configura
 **Assertions:**
 1. Construction succeeds
 
-### TC-CFG-008: trustedproxies default, explicit list and empty array
+### TC-CFG-008: trustedproxies not set, explicit list and empty array
 
 **Input (one per case):** Minimal config without `trustedproxies`; with `["192.0.2.10", "10.10.0.0/16", "2001:db8::/32", "::1"]`; with `[]`.
 
 **Assertions:**
-1. Without the key, the default list of CFG-3.11 applies (loopback, private, shared and link-local ranges)
+1. Without the key, no list is configured (`getTrustedProxies()` is null): the connecting peer is trusted (CFG-3.11)
 2. An explicit list is used as configured
 3. An empty array results in an empty list (nobody is trusted)
 

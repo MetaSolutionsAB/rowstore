@@ -57,7 +57,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-3.10** `cors.allowedorigins` (JSON array, default `["*"]`) — List of allowed origins for CORS. When set to `["*"]`, all origins are permitted. See [SEC-6.01](07-security.md#sec-6-cors).
 
-> **CFG-3.11** `trustedproxies` (JSON array of strings) — IP addresses (`"192.0.2.10"`, `"::1"`) and CIDR ranges (`"10.0.0.0/8"`, `"fd00::/8"`) of reverse proxies whose `X-Forwarded-For` header is trusted for determining the client address (per-client-IP rate limit). Only IP literals are accepted, no host names. Default when absent: `["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10", "::1", "fc00::/7", "fe80::/10"]` (loopback, private, shared and link-local ranges, equivalent to the `internalProxies` default of Tomcat's `RemoteIpValve`). An empty array `[]` trusts nobody: `X-Forwarded-For` is always ignored. See [SEC-5.05](07-security.md#sec-5-rate-limiting) and [SEC-5.06](07-security.md#sec-5-rate-limiting).
+> **CFG-3.11** `trustedproxies` (JSON array of strings) — IP addresses (`"192.0.2.10"`, `"::1"`) and CIDR ranges (`"10.0.0.0/8"`, `"fd00::/8"`) of reverse proxies whose `X-Forwarded-For` header is trusted for determining the client address (per-client-IP rate limit). Only IP literals are accepted, no host names. When absent (default), the connecting peer is trusted as the reverse proxy, since RowStore must only be reachable through it ([SEC-9.01](07-security.md#sec-9-reverse-proxy-contract)), and the last `X-Forwarded-For` entry is the client address. A list is needed if requests pass through more than one proxy whose addresses are not resolved before RowStore (e.g. a load balancer in front of nginx without nginx's real IP module), or to accept `X-Forwarded-For` only from known proxies. An empty array `[]` trusts nobody: `X-Forwarded-For` is always ignored. See [SEC-5.05](07-security.md#sec-5-rate-limiting) and [SEC-5.06](07-security.md#sec-5-rate-limiting).
 
 ## CFG-4 Database Configuration
 
@@ -100,7 +100,7 @@ Covers the JSON configuration file format, all application and database options,
 > **CFG-6.03** `ratelimit.global`, `ratelimit.dataset`, `ratelimit.clientip` (int, default `-1`) — Maximum requests per `timerange` for each scope:
 > - `global` — Single limiter for all requests
 > - `dataset` — One limiter per dataset URL path
-> - `clientip` — One limiter per client IP: the address of the connecting peer, or the client address from `X-Forwarded-For` if the peer is a trusted proxy ([CFG-3.11](#cfg-3-application-options), [SEC-5.05](07-security.md#sec-5-rate-limiting))
+> - `clientip` — One limiter per client IP: the client address from `X-Forwarded-For` if the connecting peer is a trusted proxy (by default any peer), otherwise the address of the connecting peer ([CFG-3.11](#cfg-3-application-options), [SEC-5.05](07-security.md#sec-5-rate-limiting))
 
 > **CFG-6.04** Rate limiting is enabled when: `timerange > 0 AND (global > 0 OR dataset > 0)`. If these conditions are not met, the `RateLimitFilter` is not active. See [SEC-5](07-security.md#sec-5-rate-limiting).
 
@@ -195,3 +195,4 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-10-20 | Added CFG-1.02 (fail fast on invalid config), CFG-3.08 removed (exportpagesize unused); CFG-4.02, CFG-4.04, CFG-5.01 clarified for driver settings with HikariCP |
 | 2026-10-20 | Added CFG-3.11 (`trustedproxies`); CFG-1.02 and CFG-6.03 updated: `X-Forwarded-For` only from trusted proxies |
 | 2026-10-21 | CFG-4.02: sslmode prefer when `ssl` is not set (as in 1.7); CFG-3.09: no unlimited upload size |
+| 2026-10-21 | CFG-3.11: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); CFG-6.03 accordingly |
