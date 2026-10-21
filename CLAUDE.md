@@ -101,7 +101,7 @@ All packages are below `org.entrystore.rowstore` in `src/main/java`.
 - `DataSourceConfig` - Creates the primary and the read-only query `DataSource` programmatically from `rowstore.json` (`PGSimpleDataSource` by default, HikariCP when `connectionPoolMax` > 0) and runs Flyway migrations programmatically (Spring's DataSource and Flyway auto-configuration are disabled)
 - `CorsConfig` - CORS filter (`FilterRegistrationBean`) with origins from `cors.allowedorigins`
 - `DatabaseExceptionHandler` - Maps database connectivity failures in controllers to 503 (instead of 404/500)
-- `RowStoreHealthIndicator` - Actuator health check (database connectivity, dataset count, active ETL processes)
+- `RowStoreHealthIndicator` - Actuator health check of both databases within the query budgets (UP, BUSY if all connections are in use, DOWN if unreachable), dataset count, active ETL processes; replaces the disabled Actuator `db` indicator
 - `CustomErrorController` - Error responses for `/error`
 
 **REST Controllers** (`resources/`):
@@ -118,6 +118,17 @@ All packages are below `org.entrystore.rowstore` in `src/main/java`.
 - `RowStoreConfig` - JSON configuration parsing and fail-fast validation (invalid `rowstore.json` prevents startup)
 - `QueryResult` - Query result envelope
 - `RowStream` - Closeable cursor over all rows of a dataset, used by the streamed export
+- `LimitedDataSource` (`store/impl/`) - Connection budget: limits the open connections of a data source, waits in
+  FIFO order up to `connectionWaitTimeout`, then fails (mapped to 503)
+
+**Connection budgets** (ARCH-7 in `specs/01-system-architecture.md`): `PgRowStore` wraps the data sources from
+`DataSourceConfig` in `LimitedDataSource` budgets per database block. Use the matching accessor of `RowStore`:
+`getQueryConnection()` / `getQueryJdbcTemplate()` for short operations of requests (queries, lookups, alias and
+status changes by requests; `querytimeout` and `queryLockTimeout` apply), `getExportConnection()` for streamed
+exports, and `getLoadConnection()` / `getLoadJdbcTemplate()` for everything an ETL job does, including its status
+writes. New code must hold at most one connection per request or ETL job at a time (ARCH-7.04): do reads that belong
+to an operation on the connection it already holds, or before/after it; otherwise requests can deadlock on an
+exhausted budget until the wait timeout. Budget usage is reported by `/status` (`connections`) and the health indicator.
 
 `PgDataset.populate()` loads a CSV in a single transaction. An append inserts into the data table; a replace (PUT)
 loads into a shadow table `<dataTable>_new` and swaps it for the data table at the end of the same transaction, so
@@ -164,7 +175,7 @@ Queries support regex matching (configurable via `regexpqueries`: disabled/simpl
 
 ### Configuration
 
-Set via `rowstore.json` (see resolution order above). Key settings: `baseurl`, `regexpqueries`, `maxetlprocesses`, `querytimeout`, `querymaxlimit`, `maxuploadsize`, `legacyparser`, `database`, `queryDatabase` (read replica), `cors`, `ratelimit`, `trustedproxies`. See `specs/06-configuration.md` for all options.
+Set via `rowstore.json` (see resolution order above). Key settings: `baseurl`, `regexpqueries`, `maxetlprocesses`, `querytimeout`, `querymaxlimit`, `maxuploadsize`, `legacyparser`, `database`, `queryDatabase` (read replica; both with the connection limits `maxQueryConnections`, `maxExportConnections`, `connectionWaitTimeout`, `queryLockTimeout`), `cors`, `ratelimit`, `trustedproxies`. See `specs/06-configuration.md` for all options.
 
 ## Specification Requirement IDs
 
