@@ -10,16 +10,17 @@ See [04-etl-pipeline.md](../04-etl-pipeline.md) (ETL-6, ETL-8, ETL-10, ETL-11).
 TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027 and TC-ETL-028 are unit tests (`EtlProcessorTest`,
 `PgDatasetPopulateTest`, `PgDatasetSwapLockTest`) that use fakes instead of a database. TC-ETL-010 to TC-ETL-014
 and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026 and TC-ETL-029 integration tests of
-replaces (`DatasetReplaceIT`). TC-ETL-030 is a unit test (`EtlProcessorTest`), TC-ETL-031 to TC-ETL-037 are
-integration tests of the column name cleanup (`ColumnNameCleanupIT`), and TC-ETL-038 to TC-ETL-041 unit tests of the
-cleaning rule (`ColumnNamesTest`).
+replaces (`DatasetReplaceIT`). TC-ETL-030 is a unit test (`EtlProcessorTest`), TC-ETL-031 to TC-ETL-037,
+TC-ETL-045, TC-ETL-046 and TC-ETL-049 are integration tests of the column name cleanup (`ColumnNameCleanupIT`),
+TC-ETL-038 to TC-ETL-044 and TC-ETL-048 unit tests of the cleaning rule (`ColumnNamesTest`), and TC-ETL-047 a unit test of the cleanup's stop
+condition (`PgRowStoreConnectionFailureTest`).
 
 ## Prerequisites
 
 - Unit tests: none
 - Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013, TC-ETL-014, TC-ETL-020 to TC-ETL-026 and TC-ETL-029
   additionally require direct database access (superuser) and are skipped when testing an external instance; so do
-  TC-ETL-031 to TC-ETL-037, which also call into the RowStore application (TC-ETL-035 additionally starts separate
+  TC-ETL-031 to TC-ETL-037, TC-ETL-045, TC-ETL-046 and TC-ETL-049, which also call into the RowStore application (TC-ETL-035 additionally starts separate
   RowStore instances on a separate database)
 
 ## Test Data
@@ -474,39 +475,145 @@ names.
 1. The keys are `kopare_id`, `beskrivning`; the only `_jsonidx_` index is the one of `kopare_id`
 2. `?beskrivning=kort` returns the second row
 
+### TC-ETL-045: A dataset with a row that contains both an old and a new name is skipped by the cleanup and fails an append
+
+**Steps:**
+1. Create a dataset from `namn,ort\nfirst,1\nleft,2\n`; via JDBC, set row 1 to `{<BOM>namn: first}` and row 2 to
+   `{<BOM>namn: left, namn: right}` (as stored by 1.x for `<BOM>namn,namn\nfirst\nleft,right`: the first row is short)
+2. Invoke the cleanup
+3. `POST /dataset/{id}` with `namn\nnew\n`
+
+**Assertions:**
+1. The cleanup does not return the dataset and updates no row (`xmin` unchanged); a WARN is logged
+2. The append ends in ERROR (column mismatch, logged at ERROR level) and the rows are unchanged
+3. Without the check of all rows, the cleanup renamed `<BOM>namn` to `namn` and overwrote `right` with `left`
+
+### TC-ETL-046: Queries are served while the cleanup waits for a reader of the data table to drop the old indexes
+
+**Steps:**
+1. Create a dataset, give it broken names
+2. Open a transaction that reads the data table (holds an `ACCESS SHARE` lock like a streaming export)
+3. Invoke the cleanup in the background; wait until it waits for `LOCK TABLE <dataTable> IN ACCESS EXCLUSIVE MODE`,
+   then 4 more seconds (the first lock attempt times out)
+4. `GET /dataset/{id}?ort=Göteborg`
+5. End the reading transaction
+
+**Assertions:**
+1. The query of step 4 returns within 10 seconds the previous row with the old names (the renames are not committed
+   yet), and the cleanup has not finished
+2. After step 5, the cleanup returns the dataset and the dataset is clean
+3. Without the lock pattern of ETL-11.03 (old indexes dropped right after the `UPDATE`), the cleanup waits in
+   `DROP INDEX` instead and queries queue behind it until the reader has finished
+
 ## Cleaning rule (unit tests)
 
-Unit tests of `ColumnNames` (`ColumnNamesTest`), no RowStore instance needed (ETL-4.04, ETL-4.07, ETL-11.02).
+Unit tests of `ColumnNames` (`ColumnNamesTest`), no RowStore instance needed (ETL-4.04, ETL-4.07, ETL-11.02, ETL-11.04).
 
-### TC-ETL-038: A label is normalized by removing byte order marks and soft hyphens, stripping and lower-casing
+### TC-ETL-038: A label is normalized by removing byte order marks and soft hyphens, trimming and lower-casing
 
-Cases include surrounding spaces and tabs, U+FEFF and U+00AD at any position, Unicode whitespace (U+2003), a label
-consisting of whitespace and a byte order mark only (empty), and `<BOM>"name"` (quotes kept: unquoting is the
-parser's task).
+Cases include surrounding spaces and tabs, U+FEFF and U+00AD at any position, Unicode whitespace (U+2003), control
+characters at the ends (U+0001, removed like by `trim()` in 1.x, also next to Unicode whitespace) and inside (kept),
+no-break spaces (U+00A0, kept), a label consisting of whitespace and a byte order mark only (empty), and `<BOM>"name"`
+(quotes kept: unquoting is the parser's task).
 
-### TC-ETL-039: A stored column name is cleaned like the label is parsed now
+### TC-ETL-039: A stored column name is cleaned to the name a fresh import of the same header yields with the configured parser
 
-| Stored name | Cleaned name |
-|-------------|--------------|
-| `<BOM>"kopare_id"` | `kopare_id` |
-| `<BOM>kopare_id` | `kopare_id` |
-| `<BOM>"a""b"` | `a"b` |
-| `<BOM>"""x"""` | `"x"` |
-| `<BOM>" x "` | `x` |
-| `<BOM>"ko<SHY>pare"` | `kopare` |
-| `<BOM>"` | `"` |
-| `<BOM>""` | (empty) |
-| `na<SHY>mn`, `<SHY>namn`, `<U+2003>namn` | `namn` |
-| `"x"`, `<SHY>"x"`, `"x"<BOM>` | `"x"` (no leading byte order mark: not unquoted) |
-| `kopare_id`, `a b`, (empty) | unchanged |
+For each raw first label and parser, the test determines with the actual OpenCSV parsers (configured as in
+`PgDataset`) the name stored by 1.x (`<BOM>` + label parsed, trimmed, lower-cased) and the name of a fresh import by
+2.0 (label parsed without byte order mark, normalized), asserts both against the table, and asserts that cleaning the
+stored name with that parser yields the 2.0 name, and that cleaning it again changes nothing.
 
-For each case, cleaning the cleaned name again yields the same name.
+| Parser | Raw first label | Stored by 1.x | Name in 2.0 |
+|--------|-----------------|---------------|-------------|
+| default | `"kopare_id"`, `"Kopare_ID"` | `<BOM>"kopare_id"` | `kopare_id` |
+| default | `kopare_id` | `<BOM>kopare_id` | `kopare_id` |
+| default | `"a ""b"""` | `<BOM>"a "b""` | `a "b"` |
+| default | `"a""""b"` | `<BOM>"a""b"` | `a""b` |
+| default | `"a""b"` | `<BOM>"a"b"` | `a"b` |
+| default | `"""x"""` | `<BOM>""x""` | `"x"` |
+| default | `"""x"` | `<BOM>""x"` | `"x` |
+| default | `"""a""b"""` | `<BOM>""a"b""` | `"a"b"` |
+| default | `"x"""` | `<BOM>"x""` | `x"` |
+| default | `" x "` | `<BOM>" x "` | `x` |
+| default | `"ko<SHY>pare"` | `<BOM>"ko<SHY>pare"` | `kopare` |
+| default | ` "x"` | `<BOM> "x"` | `"x"` |
+| default | `x"` | `<BOM>x"` | `x"` |
+| default | `""` | `<BOM>"` | (empty) |
+| legacy | `"kopare_id"`, `kopare_id` | `<BOM>kopare_id` | `kopare_id` |
+| legacy | `"a ""b"""` | `<BOM>a "b"` | `a "b"` |
+| legacy | `"a""""b"` | `<BOM>a""b` | `a""b` |
+| legacy | `"a""b"` | `<BOM>a"b` | `a"b` |
+| legacy | `"""x"""` | `<BOM>""x"` | `"x"` |
+| legacy | `"""x"` | `<BOM>""x` | `"x` |
+| legacy | `"""a""b"""` | `<BOM>""a"b"` | `"a"b"` |
+| legacy | `""""` | `<BOM>""` | `"` |
+| legacy | `""""""` | `<BOM>"""` | `""` |
+| legacy | `"x"""` | `<BOM>x"` | `x"` |
+| legacy | ` "x"`, `" x "` | `<BOM> x` | `x` |
+| legacy | `""` | `<BOM>"` | (empty) |
 
 ### TC-ETL-040: Renames are determined for unclean names only, and not at all if clean names would collide or be empty
 
-Clean names yield no renames; `<BOM>"kopare_id"`, `na<SHY>mn`, `ort` yield the renames of the first two only;
-`<BOM>"namn"` with `namn`, `<BOM>namn` with `na<SHY>mn`, and `<BOM>` (empty cleaned name) yield no result (skip).
+Clean names yield no renames; `<BOM>"kopare_id"`, `na<SHY>mn`, `ort` yield the renames of the first two only (default
+parser); `<BOM>kopare_id` is renamed with the legacy parser; `<BOM>"namn"` with `namn`, `<BOM>namn` with `na<SHY>mn`,
+and `<BOM>"` (empty cleaned name) yield no result (skip).
 
 ### TC-ETL-041: Byte order marks and soft hyphens are escaped for logging
 
 `<BOM>"na<SHY>mn"` is logged as `\uFEFF"na\u00ADmn"`.
+
+### TC-ETL-042: Ambiguous stored column names are cleaned to the name of the more likely header
+
+Verified with the actual parsers as in TC-ETL-039, for the less likely raw header. `<BOM>"x"` stems from the plain
+quoted header `"x"` stored by the default parser in the common case. For the quote-only names, no header yields the
+cleaned name: the cleaned name has one quote less than the name of the header in 2.0; the empty name skips the
+dataset, `"` is accepted.
+
+| Parser | Less likely raw first label | Stored by 1.x | Cleaned name | Name of that header in 2.0 |
+|--------|-----------------------------|---------------|--------------|----------------------------|
+| default | `""x""` | `<BOM>"x"` | `x` | `"x"` |
+| legacy | `""x""` | `<BOM>"x"` | `x` | `x"` |
+| default | `""""` | `<BOM>""` | (empty) | `"` |
+| default | `""""""` | `<BOM>"""` | `"` | `""` |
+| legacy | `"x" ` | `<BOM>x"` | `x"` | `x` |
+
+### TC-ETL-043: Stored column names without a byte order mark directly followed by a quote are only normalized
+
+With both parsers: `na<SHY>mn`, `<SHY>namn`, `<U+2003>namn` and `<U+0001>namn` become `namn`; `"x"`, `<SHY>"x"`,
+`"x"<BOM>` and `<SHY><BOM>"x"` become `"x"` (not unquoted); `kopare_id`, `a b` and the empty name are unchanged.
+
+### TC-ETL-044: An append renames stored names to the labels they are cleaned to with exactly one candidate
+
+Names equal to the labels need no renames; `<BOM>"kopare_id"`, `na<SHY>mn` with the labels `kopare_id`, `namn` are
+renamed to them; `<BOM>""x""` (`"x"` with the default parser, `"x""` with the legacy parser) is renamed to whichever
+of the two is a label. No result (append fails) if both candidates of a name are labels (`<BOM>""x""` with `"x"` and
+`"x""`), if no candidate is a label, if the
+numbers of names and labels differ, or if two names would get the same label.
+
+### TC-ETL-047: Connection failures, also as causes, stop the column name cleanup, other failures do not
+
+`CannotGetJdbcConnectionException`, `SQLTransientConnectionException`, an `SQLException` with SQL state class 08, and
+such an exception as a cause (e.g., in a `CompletionException`) are connection failures; an `SQLException` with
+another SQL state, an `UncategorizedSQLException` with such a cause, and other exceptions are not.
+
+### TC-ETL-048: A plain quoted label stored by the default parser is unquoted also if the legacy parser is configured
+
+For the raw first labels `"kopare_id"`, `"a ""b"""`, `"a""b"` and `" x "`, the name stored by the default parser of 1.x
+(`<BOM>"kopare_id"`, `<BOM>"a "b""`, `<BOM>"a"b"`, `<BOM>" x "`, verified with the actual parser) is cleaned with the
+legacy parser configured to the name a fresh import with the legacy parser yields (`kopare_id`, `a "b"`, `a"b`, `x`).
+
+### TC-ETL-049: An index of a new name keeps its canonical name if an index of an old name had it, by the cleanup and by an append
+
+**Steps:**
+1. Verify that `field_<SHY>11246` and `field_100652` have the same first 8 hex digits of their MD5 (`3ef7c3b0`)
+2. Create two datasets from `field_11246,field_100652\na,b\nc,d\n`
+3. Rename `field_100652` to `field_<SHY>100652` and then `field_11246` to `field_<SHY>11246` in the first dataset (the
+   index of `field_<SHY>11246` now has the canonical index name of `field_100652`); invoke the cleanup
+4. Break the second dataset the same way; `POST /dataset/{id}` with `field_11246,field_100652\ne,f\n`
+
+**Assertions (both datasets):**
+1. The keys are `field_11246`, `field_100652`; the `_jsonidx_` indexes are exactly the canonical ones of these names
+   (no `_tmp` index left), and their definitions refer to the right column
+2. `?field_100652=d` returns `{field_11246: c, field_100652: d}`
+3. Without the temporary index name, the index of `field_100652` was not created (its name existed) and then dropped
+   with the index of the old name, leaving the column unindexed

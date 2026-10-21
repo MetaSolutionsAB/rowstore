@@ -88,7 +88,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | Path parameters | [08-error-handling.md](tests/08-error-handling.md) | PathParameterIT |
 > | CORS | — | CorsIT |
 > | Configuration and data sources | [10-configuration.md](tests/10-configuration.md) | ConnectionPoolIT (plus unit tests RowStoreConfigTest, DataSourceConfigTest) |
-> | ETL processing | [11-etl-processing.md](tests/11-etl-processing.md) | EtlProcessingIT, DatasetReplaceIT, ColumnNameCleanupIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest, PgDatasetSwapLockTest, ColumnNamesTest, DatasetUtilBomReaderTest) |
+> | ETL processing | [11-etl-processing.md](tests/11-etl-processing.md) | EtlProcessingIT, DatasetReplaceIT, ColumnNameCleanupIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest, PgDatasetSwapLockTest, ColumnNamesTest, DatasetUtilBomReaderTest, PgRowStoreConnectionFailureTest) |
 
 ## TEST-9 Framework-Agnostic Specs
 

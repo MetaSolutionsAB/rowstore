@@ -66,7 +66,8 @@ public class AliasController {
 			if (!dataset.setAliases(aliases)) {
 				return ResponseEntity.badRequest().build();
 			}
-		} catch (Exception e) {
+		} catch (IllegalArgumentException e) {
+			// database failures are not caught, e.g., no connection available within the wait timeout results in 503
 			log.info(e.getMessage());
 			return ResponseEntity.badRequest().build();
 		}
@@ -86,7 +87,8 @@ public class AliasController {
 			if (!dataset.setAliases(aliases)) {
 				return ResponseEntity.badRequest().build();
 			}
-		} catch (Exception e) {
+		} catch (IllegalArgumentException e) {
+			// database failures are not caught, e.g., no connection available within the wait timeout results in 503
 			log.info(e.getMessage());
 			return ResponseEntity.badRequest().build();
 		}

@@ -56,6 +56,16 @@ public interface Dataset {
 	void setStatus(int status);
 
 	/**
+	 * Sets the status from an ETL job, like {@link #setStatus(int)}, but with a connection of the load budget, so that
+	 * the status can be written even if all connections for short operations are in use (ARCH-7.02).
+	 *
+	 * @param status The new status.
+	 */
+	default void setStatusFromEtlJob(int status) {
+		setStatus(status);
+	}
+
+	/**
 	 * @return Returns the Date and Time of when the dataset was created.
 	 */
 	Date getCreationDate();

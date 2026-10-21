@@ -34,9 +34,12 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -223,6 +226,123 @@ class ColumnNameCleanupIT extends BaseIntegrationTest {
             assertThat(rows(urls.datasetUrl, "beskrivning", "kort")).containsExactly(Map.of("kopare_id", "2", "beskrivning", "kort"));
         } finally {
             deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ETL-045: A dataset with a row that contains both an old and a new name is skipped by the cleanup and fails an append")
+    void collisionInLaterRow_datasetSkippedAndAppendFails() throws Exception {
+        DatasetUrls urls = createDatasetAndWait(bytes("namn,ort\nfirst,1\nleft,2\n"));
+        String table = dataTable(urls.datasetId);
+        try {
+            // as stored by 1.x for <BOM>namn,namn\nfirst\nleft,right: the first row only has the broken name
+            try (Connection conn = openDatabaseConnection();
+                 PreparedStatement first = conn.prepareStatement("UPDATE " + table + " SET data = jsonb_build_object(?::text, 'first') WHERE rownr = 1");
+                 PreparedStatement second = conn.prepareStatement("UPDATE " + table + " SET data = jsonb_build_object(?::text, 'left', 'namn', 'right') WHERE rownr = 2")) {
+                first.setString(1, BOM + "namn");
+                first.executeUpdate();
+                second.setString(1, BOM + "namn");
+                second.executeUpdate();
+            }
+            String rowVersions = rowVersions(urls.datasetId);
+            List<String> rows = queryList(TEST_DATABASE, "SELECT data::text FROM " + table + " ORDER BY rownr");
+
+            assertThat(rowStore().cleanColumnNames()).doesNotContain(urls.datasetId);
+            assertThat(rowVersions(urls.datasetId)).isEqualTo(rowVersions);
+
+            given().spec(csvSpec).body(bytes("namn\nnew\n")).post(urls.datasetUrl).then().statusCode(202);
+            waitForDatasetError(urls.infoUrl);
+            assertThat(queryList(TEST_DATABASE, "SELECT data::text FROM " + table + " ORDER BY rownr")).isEqualTo(rows);
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ETL-046: Queries are served while the cleanup waits for a reader of the data table to drop the old indexes")
+    void queriesServedWhileCleanupWaitsForReader() throws Exception {
+        DatasetUrls urls = createDatasetAndWait(bytes(CSV));
+        String table = dataTable(urls.datasetId);
+        try (Connection db = openDatabaseConnection(); Connection reader = openDatabaseConnection()) {
+            breakColumnNames(TEST_DATABASE, urls.datasetId, BROKEN_NAMES);
+            // holds an ACCESS SHARE lock on the data table like a streaming export
+            reader.setAutoCommit(false);
+            try (Statement stmt = reader.createStatement()) {
+                stmt.executeQuery("SELECT data FROM " + table).close();
+            }
+            CompletableFuture<List<String>> cleanup = CompletableFuture.supplyAsync(() -> rowStore().cleanColumnNames());
+            try {
+                await().atMost(MAX_WAIT).until(() -> waitingForLock(db, "LOCK TABLE " + table + " IN ACCESS EXCLUSIVE MODE"));
+                // the first attempt to lock the data table times out meanwhile
+                Thread.sleep(Duration.ofSeconds(4).toMillis());
+
+                long before = System.currentTimeMillis();
+                List<Map<String, Object>> rows = rows(urls.datasetUrl, "ort", "Göteborg");
+                assertThat(System.currentTimeMillis() - before).isLessThan(Duration.ofSeconds(10).toMillis());
+                // the renames are not committed yet
+                assertThat(rows).containsExactly(Map.of(BOM + "\"kopare_id\"", "1", "na" + SHY + "mn", "Anna", "ort", "Göteborg"));
+                assertThat(cleanup).isNotDone();
+            } finally {
+                reader.rollback();
+            }
+            assertThat(cleanup.get(30, TimeUnit.SECONDS)).contains(urls.datasetId);
+            assertClean(TEST_DATABASE, urls.datasetId);
+            assertQueriesUseCleanNames(urls);
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ETL-049: An index of a new name keeps its canonical name if an index of an old name had it, by the cleanup and by an append")
+    void indexNameCollision_replacementIndexGetsCanonicalName() throws Exception {
+        String oldName = "field_" + SHY + "11246";
+        String newName = "field_100652";
+        // index names only contain the first 8 hex digits of the MD5 of the column name
+        assertThat(Hashing.md5(oldName).substring(0, 8)).isEqualTo(Hashing.md5(newName).substring(0, 8));
+        Map<String, String> brokenNames = new LinkedHashMap<>();
+        // in this order, so that the index of field_100652 is renamed before its name is taken
+        brokenNames.put("field_100652", "field_" + SHY + "100652");
+        brokenNames.put("field_11246", oldName);
+        String csv = "field_11246,field_100652\na,b\nc,d\n";
+        DatasetUrls cleaned = createDatasetAndWait(bytes(csv));
+        DatasetUrls appended = createDatasetAndWait(bytes(csv));
+        try {
+            breakColumnNames(TEST_DATABASE, cleaned.datasetId, brokenNames);
+            assertThat(indexNames(TEST_DATABASE, cleaned.datasetId))
+                    .isEqualTo(expectedIndexNames(cleaned.datasetId, oldName, "field_" + SHY + "100652"));
+            assertThat(rowStore().cleanColumnNames()).contains(cleaned.datasetId);
+
+            // broken after the cleanup, renamed by the append
+            breakColumnNames(TEST_DATABASE, appended.datasetId, brokenNames);
+            given().spec(csvSpec).body(bytes("field_11246,field_100652\ne,f\n")).post(appended.datasetUrl).then().statusCode(202);
+            waitForDatasetAvailable(appended.infoUrl);
+
+            for (DatasetUrls urls : List.of(cleaned, appended)) {
+                String table = dataTable(urls.datasetId);
+                assertThat(storedColumnNames(TEST_DATABASE, urls.datasetId)).containsExactlyInAnyOrder("field_11246", "field_100652");
+                assertThat(indexNames(TEST_DATABASE, urls.datasetId))
+                        .isEqualTo(expectedIndexNames(urls.datasetId, "field_11246", "field_100652"));
+                assertThat(queryList(TEST_DATABASE, "SELECT indexdef FROM pg_indexes WHERE indexname = '" +
+                        indexName(table, newName) + "'")).singleElement().asString().contains("'field_100652'");
+                assertThat(queryList(TEST_DATABASE, "SELECT indexdef FROM pg_indexes WHERE indexname = '" +
+                        indexName(table, "field_11246") + "'")).singleElement().asString().contains("'field_11246'");
+                assertThat(rows(urls.datasetUrl, "field_100652", "d")).containsExactly(Map.of("field_11246", "c", "field_100652", "d"));
+            }
+        } finally {
+            deleteDataset(cleaned.datasetUrl);
+            deleteDataset(appended.datasetUrl);
+        }
+    }
+
+    private static boolean waitingForLock(Connection conn, String statementStart) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT count(*) > 0 FROM pg_stat_activity WHERE datname = current_database() " +
+                        "AND wait_event_type = 'Lock' AND starts_with(query, ?)")) {
+            ps.setString(1, statementStart);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getBoolean(1);
+            }
         }
     }
 

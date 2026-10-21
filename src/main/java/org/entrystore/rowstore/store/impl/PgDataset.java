@@ -40,6 +40,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.BufferedReader;
@@ -91,6 +92,12 @@ public class PgDataset implements Dataset {
 	private final int maxSizeForIndex = 256;
 
 	/**
+	 * Suffix of the temporary name of an index whose final name is taken by an index that is dropped later in the
+	 * same transaction, see renameColumns().
+	 */
+	private static final String REPLACEMENT_INDEX_SUFFIX = "_tmp";
+
+	/**
 	 * Delays between the attempts to write the final status of a load: six attempts over about 1.5 minutes.
 	 */
 	private long[] statusRetryDelaysMillis = {1000, 5000, 15000, 30000, 45000};
@@ -110,7 +117,7 @@ public class PgDataset implements Dataset {
 	/**
 	 * SQL state of a lock that could not be acquired within lock_timeout.
 	 */
-	private static final String LOCK_NOT_AVAILABLE = "55P03";
+	private static final String LOCK_NOT_AVAILABLE = PgRowStore.LOCK_NOT_AVAILABLE;
 
 	protected PgDataset(RowStore rowstore, String id) {
 		if (rowstore == null) {
@@ -184,7 +191,19 @@ public class PgDataset implements Dataset {
 	@Override
 	public void setStatus(int status) {
 		try {
-			writeStatus(status);
+			writeStatus(status, rowstore.getJdbcTemplate());
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+		}
+	}
+
+	/**
+	 * @see Dataset#setStatusFromEtlJob(int)
+	 */
+	@Override
+	public void setStatusFromEtlJob(int status) {
+		try {
+			writeStatus(status, rowstore.getLoadJdbcTemplate());
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 		}
@@ -196,11 +215,11 @@ public class PgDataset implements Dataset {
 	 *
 	 * @throws DataAccessException If the status could not be written.
 	 */
-	private void writeStatus(int status) {
+	private void writeStatus(int status, JdbcTemplate jdbcTemplate) {
 		long before = System.currentTimeMillis();
 		try {
 			log.info("Setting status of {} to {}({})", getId(), EtlStatus.toString(status), status);
-			rowstore.getJdbcTemplate().update(
+			jdbcTemplate.update(
 					"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid",
 					status, id);
 			this.status = status;
@@ -211,14 +230,15 @@ public class PgDataset implements Dataset {
 
 	/**
 	 * Writes the status to the database and retries with backoff if this fails, e.g., because the database is
-	 * temporarily unreachable. Used for the final status of a load, which must not be lost.
+	 * temporarily unreachable. Used for the final status of a load, which must not be lost. Uses the load budget,
+	 * since the load's connection is closed when the status is written (ARCH-7.02).
 	 *
 	 * @return Returns true if the status was written.
 	 */
 	private boolean writeStatusWithRetry(int status) {
 		for (int attempt = 0; ; attempt++) {
 			try {
-				writeStatus(status);
+				writeStatus(status, rowstore.getLoadJdbcTemplate());
 				return true;
 			} catch (DataAccessException e) {
 				if (attempt >= statusRetryDelaysMillis.length) {
@@ -253,10 +273,12 @@ public class PgDataset implements Dataset {
 	 * RowStore instance, so a dataset that already is in PROCESSING is stale (e.g., because a load was interrupted
 	 * by a database outage) and is taken over.
 	 *
+	 * Uses the load budget, since it is called by the load before it obtains its connection (ARCH-7.02).
+	 *
 	 * @throws DataAccessException If the status could not be written.
 	 */
 	private void markAsProcessing() {
-		int updated = rowstore.getJdbcTemplate().update(
+		int updated = rowstore.getLoadJdbcTemplate().update(
 				"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid AND status <> ?",
 				EtlStatus.PROCESSING, id, EtlStatus.PROCESSING);
 		if (updated == 0) {
@@ -317,7 +339,7 @@ public class PgDataset implements Dataset {
 			PreparedStatement stmt = null;
 			CSVReader cr = null;
 			try {
-				conn = rowstore.getConnection();
+				conn = rowstore.getLoadConnection();
 				Charset charset = DatasetUtil.detectCharset(csvFile);
 				char separator = detectSeparator(csvFile, charset);
 
@@ -341,6 +363,8 @@ public class PgDataset implements Dataset {
 						build();
 				long lineCount = 0;
 				Set<String> labels = new LinkedHashSet<>();
+				// indexes of columns renamed by an append, to be dropped right before the commit
+				List<String> staleIndexes = List.of();
 				String[] line;
 
 				conn.setAutoCommit(false);
@@ -388,22 +412,33 @@ public class PgDataset implements Dataset {
 						}
 
 						if (append) {
-							// we must compare existing column names with new ones
-							Set<String> oldColumnNames = getColumnNames(false);
+							// we must compare existing column names with new ones; they are read with the load's
+							// connection, since a load must not hold more than one connection at a time (ARCH-7.04)
+							Set<String> oldColumnNames = readColumnNames(conn);
+							if (oldColumnNames == null) {
+								oldColumnNames = Set.of();
+							}
 
 							// if there are no old column names we assume this dataset is newly created
 							if (oldColumnNames.size() > 0 && !oldColumnNames.equals(labels)) {
 								// Column names stored before 2.0 may differ from the labels only because they were not
 								// cleaned; they are renamed now instead of by the cleanup at startup (ETL-11.04)
-								Map<String, String> renames = ColumnNames.renamesForStoredNames(oldColumnNames);
-								if (renames == null || renames.isEmpty() || !renamedColumnNames(oldColumnNames, renames).equals(labels)) {
+								Map<String, String> renames = ColumnNames.renamesForLabels(oldColumnNames, labels);
+								if (renames == null || renames.isEmpty()) {
 									log.error("Column name mismatch: new tabular structure does not equal existing structure");
 									log.error("Rolling back transaction");
 									conn.rollback();
 									return false;
 								}
+								if (hasRenameCollision(conn, renames)) {
+									log.error("Column name mismatch: the column names of the dataset cannot be renamed to the new ones, " +
+											"rows contain both an old and a new name: {}", describeRenames(renames));
+									log.error("Rolling back transaction");
+									conn.rollback();
+									return false;
+								}
 								log.info("Renaming columns of dataset {} with the append: {}", getId(), describeRenames(renames));
-								renameColumns(conn, renames);
+								staleIndexes = renameColumns(conn, renames);
 							}
 						}
 					} else {
@@ -438,6 +473,12 @@ public class PgDataset implements Dataset {
 
 				if (append) {
 					createIndexes(conn, targetTable, labels, columnSize);
+					// last statements before the commit, since they lock the data table exclusively
+					if (!dropIndexes(conn, staleIndexes)) {
+						log.info("Rolling back transaction");
+						conn.rollback();
+						return false;
+					}
 				} else if (!replaceDataTable(conn, targetTable, createIndexes(conn, targetTable, labels, columnSize))) {
 					log.info("Rolling back transaction");
 					conn.rollback();
@@ -504,6 +545,16 @@ public class PgDataset implements Dataset {
 	 * @return Returns the names of the created indexes.
 	 */
 	private List<String> createIndexes(Connection conn, String table, Set<String> fields, Map<String, Integer> fieldSizes) throws SQLException {
+		return createIndexes(conn, table, fields, fieldSizes, Set.of());
+	}
+
+	/**
+	 * Like {@link #createIndexes(Connection, String, Set, Map)}, but an index whose name is one of the given indexes,
+	 * which are to be dropped later in the transaction, is created under its name with the suffix
+	 * {@link #REPLACEMENT_INDEX_SUFFIX} and has to be renamed after they have been dropped.
+	 */
+	private List<String> createIndexes(Connection conn, String table, Set<String> fields, Map<String, Integer> fieldSizes,
+									   Set<String> indexesToBeDropped) throws SQLException {
 		long before = System.currentTimeMillis();
 		List<String> createdIndexes = new ArrayList<>();
 		Set<String> existingIndices = getIndexNames(conn, table);
@@ -516,6 +567,10 @@ public class PgDataset implements Dataset {
 				continue;
 			}
 			String indexName = indexName(table, field);
+			if (indexesToBeDropped.contains(indexName)) {
+				// the index names are only unique by a prefix of the MD5, so an index to be dropped may have the name
+				indexName += REPLACEMENT_INDEX_SUFFIX;
+			}
 			if (existingIndices.contains(indexName)) {
 				log.debug("Index with name " + indexName + " already exists, skipping creation");
 				continue;
@@ -560,18 +615,21 @@ public class PgDataset implements Dataset {
 		if (status == EtlStatus.CREATED || dataTable == null) {
 			return false;
 		}
+		boolean legacyParser = rowstore.getConfig().isLegacyParserEnabled();
 		try (Connection conn = rowstore.getConnection()) {
 			Set<String> columnNames = readColumnNames(conn);
-			return columnNames != null && columnNames.stream().anyMatch(c -> !ColumnNames.cleanStoredName(c).equals(c));
+			return columnNames != null &&
+					columnNames.stream().anyMatch(c -> !ColumnNames.cleanStoredName(c, legacyParser).equals(c));
 		}
 	}
 
 	/**
-	 * Renames the columns whose stored names are not clean (see {@link ColumnNames#cleanStoredName(String)}), e.g.,
-	 * because they were stored before 2.0 with a byte order mark. The rows, the per-column indexes and the column names
-	 * are changed in one transaction; the status is not changed. Nothing is changed if a clean name would collide with
-	 * another column name, if the dataset has no data, or if its data table does not exist. Must not run
-	 * concurrently with a load of the dataset, see {@link org.entrystore.rowstore.etl.EtlProcessor#runExclusively}.
+	 * Renames the columns whose stored names are not clean (see {@link ColumnNames#cleanStoredName(String, boolean)}),
+	 * e.g., because they were stored before 2.0 with a byte order mark. The rows, the per-column indexes and the column
+	 * names are changed in one transaction; the status is not changed. Nothing is changed if a clean name would be
+	 * empty or collide with another column name (in any row), if the dataset has no data, or if its data table does not
+	 * exist. Must not run concurrently with a load of the dataset, see
+	 * {@link org.entrystore.rowstore.etl.EtlProcessor#callExclusively}.
 	 *
 	 * @return Returns the renamed columns (stored name to clean name), empty if nothing was renamed.
 	 * @throws SQLException If the database could not be accessed.
@@ -579,7 +637,8 @@ public class PgDataset implements Dataset {
 	 */
 	public Map<String, String> cleanColumnNames() throws SQLException {
 		try {
-			initFromDb();
+			// runs as an ETL job, so it uses the load budget (ARCH-7.02)
+			initFromDb(rowstore.getLoadJdbcTemplate());
 		} catch (IllegalStateException e) {
 			log.info("Not cleaning column names of dataset {}, it does not exist anymore", getId());
 			return Map.of();
@@ -587,7 +646,7 @@ public class PgDataset implements Dataset {
 		if (status == EtlStatus.CREATED || dataTable == null) {
 			return Map.of();
 		}
-		try (Connection conn = rowstore.getConnection()) {
+		try (Connection conn = rowstore.getLoadConnection()) {
 			conn.setAutoCommit(false);
 			try {
 				Set<String> columnNames = readColumnNames(conn);
@@ -596,7 +655,7 @@ public class PgDataset implements Dataset {
 					conn.rollback();
 					return Map.of();
 				}
-				Map<String, String> renames = ColumnNames.renamesForStoredNames(columnNames);
+				Map<String, String> renames = ColumnNames.renamesForStoredNames(columnNames, rowstore.getConfig().isLegacyParserEnabled());
 				if (renames == null) {
 					log.warn("Not cleaning column names of dataset {}, the cleaned names would be empty or collide: {}", getId(),
 							columnNames.stream().map(c -> "\"" + ColumnNames.escapeForLog(c) + "\"").toList());
@@ -607,7 +666,17 @@ public class PgDataset implements Dataset {
 					conn.rollback();
 					return Map.of();
 				}
-				renameColumns(conn, renames);
+				if (hasRenameCollision(conn, renames)) {
+					log.warn("Not cleaning column names of dataset {}, rows contain both an old and a new name: {}", getId(),
+							describeRenames(renames));
+					conn.rollback();
+					return Map.of();
+				}
+				List<String> staleIndexes = renameColumns(conn, renames);
+				if (!dropIndexes(conn, staleIndexes)) {
+					conn.rollback();
+					return Map.of();
+				}
 				conn.commit();
 				log.info("Renamed columns of dataset {}: {}", getId(), describeRenames(renames));
 				return renames;
@@ -619,12 +688,34 @@ public class PgDataset implements Dataset {
 	}
 
 	/**
-	 * Renames columns in the caller's transaction: renames the keys of all rows in one statement, drops the indexes
-	 * of the old names and creates indexes for the new names (unless their values are too large, see createIndexes()).
+	 * @return Returns whether a row of the data table contains both an old name and its new name, so that renaming
+	 * would overwrite a value. Scans the data table.
+	 */
+	private boolean hasRenameCollision(Connection conn, Map<String, String> renames) throws SQLException {
+		String sql = "SELECT EXISTS (SELECT 1 FROM " + dataTable + " CROSS JOIN unnest(?::text[], ?::text[]) AS r(old_name, new_name) " +
+				"WHERE data ?? r.old_name AND data ?? r.new_name)";
+		try (PreparedStatement ps = conn.prepareStatement(sql)) {
+			ps.setArray(1, conn.createArrayOf("text", renames.keySet().toArray(new String[0])));
+			ps.setArray(2, conn.createArrayOf("text", renames.values().toArray(new String[0])));
+			try (ResultSet rs = ps.executeQuery()) {
+				return rs.next() && rs.getBoolean(1);
+			}
+		}
+	}
+
+	/**
+	 * Renames columns in the caller's transaction: renames the keys of all rows in one statement and creates indexes
+	 * for the new names (unless their values are too large, see createIndexes()). None of these statements blocks
+	 * readers of the data table. The indexes of the old names are not dropped, since this requires an exclusive lock
+	 * until the end of the transaction; the caller has to drop them right before the commit, see
+	 * {@link #dropIndexes(Connection, List)}. An index of a new name whose name equals that of an index of an old name
+	 * (the names only contain a prefix of the MD5 of the column name) is created under a temporary name, which
+	 * dropIndexes() changes to the final name.
 	 *
 	 * @param renames Old name to new name; the new names must not be existing column names.
+	 * @return Returns the existing indexes of the old names.
 	 */
-	private void renameColumns(Connection conn, Map<String, String> renames) throws SQLException {
+	private List<String> renameColumns(Connection conn, Map<String, String> renames) throws SQLException {
 		long before = System.currentTimeMillis();
 		String[] oldNames = renames.keySet().toArray(new String[0]);
 		String[] newNames = renames.values().toArray(new String[0]);
@@ -642,37 +733,64 @@ public class PgDataset implements Dataset {
 			log.debug("Executing: " + ps);
 			ps.executeUpdate();
 		}
+		// one scan for all columns, one row per column
 		Map<String, Integer> fieldSizes = new HashMap<>();
-		try (Statement stmt = conn.createStatement()) {
-			for (String oldName : oldNames) {
-				executeDdl(stmt, "DROP INDEX IF EXISTS " + indexName(dataTable, oldName));
-			}
-		}
-		try (PreparedStatement ps = conn.prepareStatement("SELECT max(length(data->>?)) FROM " + dataTable)) {
-			for (String newName : newNames) {
-				ps.setString(1, newName);
-				try (ResultSet rs = ps.executeQuery()) {
-					if (rs.next() && rs.getObject(1) != null) {
-						fieldSizes.put(newName, rs.getInt(1));
+		String sizeSql = "SELECT k, max(length(data->>k)) FROM " + dataTable + " CROSS JOIN unnest(?::text[]) AS k GROUP BY k";
+		try (PreparedStatement ps = conn.prepareStatement(sizeSql)) {
+			ps.setArray(1, conn.createArrayOf("text", newNames));
+			try (ResultSet rs = ps.executeQuery()) {
+				while (rs.next()) {
+					if (rs.getObject(2) != null) {
+						fieldSizes.put(rs.getString(1), rs.getInt(2));
 					}
 				}
 			}
 		}
-		createIndexes(conn, dataTable, new LinkedHashSet<>(renames.values()), fieldSizes);
+		Set<String> existingIndexes = getIndexNames(conn, dataTable);
+		List<String> staleIndexes = new ArrayList<>();
+		for (String oldName : oldNames) {
+			String index = indexName(dataTable, oldName);
+			if (existingIndexes.contains(index)) {
+				staleIndexes.add(index);
+			}
+		}
+		createIndexes(conn, dataTable, new LinkedHashSet<>(renames.values()), fieldSizes, new HashSet<>(staleIndexes));
 		log.debug("Renaming columns took {} ms", System.currentTimeMillis() - before);
+		return staleIndexes;
+	}
+
+	/**
+	 * Drops indexes of the data table in the caller's transaction, which must be committed right afterwards, and gives
+	 * the indexes that were created under a temporary name because of them (see renameColumns()) their final name.
+	 * Dropping an index locks the data table exclusively until the end of the transaction, which is acquired like for
+	 * a replace, see {@link #lockDataTableForReplace(Connection)}.
+	 *
+	 * @return Returns false if interrupted while waiting to lock the data table.
+	 */
+	private boolean dropIndexes(Connection conn, List<String> indexes) throws SQLException {
+		if (indexes.isEmpty()) {
+			return true;
+		}
+		if (!lockDataTable(conn, "drop the indexes of renamed columns")) {
+			return false;
+		}
+		Set<String> existingIndexes = getIndexNames(conn, dataTable);
+		try (Statement stmt = conn.createStatement()) {
+			for (String index : indexes) {
+				executeDdl(stmt, "DROP INDEX " + index);
+			}
+			for (String index : indexes) {
+				if (existingIndexes.contains(index + REPLACEMENT_INDEX_SUFFIX)) {
+					executeDdl(stmt, "ALTER INDEX " + index + REPLACEMENT_INDEX_SUFFIX + " RENAME TO " + index);
+				}
+			}
+		}
+		return true;
 	}
 
 	private static List<String> describeRenames(Map<String, String> renames) {
 		return renames.entrySet().stream()
 				.map(e -> "\"" + ColumnNames.escapeForLog(e.getKey()) + "\" -> \"" + e.getValue() + "\"").toList();
-	}
-
-	private static Set<String> renamedColumnNames(Set<String> columnNames, Map<String, String> renames) {
-		Set<String> result = new HashSet<>();
-		for (String c : columnNames) {
-			result.add(renames.getOrDefault(c, c));
-		}
-		return result;
 	}
 
 	/**
@@ -783,6 +901,16 @@ public class PgDataset implements Dataset {
 	 * @throws SQLException If locking failed for another reason than a lock timeout of an attempt with a timeout.
 	 */
 	boolean lockDataTableForReplace(Connection conn) throws SQLException {
+		return lockDataTable(conn, "replace it");
+	}
+
+	/**
+	 * Locks the data table exclusively within the caller's transaction, like {@link #lockDataTableForReplace(Connection)}.
+	 * The remaining statements of the transaction must only touch the data table and objects depending on it.
+	 *
+	 * @param purpose What the lock is needed for, for logging (e.g., "replace it").
+	 */
+	private boolean lockDataTable(Connection conn, String purpose) throws SQLException {
 		for (int attempt = 0; ; attempt++) {
 			boolean lastAttempt = attempt >= swapRetryDelaysMillis.length;
 			Savepoint savepoint = conn.setSavepoint();
@@ -798,13 +926,13 @@ public class PgDataset implements Dataset {
 				conn.rollback(savepoint);
 			}
 			long delay = swapRetryDelaysMillis[attempt];
-			log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to replace it in {} ms{}",
-					dataTable, getId(), delay, attempt == swapRetryDelaysMillis.length - 1 ? " without a lock timeout" : "");
+			log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to {} in {} ms{}",
+					dataTable, getId(), purpose, delay, attempt == swapRetryDelaysMillis.length - 1 ? " without a lock timeout" : "");
 			try {
 				Thread.sleep(delay);
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
-				log.error("Interrupted while waiting to replace data table {} of dataset {}", dataTable, getId());
+				log.error("Interrupted while waiting to lock data table {} of dataset {} to {}", dataTable, getId(), purpose);
 				return false;
 			}
 		}
@@ -959,6 +1087,10 @@ public class PgDataset implements Dataset {
 			}
 		} catch (SQLException e) {
 			log.debug(e.getMessage());
+			if (LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+				// the data table is locked, e.g., by a replace (503, ARCH-7.03)
+				throw new TransientDataAccessResourceException("Data table of dataset " + getId() + " is locked", e);
+			}
 			return new QueryResult.Error(e.getSQLState());
 		} finally {
 			log.debug("Performing database query took {} ms, total time was {} ms", queryTime, System.currentTimeMillis() - totalTime);
@@ -990,16 +1122,15 @@ public class PgDataset implements Dataset {
 	 * @see Dataset#getColumnNames()
 	 */
 	public Set<String> getColumnNames() {
-		return this.getColumnNames(true);
-	}
-
-	private Set<String> getColumnNames(boolean useQueryDatabase) {
 		long before = System.currentTimeMillis();
-		JdbcTemplate jt = useQueryDatabase ? rowstore.getQueryJdbcTemplate() : rowstore.getJdbcTemplate();
 		String sql = "SELECT DISTINCT jsonb_object_keys(data) AS column_names FROM " + getDataTable() +
 				" WHERE rownr=(SELECT min(rownr) FROM " + getDataTable() + ")";
 		try {
-			return new HashSet<>(jt.queryForList(sql, String.class));
+			return new HashSet<>(rowstore.getQueryJdbcTemplate().queryForList(sql, String.class));
+		} catch (DataAccessResourceFailureException | TransientDataAccessResourceException e) {
+			// e.g., no connection available within the wait timeout or the data table is locked (503), must not be
+			// mistaken for no columns
+			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 			return new HashSet<>();
@@ -1016,10 +1147,17 @@ public class PgDataset implements Dataset {
 	 * @throws DataAccessException If the database could not be queried, e.g., because it is unreachable.
 	 */
 	private void initFromDb() {
+		initFromDb(rowstore.getJdbcTemplate());
+	}
+
+	/**
+	 * Like {@link #initFromDb()}, with the given JdbcTemplate (e.g., of the load budget for ETL jobs).
+	 */
+	private void initFromDb(JdbcTemplate jdbcTemplate) {
 		long before = System.currentTimeMillis();
 		try {
 			log.debug("Loading dataset {} from database", getId());
-			Map<String, Object> row = rowstore.getJdbcTemplate().queryForMap(
+			Map<String, Object> row = jdbcTemplate.queryForMap(
 					"SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", getId());
 			this.canonicalId = row.get("id").toString();
 			this.status = (int) row.get("status");
@@ -1062,6 +1200,8 @@ public class PgDataset implements Dataset {
 			Long result = rowstore.getQueryJdbcTemplate().queryForObject(
 					"SELECT COUNT(rownr)::BIGINT FROM " + getDataTable(), Long.class);
 			return result != null ? result : -1;
+		} catch (DataAccessResourceFailureException | TransientDataAccessResourceException e) {
+			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 			return -1;
@@ -1075,16 +1215,13 @@ public class PgDataset implements Dataset {
 	 */
 	@Override
 	public Set<String> getAliases() {
-		return this.getAliases(true);
-	}
-
-	private Set<String> getAliases(boolean useQueryDatabase) {
 		long before = System.currentTimeMillis();
-		JdbcTemplate jt = useQueryDatabase ? rowstore.getQueryJdbcTemplate() : rowstore.getJdbcTemplate();
 		try {
-			return new HashSet<>(jt.queryForList(
+			return new HashSet<>(rowstore.getQueryJdbcTemplate().queryForList(
 					"SELECT alias FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?::uuid",
 					String.class, getId()));
+		} catch (DataAccessResourceFailureException | TransientDataAccessResourceException e) {
+			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 			return new HashSet<>();
@@ -1115,7 +1252,16 @@ public class PgDataset implements Dataset {
 				lockStmt.executeQuery();
 			}
 
-			Set<String> existingAliases = getAliases(false);
+			// all reads use this connection, since a request must not hold more than one connection at a time (ARCH-7.04)
+			Set<String> existingAliases = new HashSet<>();
+			try (PreparedStatement ps = conn.prepareStatement("SELECT alias FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?")) {
+				ps.setObject(1, uuid);
+				try (ResultSet rs = ps.executeQuery()) {
+					while (rs.next()) {
+						existingAliases.add(rs.getString(1));
+					}
+				}
+			}
 
 			try (PreparedStatement deleteStmt = conn.prepareStatement("DELETE FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?")) {
 				deleteStmt.setObject(1, uuid);
@@ -1125,7 +1271,7 @@ public class PgDataset implements Dataset {
 
 			try (PreparedStatement insertStmt = conn.prepareStatement("INSERT INTO " + PgDatasets.ALIAS_TABLE_NAME + " (dataset_id, alias) VALUES (?, ?)")) {
 				for (String alias : aliases) {
-					if (existingAliases.contains(alias) || (isAliasValid(alias) && isAliasAvailable(alias))) {
+					if (existingAliases.contains(alias) || (isAliasValid(alias) && isAliasAvailable(conn, alias))) {
 						insertStmt.setObject(1, uuid);
 						insertStmt.setString(2, alias);
 						log.debug("Adding to batch: " + insertStmt);
@@ -1141,6 +1287,9 @@ public class PgDataset implements Dataset {
 			}
 			conn.commit();
 		} catch (SQLException e) {
+			if (PgRowStore.isTemporarilyUnavailable(e)) {
+				throw new TransientDataAccessResourceException("Aliases of dataset " + getId() + " are locked", e);
+			}
 			log.error(e.getMessage());
 			return false;
 		} finally {
@@ -1157,7 +1306,7 @@ public class PgDataset implements Dataset {
 					"SELECT dataset_id FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?",
 					(rs, rowNum) -> (UUID) rs.getObject("dataset_id"), alias);
 			return results.isEmpty() ? null : results.get(0).toString();
-		} catch (DataAccessResourceFailureException e) {
+		} catch (DataAccessResourceFailureException | TransientDataAccessResourceException e) {
 			// An unreachable database must not be mistaken for an unknown alias (mapped to 503). Unlike in
 			// initFromDb(), other failures are still treated as an unknown alias because the alias is
 			// unvalidated user input, which may be rejected by the database (e.g., invalid byte sequences).
@@ -1174,8 +1323,28 @@ public class PgDataset implements Dataset {
 		return alias != null && StringUtils.isAlphanumeric(alias);
 	}
 
-	private boolean isAliasAvailable(String alias) {
-		return (!rowstore.getDatasets().hasDataset(alias) && (resolveAlias(alias) == null));
+	/**
+	 * @param alias A valid alias, see {@link #isAliasValid(String)}.
+	 * @return Returns whether the alias is neither the ID of a dataset nor an alias of a dataset. Reads with the
+	 * caller's connection, in its transaction.
+	 */
+	private static boolean isAliasAvailable(Connection conn, String alias) throws SQLException {
+		// An alphanumeric alias is a valid UUID input for PostgreSQL only if it consists of 32 hexadecimal digits;
+		// other aliases cannot be the ID of a dataset, and casting them to UUID would abort the transaction
+		if (alias.matches("[0-9a-fA-F]{32}") &&
+				exists(conn, "SELECT 1 FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", alias)) {
+			return false;
+		}
+		return !exists(conn, "SELECT 1 FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?", alias);
+	}
+
+	private static boolean exists(Connection conn, String sql, String param) throws SQLException {
+		try (PreparedStatement ps = conn.prepareStatement(sql)) {
+			ps.setString(1, param);
+			try (ResultSet rs = ps.executeQuery()) {
+				return rs.next();
+			}
+		}
 	}
 
 	/**

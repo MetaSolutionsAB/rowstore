@@ -47,7 +47,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-3.05** `legacyparser` (boolean, default `false`) — When `true`, uses OpenCSV's `CSVParserBuilder` instead of `RFC4180ParserBuilder` for CSV parsing. See [ETL-4.03](04-etl-pipeline.md#etl-4-csv-processing).
 
-> **CFG-3.06** `querytimeout` (int, default `-1`) — Query timeout in seconds. When > 0, applied via `setQueryTimeout()` on the JDBC statement. Timed-out queries return 503. See [QUERY-7.01](05-querying.md#query-7-query-timeout).
+> **CFG-3.06** `querytimeout` (int, default `-1`) — Query timeout in seconds. When > 0, applied via `setQueryTimeout()` on the JDBC statement of a query and on the statements that short operations execute through the JdbcTemplates of the query budget, e.g., dataset lookups, column names and row counts (ARCH-7.03). Timed-out queries return 503. See [QUERY-7.01](05-querying.md#query-7-query-timeout).
 
 > **CFG-3.07** `querymaxlimit` (int, default `100`) — Maximum value allowed for the `_limit` query parameter. Client-requested limits exceeding this value are not used; the default limit of 100 applies instead (QUERY-3.01). Must be greater than 0. See [QUERY-3.01](05-querying.md#query-3-special-parameters).
 
@@ -85,9 +85,19 @@ Covers the JSON configuration file format, all application and database options,
 >
 > Values >= 0 are passed to the PostgreSQL driver, with and without connection pool (`0` means no timeout, as in 1.x). With HikariCP, `connectTimeout` additionally sets the pool's `connectionTimeout` (maximum wait for a pooled connection).
 
+> **CFG-4.05** `maxQueryConnections` (int, default `10`) — Maximum number of connections of the database that are open at the same time for short operations (query budget, see [ARCH-7.02](01-system-architecture.md#arch-7-database-connection-limits)).
+
+> **CFG-4.06** `maxExportConnections` (int, default `2`) — Maximum number of connections of the database that are open at the same time for exports (export budget). Only used for the database that serves queries: `queryDatabase` if configured, otherwise `database`.
+
+> **CFG-4.07** `connectionWaitTimeout` (int, seconds) — Maximum time a request waits for a connection of a budget before it fails with 503 ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)). Defaults to `querytimeout` (CFG-3.06) if that is greater than 0, otherwise to `30`.
+
+> **CFG-4.08** `queryLockTimeout` (int, seconds) — Maximum time a connection of the query budget waits for a lock ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)), set as PostgreSQL `lock_timeout` when the connection is obtained. Defaults to half of `connectionWaitTimeout`. `0` disables it: RowStore then changes no session state of any connection (no `SET lock_timeout` for query connections and no `RESET lock_timeout` for pooled export and load connections), which is required with PgBouncer transaction pooling; the lock timeout should then be configured on the server side ([ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits)). Negative or non-numeric values are rejected at startup (`rowstore.json: 'database.queryLockTimeout' must be a number greater than or equal to 0`).
+>
+> The load budget of the `database` is limited by `maxetlprocesses` (CFG-3.03). Values of CFG-4.05 to CFG-4.07 that are not numbers greater than 0 are rejected at startup with an error naming the key (e.g., `rowstore.json: 'database.maxQueryConnections' must be a number greater than 0`); there is no "unlimited" value. See [ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits) for sizing the limits of many instances that share a PostgreSQL cluster.
+
 ## CFG-5 Read Replica Configuration
 
-> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`. When not configured, all queries use the primary `database` connection. Connections to `queryDatabase` are read-only also in auto-commit mode (driver `readOnlyMode=always`), with and without connection pool. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing). Replica queries of a dataset may be cancelled when a replace of the dataset is replayed, see [ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace). If `queryDatabase` uses a separate database user, it should be granted read access with `ALTER DEFAULT PRIVILEGES` (for tables created by the RowStore user), since every new dataset creates a new data table; privileges granted on an existing data table are kept by replaces (ETL-6.02).
+> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`, including its own connection limits (CFG-4.05 to CFG-4.08) for the queries and exports it serves. When not configured, all queries use the primary `database` connection. Connections to `queryDatabase` are read-only also in auto-commit mode (driver `readOnlyMode=always`), with and without connection pool. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing). Replica queries of a dataset may be cancelled when a replace of the dataset is replayed, see [ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace). If `queryDatabase` uses a separate database user, it should be granted read access with `ALTER DEFAULT PRIVILEGES` (for tables created by the RowStore user), since every new dataset creates a new data table; privileges granted on an existing data table are kept by replaces (ETL-6.02).
 
 ## CFG-6 Rate Limit Configuration
 
@@ -193,6 +203,4 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |
 | 2026-10-20 | CFG-5.01: replica queries may be cancelled by replayed replaces |
-| 2026-10-20 | Added CFG-1.02 (fail fast on invalid config), CFG-3.08 removed (exportpagesize unused); CFG-4.02, CFG-4.04, CFG-5.01 clarified for driver settings with HikariCP |
-| 2026-10-20 | Added CFG-3.11 (`trustedproxies`); CFG-1.02 and CFG-6.03 updated: `X-Forwarded-For` only from trusted proxies |
-| 2026-10-20 | CFG-4.03: no pool unless `connectionPoolMax` > 0; CFG-3.07: limits above `querymaxlimit` fall back to the default |
+> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`, including its own connection limits (CFG-4.05 to CFG-4.08) for the queries and exports it serves. When not configured, all queries use the primary `database` connection. Connections to `queryDatabase` are read-only also in auto-commit mode (driver `readOnlyMode=always`), with and without connection pool. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing). Replica queries of a dataset may be cancelled when a replace of the dataset is replayed, see [ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace). If `queryDatabase` uses a separate database user, it should be granted read access with `ALTER DEFAULT PRIVILEGES` (for tables created by the RowStore user), since every new dataset creates a new data table; privileges granted on an existing data table are kept by replaces (ETL-6.02).

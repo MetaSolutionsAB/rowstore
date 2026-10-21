@@ -121,6 +121,13 @@ Current limitations relevant to this area.
 | ARCH-6.01 | Why JSONB (schemaless, per-column indexing) |
 | ARCH-6.02 | Why virtual-thread ETL (immediate dispatch, Semaphore concurrency control) |
 | ARCH-6.03 | Why Spring Boot (industry standard, optional HikariCP, Flyway, Actuator, virtual threads) |
+| ARCH-7.01 | Unpooled by default; connections per instance limited by connection budgets at the data source level |
+| ARCH-7.02 | Budgets: query (maxQueryConnections), export (maxExportConnections), load (maxetlprocesses), per database block |
+| ARCH-7.03 | FIFO wait up to connectionWaitTimeout, then 503; querytimeout and lock timeout bound query connections |
+| ARCH-7.04 | A request or ETL job holds at most one connection at a time |
+| ARCH-7.05 | Aggregated WARN for slow waits and timeouts; usage in /status and health details; health of both databases with short wait |
+| ARCH-7.06 | Sizing formula per instance and database; PgBouncer for many instances (queryLockTimeout 0, server-side lock_timeout) |
+| ARCH-7.07 | Budgets apply on top of an enabled HikariCP pool; pool size warning |
 
 ### DOM — Domain Model
 
@@ -166,6 +173,7 @@ Current limitations relevant to this area.
 | API-3.11 | GET /dataset/{id}/swagger — dynamic OpenAPI spec |
 | API-3.12 | GET /dataset/{id}/html — web GUI |
 | API-3.13 | GET / — 404 fallback |
+| API-3.14 | GET /status — additive `connections` field with budget usage |
 | API-4.01 | Accept header determines response format |
 | API-4.02 | format param overrides Accept header |
 | API-4.03 | Accept: text/html redirects 303 to /html |
@@ -191,7 +199,7 @@ Current limitations relevant to this area.
 | ETL-4.01 | Charset detection: juniversalchardet → ICU4J → UTF-8 |
 | ETL-4.02 | Separator detection: semicolon if consistent in first 2 lines, else comma |
 | ETL-4.03 | Parser: RFC4180Parser (default) or CSVParser (legacy) |
-| ETL-4.04 | Column names: lowercase, stripped, BOM and soft hyphens removed, empty skipped |
+| ETL-4.04 | Column names: lowercase, ends trimmed (trim and Unicode whitespace), BOM and soft hyphens removed, empty skipped |
 | ETL-4.05 | Empty lines: trailing ignored, otherwise the load fails (line number logged), both parsers alike |
 | ETL-4.06 | Leading byte order mark skipped before parsing and separator detection |
 | ETL-4.07 | Labels sanitized: U+FEFF and U+00AD removed anywhere; also used by the append check; affected names change |
@@ -214,10 +222,10 @@ Current limitations relevant to this area.
 | ETL-10.01 | Final status from locally tracked outcome; exceptions logged with stack trace |
 | ETL-10.02 | Final status write retried with backoff (96 s of delays plus connection timeouts) |
 | ETL-11.01 | Background cleanup of column names after startup; affected = first-row key not clean; skipped datasets |
-| ETL-11.02 | Cleaning rule: remove U+FEFF/U+00AD, strip, unquote only after a leading BOM, lowercase |
-| ETL-11.03 | Rename per dataset as exclusive ETL task, one dataset at a time, one transaction incl. indexes, status unchanged |
-| ETL-11.04 | Append before the cleanup renames the columns within the append |
-| ETL-11.05 | Empty or colliding cleaned names: dataset skipped with WARN, no change |
+| ETL-11.02 | Cleaning rule per configured parser, derived from the parsers: unquote only after a leading BOM directly followed by a quote, then normalize; residual ambiguity |
+| ETL-11.03 | Rename per dataset as exclusive ETL task, one dataset at a time, one transaction; old indexes dropped last with the swap lock pattern; rewrite cost; stop on connection failures |
+| ETL-11.04 | Append before the cleanup renames the columns to its labels within the append |
+| ETL-11.05 | Empty or colliding cleaned names, also old and new name in any row: dataset skipped with WARN, no change |
 | ETL-11.06 | Idempotent; PUT yields clean names; column names of affected datasets change |
 
 ### QUERY — Query Processing
@@ -266,6 +274,10 @@ Current limitations relevant to this area.
 | CFG-4.02 | ssl (boolean, default false) → sslmode require/disable |
 | CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1: no pool) |
 | CFG-4.04 | socketTimeout (0), connectTimeout (5), loginTimeout (5) |
+| CFG-4.05 | maxQueryConnections (int, default 10) |
+| CFG-4.06 | maxExportConnections (int, default 2) |
+| CFG-4.07 | connectionWaitTimeout (int seconds, default querytimeout or 30) |
+| CFG-4.08 | queryLockTimeout (int seconds, default connectionWaitTimeout / 2, 0 disables) |
 | CFG-5.01 | queryDatabase (optional, falls back to database, read-only) |
 | CFG-6.01 | ratelimit.type (slidingwindow/average) |
 | CFG-6.02 | ratelimit.timerange (seconds) |

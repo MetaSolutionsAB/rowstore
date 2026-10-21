@@ -274,7 +274,21 @@ public class ConfigurableTestEnvironment {
             if (config.socketTimeout > 0) {
                 database.put("socketTimeout", config.socketTimeout);
             }
+            if (config.maxQueryConnections > 0) {
+                database.put("maxQueryConnections", config.maxQueryConnections);
+            }
+            if (config.maxExportConnections > 0) {
+                database.put("maxExportConnections", config.maxExportConnections);
+            }
+            if (config.connectionWaitTimeout > 0) {
+                database.put("connectionWaitTimeout", config.connectionWaitTimeout);
+            }
             jsonConfig.put("database", database);
+            if (config.queryDatabasePort > 0) {
+                JSONObject queryDatabase = new JSONObject(database.toString());
+                queryDatabase.put("port", config.queryDatabasePort);
+                jsonConfig.put("queryDatabase", queryDatabase);
+            }
 
             // Separate query database pointing to the same container
             if (config.separateQueryDatabase) {
@@ -327,6 +341,10 @@ public class ConfigurableTestEnvironment {
         private final int rateLimitRequestsClientIp;
         private final String rateLimitType;
         private final int connectionPoolMax;
+        private final int maxQueryConnections;
+        private final int maxExportConnections;
+        private final int connectionWaitTimeout;
+        private final int queryDatabasePort;
         private final boolean legacyParser;
         private final int socketTimeout;
         private final boolean separateQueryDatabase;
@@ -344,6 +362,10 @@ public class ConfigurableTestEnvironment {
             this.rateLimitRequestsClientIp = builder.rateLimitRequestsClientIp;
             this.rateLimitType = builder.rateLimitType;
             this.connectionPoolMax = builder.connectionPoolMax;
+            this.maxQueryConnections = builder.maxQueryConnections;
+            this.maxExportConnections = builder.maxExportConnections;
+            this.connectionWaitTimeout = builder.connectionWaitTimeout;
+            this.queryDatabasePort = builder.queryDatabasePort;
             this.legacyParser = builder.legacyParser;
             this.socketTimeout = builder.socketTimeout;
             this.separateQueryDatabase = builder.separateQueryDatabase;
@@ -366,10 +388,13 @@ public class ConfigurableTestEnvironment {
          * Returns a unique key for caching environments with this configuration.
          */
         public String getCacheKey() {
-            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,legacyParser=%b,socketTimeout=%d,queryDb=%b,trustedProxies=%s",
+            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,legacyParser=%b," +
+                            "socketTimeout=%d,queryDb=%b,trustedProxies=%s," +
+                            "maxEtl=%d,maxQueryConnections=%d,maxExportConnections=%d,connectionWaitTimeout=%d,queryDatabasePort=%d",
                     regexpQueries, rateLimitEnabled, rateLimitTimeRange,
                     rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitRequestsClientIp, rateLimitType,
-                    connectionPoolMax, legacyParser, socketTimeout, separateQueryDatabase, trustedProxies);
+                    connectionPoolMax, legacyParser, socketTimeout, separateQueryDatabase, trustedProxies,
+                    maxEtlProcesses, maxQueryConnections, maxExportConnections, connectionWaitTimeout, queryDatabasePort);
         }
 
         @Override
@@ -393,6 +418,10 @@ public class ConfigurableTestEnvironment {
         private int rateLimitRequestsClientIp = -1;
         private String rateLimitType = "slidingwindow";
         private int connectionPoolMax = -1;
+        private int maxQueryConnections = -1;
+        private int maxExportConnections = -1;
+        private int connectionWaitTimeout = -1;
+        private int queryDatabasePort = -1;
         private boolean legacyParser = false;
         private int socketTimeout = -1;
         private boolean separateQueryDatabase = false;
@@ -450,6 +479,29 @@ public class ConfigurableTestEnvironment {
 
         public Builder connectionPoolMax(int connectionPoolMax) {
             this.connectionPoolMax = connectionPoolMax;
+            return this;
+        }
+
+        public Builder maxQueryConnections(int maxQueryConnections) {
+            this.maxQueryConnections = maxQueryConnections;
+            return this;
+        }
+
+        public Builder maxExportConnections(int maxExportConnections) {
+            this.maxExportConnections = maxExportConnections;
+            return this;
+        }
+
+        public Builder connectionWaitTimeout(int connectionWaitTimeout) {
+            this.connectionWaitTimeout = connectionWaitTimeout;
+            return this;
+        }
+
+        /**
+         * Configures a separate queryDatabase like the database, but with the given port (e.g., an unused port).
+         */
+        public Builder queryDatabasePort(int queryDatabasePort) {
+            this.queryDatabasePort = queryDatabasePort;
             return this;
         }
 

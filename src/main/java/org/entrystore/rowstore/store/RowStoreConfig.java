@@ -307,6 +307,12 @@ public class RowStoreConfig {
 
 	public class Database {
 
+		public static final int DEFAULT_MAX_QUERY_CONNECTIONS = 10;
+
+		public static final int DEFAULT_MAX_EXPORT_CONNECTIONS = 2;
+
+		public static final int DEFAULT_CONNECTION_WAIT_TIMEOUT = 30;
+
 		private String user;
 
 		private String password;
@@ -331,6 +337,14 @@ public class RowStoreConfig {
 
 		private int loginTimeout;
 
+		private int maxQueryConnections = DEFAULT_MAX_QUERY_CONNECTIONS;
+
+		private int maxExportConnections = DEFAULT_MAX_EXPORT_CONNECTIONS;
+
+		private int connectionWaitTimeout = -1;
+
+		private int queryLockTimeout = -1;
+
 		Database() {
 		}
 
@@ -350,6 +364,30 @@ public class RowStoreConfig {
 			setSocketTimeout(dbConfig.optInt("socketTimeout", 0));		// seconds, PG default 0
 			setConnectTimeout(dbConfig.optInt("connectTimeout", 5));	// seconds, PG default 10
 			setLoginTimeout(dbConfig.optInt("loginTimeout", 5));		// seconds, PG default 0
+			setMaxQueryConnections(dbConfig.optInt("maxQueryConnections", DEFAULT_MAX_QUERY_CONNECTIONS));
+			setMaxExportConnections(dbConfig.optInt("maxExportConnections", DEFAULT_MAX_EXPORT_CONNECTIONS));
+			setConnectionWaitTimeout(dbConfig.optInt("connectionWaitTimeout", -1));	// seconds, see getConnectionWaitTimeout()
+			setQueryLockTimeout(dbConfig.optInt("queryLockTimeout", -1));	// seconds, see getQueryLockTimeoutMillis()
+		}
+
+		public Database setMaxQueryConnections(int maxQueryConnections) {
+			this.maxQueryConnections = maxQueryConnections;
+			return this;
+		}
+
+		public Database setMaxExportConnections(int maxExportConnections) {
+			this.maxExportConnections = maxExportConnections;
+			return this;
+		}
+
+		public Database setQueryLockTimeout(int queryLockTimeout) {
+			this.queryLockTimeout = queryLockTimeout;
+			return this;
+		}
+
+		public Database setConnectionWaitTimeout(int connectionWaitTimeout) {
+			this.connectionWaitTimeout = connectionWaitTimeout;
+			return this;
 		}
 
 		public Database setUser(String user) {
@@ -458,6 +496,42 @@ public class RowStoreConfig {
 
 		public int getLoginTimeout() {
 			return loginTimeout;
+		}
+
+		/**
+		 * @return Returns the maximum number of connections for short operations (CFG-4.05).
+		 */
+		public int getMaxQueryConnections() {
+			return maxQueryConnections;
+		}
+
+		/**
+		 * @return Returns the maximum number of connections for exports (CFG-4.06).
+		 */
+		public int getMaxExportConnections() {
+			return maxExportConnections;
+		}
+
+		/**
+		 * @return Returns the maximum time in seconds to wait for a connection (CFG-4.07): the configured value, or
+		 * querytimeout if no value is configured and querytimeout is greater than 0, or 30.
+		 */
+		public int getConnectionWaitTimeout() {
+			if (connectionWaitTimeout > 0) {
+				return connectionWaitTimeout;
+			}
+			return queryTimeout > 0 ? queryTimeout : DEFAULT_CONNECTION_WAIT_TIMEOUT;
+		}
+
+		/**
+		 * @return Returns the lock timeout in milliseconds of connections for short operations (CFG-4.08): the
+		 * configured value, 0 if disabled (no lock timeout is set), or half of the connection wait timeout.
+		 */
+		public long getQueryLockTimeoutMillis() {
+			if (queryLockTimeout >= 0) {
+				return queryLockTimeout * 1000L;
+			}
+			return Math.max(1, getConnectionWaitTimeout() * 1000L / 2);
 		}
 
 	}
