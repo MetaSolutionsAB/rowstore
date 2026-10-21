@@ -148,6 +148,14 @@ state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 
 **Assertions:**
 1. The `SQLException` is thrown after one attempt, without rolling back to the savepoint
 
+### TC-ETL-050: A load of a dataset that was deleted while the load was queued is skipped
+
+**Setup:** As TC-ETL-007, but the dataset does not exist in the database anymore: the conditional transition to PROCESSING updates no row.
+
+**Assertions:**
+1. `populate()` returns false without reading the CSV file
+2. No status is written apart from the attempted transition to PROCESSING (in particular no ERROR)
+
 ### TC-ETL-015: Different spellings of the same dataset ID share one queue
 
 **Steps:**
