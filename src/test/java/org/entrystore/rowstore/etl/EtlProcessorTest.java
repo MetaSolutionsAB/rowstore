@@ -26,6 +26,7 @@ import org.entrystore.rowstore.store.Datasets;
 import org.entrystore.rowstore.store.QueryResult;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStoreConfig;
+import org.entrystore.rowstore.store.RowStream;
 import org.json.JSONObject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -38,7 +39,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.ResultSet;
 import java.time.Duration;
 import java.util.Date;
 import java.util.List;
@@ -446,7 +446,7 @@ class EtlProcessorTest {
         @Override public void setStatus(int status) { this.status = status; statuses.add(status); }
         @Override public Date getCreationDate() { return new Date(); }
         @Override public QueryResult query(Map<String, String> tuples, int limit, int offset) { throw new UnsupportedOperationException(); }
-        @Override public ResultSet streamAll() { throw new UnsupportedOperationException(); }
+        @Override public RowStream streamAll() { throw new UnsupportedOperationException(); }
         @Override public Set<String> getColumnNames() { return Set.of(); }
         @Override public long getRowCount() { return 0; }
         @Override public Set<String> getAliases() { return Set.of(); }
