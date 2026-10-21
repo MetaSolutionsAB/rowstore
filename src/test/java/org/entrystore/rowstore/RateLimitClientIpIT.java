@@ -117,4 +117,22 @@ class RateLimitClientIpIT {
                 .isEqualTo(429);
     }
 
+    @Test
+    @DisplayName("TC-RATE-013: Without trustedproxies, the last X-Forwarded-For entry of the connecting peer is the client")
+    void defaultTrust_lastEntryIsClient() {
+        String baseUrl = ClientIpRateLimitExtension.getDefaultBaseUrl();
+
+        // The test client acts as the reverse proxy that appends the client address; the left part is client-supplied
+        for (int i = 0; i < LIMIT; i++) {
+            assertThat(get(baseUrl, randomIp() + ", 10.0.0.1")).as("Request %d of 10.0.0.1", i + 1).isEqualTo(200);
+        }
+        assertThat(get(baseUrl, randomIp() + ", 10.0.0.1")).as("10.0.0.1 over its limit").isEqualTo(429);
+
+        // Another client behind the proxy has its own limit
+        assertThat(get(baseUrl, "10.0.0.2")).as("10.0.0.2 is limited independently").isEqualTo(200);
+
+        // Private addresses are not skipped: a client from a private network cannot select another key
+        assertThat(get(baseUrl, "10.0.0.3, 10.0.0.1")).as("Keyed on the last entry 10.0.0.1").isEqualTo(429);
+    }
+
 }

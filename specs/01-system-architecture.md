@@ -60,7 +60,7 @@ Covers the system from a structural and architectural perspective. For detailed 
 > HTTP Request (from the reverse proxy, see SEC-9)
 >   → PathParameterFilter (400 for ";" in the request path, SEC-4.11)
 >     → CorsFilter (CORS headers, preflight requests)
->       → TrustedProxyFilter (client address from X-Forwarded-For if the peer is a trusted proxy)
+>       → TrustedProxyFilter (client address from X-Forwarded-For if the peer is a trusted proxy, by default any peer)
 >         → RateLimitFilter (optional, if configured)
 >           → DispatcherServlet
 >             → Controller handler method
@@ -145,3 +145,4 @@ Covers the system from a structural and architectural perspective. For detailed 
 | 2026-10-21 | ARCH-7: connection budgets per instance (query, export, load), one connection per request at a time, sizing |
 | 2026-10-21 | ARCH-7.02: status writes of ETL jobs use the load budget; ARCH-7.03: querytimeout and lock timeout bound query connections; ARCH-7.05: health checks of both databases with a short wait |
 | 2026-10-21 | ARCH-7.03, ARCH-7.06: configurable lock timeout of query connections (queryLockTimeout), configuration for PgBouncer transaction pooling |
+| 2026-10-21 | ARCH-5.01: TrustedProxyFilter trusts the connecting peer by default |

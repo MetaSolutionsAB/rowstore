@@ -146,7 +146,7 @@ background cleanup of column names stored before 2.0 with a byte order mark or s
 **Filters** (`filters/`), in this order (CORS is registered in `CorsConfig`):
 1. `PathParameterFilter` - Rejects request paths containing `;` (path parameters) with 400
 2. `CorsFilter` - CORS headers, also on responses of the filters below (e.g. 429)
-3. `TrustedProxyFilter` - Takes the client address from `X-Forwarded-For` only for peers listed in `trustedproxies`
+3. `TrustedProxyFilter` - Takes the client address from `X-Forwarded-For`: by default the last entry, written by the connecting peer (the reverse proxy); with `trustedproxies`, only for listed peers, walked from the right
 4. `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
 
 **Utilities** (`util/`):

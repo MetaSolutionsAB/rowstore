@@ -237,8 +237,8 @@ Unknown keys are ignored (e.g. `exportpagesize`, which was never used and has be
   - `timerange` - The size (in seconds) of the time slot or window to be used for calculating the limitation.
   - `dataset` - Amount of permitted requests per dataset.
   - `global` - Amount of permitted requests globally for a RowStore instance.
-  - `clientip` - Amount of permitted requests per client IP. The client IP is the address of the connecting peer. Only if the peer is a trusted proxy (see `trustedproxies`), the client IP is taken from the `X-Forwarded-For` header: the header is read from right to left, skipping trusted proxies, and the first address that is not a trusted proxy is used. Entries further left can be forged by clients and are ignored. Proxies must write bare addresses: entries with a port (`192.0.2.1:4711`) count as untrusted. If `X-Forwarded-For` arrives from a peer that is not a trusted proxy, a warning is logged (at most once per hour per address).
-- `trustedproxies` (Array of Strings) - IP addresses and CIDR ranges of the reverse proxies whose `X-Forwarded-For` header is trusted, e.g. `["10.0.0.5"]`, `["172.18.0.0/16", "fd00::/8"]`. Only IP addresses are accepted, no host names. Default (if not set): loopback, private, shared and link-local ranges (`127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `100.64.0.0/10`, `::1`, `fc00::/7`, `fe80::/10`), which fits a reverse proxy on the same host or on a private/Docker network. A reverse proxy with a public address must be listed explicitly. An empty array `[]` trusts nobody, i.e. `X-Forwarded-For` is always ignored and all requests through the proxy share the proxy's per-client limit. If clients can reach RowStore directly from a private address, list exactly the reverse proxy addresses, otherwise such clients can choose their own client IP.
+  - `clientip` - Amount of permitted requests per client IP. The client IP is taken from the `X-Forwarded-For` header written by the reverse proxy (see `trustedproxies`): by default the last entry of the header, which the proxy has appended or set. Entries further left can be forged by clients and are ignored. Without `X-Forwarded-For`, or if the connecting peer is not a trusted proxy, the client IP is the address of the connecting peer.
+- `trustedproxies` (Array of Strings) - IP addresses and CIDR ranges of the reverse proxies whose `X-Forwarded-For` header is trusted, e.g. `["10.0.0.5"]`, `["172.18.0.0/16", "fd00::/8"]`. Only IP addresses are accepted, no host names. Default (if not set): the connecting peer is trusted as the reverse proxy, wherever it is, and the last `X-Forwarded-For` entry is the client IP. This relies on RowStore being reachable only through the reverse proxy (see [Security](#security)); otherwise clients could set the last entry themselves. Set a list to accept `X-Forwarded-For` only from known proxies, or if requests pass through several proxies whose addresses are not resolved before RowStore: the header is then read from right to left, skipping listed addresses, and the first address that is not listed is the client IP. A list should contain only proxy addresses, since clients connecting from a listed range could choose their own client IP, and proxies must write bare addresses (entries with a port, e.g. `192.0.2.1:4711`, count as unlisted). With a list, `X-Forwarded-For` from an unlisted peer is ignored and logged as a warning (at most once per hour per address). An empty array `[]` trusts nobody, i.e. `X-Forwarded-For` is always ignored and all requests through the proxy share the proxy's per-client limit.
 
 ### Example
 
@@ -411,9 +411,9 @@ The reverse proxy MUST:
 
 - authenticate all requests with methods other than `GET` and `HEAD`;
 - deny public access to `/actuator` and `/actuator/**`, `/swagger-ui.html` and `/swagger-ui/**`, `/v3/api-docs` and `/v3/api-docs/**` (including `/v3/api-docs.yaml`), and `/status?jvm` (any `/status` request with a `jvm` parameter; plain `/status` is public). In RowStore 2.0 these are served on the application port (8282), so blocking them at the proxy is the only protection. RowStore rejects request paths containing `;` with 400 (path parameters would otherwise bypass such path rules, e.g. `/v3;x/api-docs`); the proxy should reject them as well, as defence in depth;
-- set `X-Forwarded-For` and be listed in `trustedproxies` (see [Configuration](#properties)), so that the per-client rate limit applies to the real client and cannot be influenced by clients.
+- set `X-Forwarded-For` (append the client address or replace the header with it) and, if `trustedproxies` is configured, be listed there (see [Configuration](#properties)), so that the per-client rate limit applies to the real client and cannot be influenced by clients.
 
-CORS: by default all origins are allowed (`*`). This is acceptable only under the contract above: the read API is public anyway, and RowStore never sends `Access-Control-Allow-Credentials`, so web pages of other origins cannot use a browser's proxy credentials to read responses of the private API. To allow only known web applications to call RowStore from browsers, list their origins in `rowstore.json`, e.g. `"cors": { "allowedorigins": ["https://app.example.com"] }`.
+CORS: by default all origins are allowed (`*`). This is acceptable only under the contract above: the read API is public anyway, and RowStore never sends `Access-Control-Allow-Credentials`, so web pages of other origins cannot use a browser's proxy credentials to read responses of the private API. To allow only known web applications to call RowStore from browsers, list their origins in `rowstore.json`, e.g. `"cors": { "allowedorigins": ["https://app.example.com"] }`. CORS is handled before the rate limit, so rate-limited responses (429) carry CORS headers, and preflight requests (`OPTIONS`) are answered without counting towards the rate limit.
 
 A minimal nginx configuration implementing the list above (TLS settings omitted):
 
@@ -432,7 +432,7 @@ server {
         return 400;
     }
 
-    # Replace any client-supplied value; RowStore must list this proxy in "trustedproxies"
+    # Replace any client-supplied value; if "trustedproxies" is configured, it must list this proxy
     proxy_set_header X-Forwarded-For $remote_addr;
 
     # Public read API (GET/HEAD) on /datasets and /dataset/...; all other methods need authentication
@@ -460,7 +460,7 @@ server {
 }
 ```
 
-The example allows only the public API paths and denies everything else. If RowStore listens on another host, set `trustedproxies` to the proxy's address as seen by RowStore. If a load balancer or CDN sits in front of nginx, configure nginx's real IP module (`set_real_ip_from <balancer addresses>; real_ip_header X-Forwarded-For; real_ip_recursive on;`) so that `$remote_addr` is the real client address, and keep `proxy_set_header X-Forwarded-For $remote_addr` instead of `$proxy_add_x_forwarded_for`. Note that `limit_except GET HEAD` also requires authentication for `OPTIONS`, so CORS preflight requests to `/dataset*` (needed only for the private API) get 401; this is acceptable under the contract above.
+The example allows only the public API paths and denies everything else. If a load balancer or CDN sits in front of nginx, configure nginx's real IP module (`set_real_ip_from <balancer addresses>; real_ip_header X-Forwarded-For; real_ip_recursive on;`) so that `$remote_addr` is the real client address, and keep `proxy_set_header X-Forwarded-For $remote_addr` instead of `$proxy_add_x_forwarded_for`. Note that `limit_except GET HEAD` also requires authentication for `OPTIONS`, so CORS preflight requests to `/dataset*` (needed only for the private API) get 401; this is acceptable under the contract above.
 
 ## Issue tracking
 

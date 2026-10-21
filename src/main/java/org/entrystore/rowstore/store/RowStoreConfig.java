@@ -32,14 +32,6 @@ import java.util.List;
  */
 public class RowStoreConfig {
 
-	/**
-	 * Default for "trustedproxies": loopback, private, link-local and shared (CGNAT) address ranges,
-	 * equivalent to the default "internalProxies" of Tomcat's RemoteIpValve.
-	 */
-	public static final List<String> DEFAULT_TRUSTED_PROXIES = List.of(
-			"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10",
-			"::1", "fc00::/7", "fe80::/10");
-
 	private String logLevel;
 
 	private String baseURL;
@@ -68,7 +60,8 @@ public class RowStoreConfig {
 
 	private List<String> corsAllowedOrigins = List.of("*");
 
-	private List<String> trustedProxies = DEFAULT_TRUSTED_PROXIES;
+	// null if not configured: the connecting peer is then trusted as the reverse proxy
+	private List<String> trustedProxies = null;
 
 	private Database database;
 
@@ -157,7 +150,8 @@ public class RowStoreConfig {
 			}
 		}
 
-		// Reverse proxies whose X-Forwarded-For header is trusted; an empty array trusts nobody
+		// Reverse proxies whose X-Forwarded-For header is trusted; an empty array trusts nobody, without the key the
+		// connecting peer is trusted
 		if (config.has("trustedproxies")) {
 			JSONArray proxies = config.optJSONArray("trustedproxies");
 			if (proxies == null) {
@@ -323,7 +317,8 @@ public class RowStoreConfig {
 	}
 
 	/**
-	 * @return IP addresses and CIDR ranges of trusted reverse proxies, validated by {@link NetMask}
+	 * @return IP addresses and CIDR ranges of trusted reverse proxies, validated by {@link NetMask}, or null if
+	 * "trustedproxies" is not configured, in which case the connecting peer is trusted as the reverse proxy
 	 */
 	public List<String> getTrustedProxies() {
 		return trustedProxies;
