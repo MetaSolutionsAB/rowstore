@@ -34,6 +34,7 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -289,6 +290,48 @@ class ColumnNameCleanupIT extends BaseIntegrationTest {
             assertQueriesUseCleanNames(urls);
         } finally {
             deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ETL-049: An index of a new name keeps its canonical name if an index of an old name had it, by the cleanup and by an append")
+    void indexNameCollision_replacementIndexGetsCanonicalName() throws Exception {
+        String oldName = "field_" + SHY + "11246";
+        String newName = "field_100652";
+        // index names only contain the first 8 hex digits of the MD5 of the column name
+        assertThat(Hashing.md5(oldName).substring(0, 8)).isEqualTo(Hashing.md5(newName).substring(0, 8));
+        Map<String, String> brokenNames = new LinkedHashMap<>();
+        // in this order, so that the index of field_100652 is renamed before its name is taken
+        brokenNames.put("field_100652", "field_" + SHY + "100652");
+        brokenNames.put("field_11246", oldName);
+        String csv = "field_11246,field_100652\na,b\nc,d\n";
+        DatasetUrls cleaned = createDatasetAndWait(bytes(csv));
+        DatasetUrls appended = createDatasetAndWait(bytes(csv));
+        try {
+            breakColumnNames(TEST_DATABASE, cleaned.datasetId, brokenNames);
+            assertThat(indexNames(TEST_DATABASE, cleaned.datasetId))
+                    .isEqualTo(expectedIndexNames(cleaned.datasetId, oldName, "field_" + SHY + "100652"));
+            assertThat(rowStore().cleanColumnNames()).contains(cleaned.datasetId);
+
+            // broken after the cleanup, renamed by the append
+            breakColumnNames(TEST_DATABASE, appended.datasetId, brokenNames);
+            given().spec(csvSpec).body(bytes("field_11246,field_100652\ne,f\n")).post(appended.datasetUrl).then().statusCode(202);
+            waitForDatasetAvailable(appended.infoUrl);
+
+            for (DatasetUrls urls : List.of(cleaned, appended)) {
+                String table = dataTable(urls.datasetId);
+                assertThat(storedColumnNames(TEST_DATABASE, urls.datasetId)).containsExactlyInAnyOrder("field_11246", "field_100652");
+                assertThat(indexNames(TEST_DATABASE, urls.datasetId))
+                        .isEqualTo(expectedIndexNames(urls.datasetId, "field_11246", "field_100652"));
+                assertThat(queryList(TEST_DATABASE, "SELECT indexdef FROM pg_indexes WHERE indexname = '" +
+                        indexName(table, newName) + "'")).singleElement().asString().contains("'field_100652'");
+                assertThat(queryList(TEST_DATABASE, "SELECT indexdef FROM pg_indexes WHERE indexname = '" +
+                        indexName(table, "field_11246") + "'")).singleElement().asString().contains("'field_11246'");
+                assertThat(rows(urls.datasetUrl, "field_100652", "d")).containsExactly(Map.of("field_11246", "c", "field_100652", "d"));
+            }
+        } finally {
+            deleteDataset(cleaned.datasetUrl);
+            deleteDataset(appended.datasetUrl);
         }
     }
 

@@ -54,7 +54,6 @@ import java.sql.SQLException;
 import java.sql.Savepoint;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -89,6 +88,12 @@ public class PgDataset implements Dataset {
 	private final Map<String, Integer> columnSize = new HashMap<>();
 
 	private final int maxSizeForIndex = 256;
+
+	/**
+	 * Suffix of the temporary name of an index whose final name is taken by an index that is dropped later in the
+	 * same transaction, see renameColumns().
+	 */
+	private static final String REPLACEMENT_INDEX_SUFFIX = "_tmp";
 
 	/**
 	 * Delays between the attempts to write the final status of a load: six attempts over about 1.5 minutes.
@@ -519,6 +524,16 @@ public class PgDataset implements Dataset {
 	 * @return Returns the names of the created indexes.
 	 */
 	private List<String> createIndexes(Connection conn, String table, Set<String> fields, Map<String, Integer> fieldSizes) throws SQLException {
+		return createIndexes(conn, table, fields, fieldSizes, Set.of());
+	}
+
+	/**
+	 * Like {@link #createIndexes(Connection, String, Set, Map)}, but an index whose name is one of the given indexes,
+	 * which are to be dropped later in the transaction, is created under its name with the suffix
+	 * {@link #REPLACEMENT_INDEX_SUFFIX} and has to be renamed after they have been dropped.
+	 */
+	private List<String> createIndexes(Connection conn, String table, Set<String> fields, Map<String, Integer> fieldSizes,
+									   Set<String> indexesToBeDropped) throws SQLException {
 		long before = System.currentTimeMillis();
 		List<String> createdIndexes = new ArrayList<>();
 		Set<String> existingIndices = getIndexNames(conn, table);
@@ -531,6 +546,10 @@ public class PgDataset implements Dataset {
 				continue;
 			}
 			String indexName = indexName(table, field);
+			if (indexesToBeDropped.contains(indexName)) {
+				// the index names are only unique by a prefix of the MD5, so an index to be dropped may have the name
+				indexName += REPLACEMENT_INDEX_SUFFIX;
+			}
 			if (existingIndices.contains(indexName)) {
 				log.debug("Index with name " + indexName + " already exists, skipping creation");
 				continue;
@@ -667,7 +686,9 @@ public class PgDataset implements Dataset {
 	 * for the new names (unless their values are too large, see createIndexes()). None of these statements blocks
 	 * readers of the data table. The indexes of the old names are not dropped, since this requires an exclusive lock
 	 * until the end of the transaction; the caller has to drop them right before the commit, see
-	 * {@link #dropIndexes(Connection, List)}.
+	 * {@link #dropIndexes(Connection, List)}. An index of a new name whose name equals that of an index of an old name
+	 * (the names only contain a prefix of the MD5 of the column name) is created under a temporary name, which
+	 * dropIndexes() changes to the final name.
 	 *
 	 * @param renames Old name to new name; the new names must not be existing column names.
 	 * @return Returns the existing indexes of the old names.
@@ -690,24 +711,19 @@ public class PgDataset implements Dataset {
 			log.debug("Executing: " + ps);
 			ps.executeUpdate();
 		}
+		// one scan for all columns, one row per column
 		Map<String, Integer> fieldSizes = new HashMap<>();
-		String sizeSql = "SELECT " + String.join(", ", Collections.nCopies(newNames.length, "max(length(data->>?))")) +
-				" FROM " + dataTable;
+		String sizeSql = "SELECT k, max(length(data->>k)) FROM " + dataTable + " CROSS JOIN unnest(?::text[]) AS k GROUP BY k";
 		try (PreparedStatement ps = conn.prepareStatement(sizeSql)) {
-			for (int i = 0; i < newNames.length; i++) {
-				ps.setString(i + 1, newNames[i]);
-			}
+			ps.setArray(1, conn.createArrayOf("text", newNames));
 			try (ResultSet rs = ps.executeQuery()) {
-				if (rs.next()) {
-					for (int i = 0; i < newNames.length; i++) {
-						if (rs.getObject(i + 1) != null) {
-							fieldSizes.put(newNames[i], rs.getInt(i + 1));
-						}
+				while (rs.next()) {
+					if (rs.getObject(2) != null) {
+						fieldSizes.put(rs.getString(1), rs.getInt(2));
 					}
 				}
 			}
 		}
-		createIndexes(conn, dataTable, new LinkedHashSet<>(renames.values()), fieldSizes);
 		Set<String> existingIndexes = getIndexNames(conn, dataTable);
 		List<String> staleIndexes = new ArrayList<>();
 		for (String oldName : oldNames) {
@@ -716,14 +732,16 @@ public class PgDataset implements Dataset {
 				staleIndexes.add(index);
 			}
 		}
+		createIndexes(conn, dataTable, new LinkedHashSet<>(renames.values()), fieldSizes, new HashSet<>(staleIndexes));
 		log.debug("Renaming columns took {} ms", System.currentTimeMillis() - before);
 		return staleIndexes;
 	}
 
 	/**
-	 * Drops indexes of the data table in the caller's transaction, which must be committed right afterwards: dropping
-	 * an index locks the data table exclusively until the end of the transaction, which is acquired like for a
-	 * replace, see {@link #lockDataTableForReplace(Connection)}.
+	 * Drops indexes of the data table in the caller's transaction, which must be committed right afterwards, and gives
+	 * the indexes that were created under a temporary name because of them (see renameColumns()) their final name.
+	 * Dropping an index locks the data table exclusively until the end of the transaction, which is acquired like for
+	 * a replace, see {@link #lockDataTableForReplace(Connection)}.
 	 *
 	 * @return Returns false if interrupted while waiting to lock the data table.
 	 */
@@ -734,9 +752,15 @@ public class PgDataset implements Dataset {
 		if (!lockDataTable(conn, "drop the indexes of renamed columns")) {
 			return false;
 		}
+		Set<String> existingIndexes = getIndexNames(conn, dataTable);
 		try (Statement stmt = conn.createStatement()) {
 			for (String index : indexes) {
 				executeDdl(stmt, "DROP INDEX " + index);
+			}
+			for (String index : indexes) {
+				if (existingIndexes.contains(index + REPLACEMENT_INDEX_SUFFIX)) {
+					executeDdl(stmt, "ALTER INDEX " + index + REPLACEMENT_INDEX_SUFFIX + " RENAME TO " + index);
+				}
 			}
 		}
 		return true;

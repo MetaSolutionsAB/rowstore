@@ -99,7 +99,6 @@ class ColumnNamesTest {
             "legacy|\"\"\"a\"\"b\"\"\"|<BOM>\"\"a\"b\"|\"a\"b\"",
             "legacy|\"\"\"\"|<BOM>\"\"|\"",
             "legacy|\"\"\"\"\"\"|<BOM>\"\"\"|\"\"",
-            "legacy|\"\"x\"\"|<BOM>\"x\"|x\"",
             "legacy|\"x\"\"\"|<BOM>x\"|x\"",
             "legacy|' \"x\"'|<BOM> x|x",
             "legacy|\" x \"|<BOM> x|x",
@@ -125,8 +124,11 @@ class ColumnNamesTest {
     @DisplayName("TC-ETL-042: Ambiguous stored column names are cleaned to the name of the more likely header")
     @CsvSource(delimiter = '|', quoteCharacter = '\'', value = {
             // parser | less likely raw first label | stored by 1.x | cleaned name | name of that header in 2.0
-            // <BOM>"x" stems from the plain quoted label "x" in the common case
+            // <BOM>"x" stems from the plain quoted label "x" (stored by the default parser) in the common case
             "rfc|\"\"x\"\"|<BOM>\"x\"|x|\"x\"",
+            "legacy|\"\"x\"\"|<BOM>\"x\"|x|x\"",
+            // quote-only names: the cleaned name has one quote less than the name of the header in 2.0; an empty
+            // name skips the dataset, the other one is accepted
             "rfc|\"\"\"\"|<BOM>\"\"|''|\"",
             "rfc|\"\"\"\"\"\"|<BOM>\"\"\"|\"|\"\"",
             // <BOM>x" stems from "x""" (x" in 2.0) as well
@@ -139,6 +141,25 @@ class ColumnNamesTest {
         assertThat(storedBy1x(raw, legacyParser)).isEqualTo(decode(stored));
         assertThat(importedBy20(raw, legacyParser)).isEqualTo(decode(lessLikely));
         assertThat(ColumnNames.cleanStoredName(decode(stored), legacyParser)).isEqualTo(decode(cleaned));
+    }
+
+    /**
+     * A dataset loaded by the default parser of 1.x, whose instance is configured with the legacy parser now.
+     */
+    @ParameterizedTest(name = "[{index}] {0} stored as {1} -> {2}")
+    @DisplayName("TC-ETL-048: A plain quoted label stored by the default parser is unquoted also if the legacy parser is configured")
+    @CsvSource(delimiter = '|', quoteCharacter = '\'', value = {
+            // raw first label | stored by 1.x with the default parser | name in 2.0 with the legacy parser
+            "\"kopare_id\"|<BOM>\"kopare_id\"|kopare_id",
+            "\"a \"\"b\"\"\"|<BOM>\"a \"b\"\"|a \"b\"",
+            "\"a\"\"b\"|<BOM>\"a\"b\"|a\"b",
+            "\" x \"|<BOM>\" x \"|x",
+    })
+    void plainQuotedLabelOfDefaultParser_unquotedWithLegacyParser(String rawLabel, String stored, String expected) throws Exception {
+        String raw = decode(rawLabel);
+        assertThat(storedBy1x(raw, false)).isEqualTo(decode(stored));
+        assertThat(importedBy20(raw, true)).isEqualTo(decode(expected));
+        assertThat(ColumnNames.cleanStoredName(decode(stored), true)).isEqualTo(decode(expected));
     }
 
     @ParameterizedTest(name = "[{index}] \"{0}\" -> \"{1}\"")
@@ -189,10 +210,13 @@ class ColumnNamesTest {
         // the name of either parser is accepted
         assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"kopare_id\""), decode("na<SHY>mn")), Set.of("kopare_id", "namn")))
                 .containsOnly(entry(decode("<BOM>\"kopare_id\""), "kopare_id"), entry(decode("na<SHY>mn"), "namn"));
-        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"x\""), "namn"), Set.of("x\"", "namn")))
-                .containsOnly(entry(decode("<BOM>\"x\""), "x\""));
+        // <BOM>""x"" is "x" with the default parser and "x"" with the legacy parser
+        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"\"x\"\""), "namn"), Set.of("\"x\"\"", "namn")))
+                .containsOnly(entry(decode("<BOM>\"\"x\"\""), "\"x\"\""));
+        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"\"x\"\""), "namn"), Set.of("\"x\"", "namn")))
+                .containsOnly(entry(decode("<BOM>\"\"x\"\""), "\"x\""));
         // both candidates are labels: ambiguous
-        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"x\"")), Set.of("x", "x\""))).isNull();
+        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"\"x\"\"")), Set.of("\"x\"", "\"x\"\""))).isNull();
         // no candidate is a label
         assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"kopare_id\""), "namn"), Set.of("id", "namn"))).isNull();
         // different number of names and labels

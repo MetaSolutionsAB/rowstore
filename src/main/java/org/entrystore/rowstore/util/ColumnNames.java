@@ -62,6 +62,10 @@ public final class ColumnNames {
 	 * inside the quotes: {@code <BOM>"""x"""} was stored as {@code <BOM>""x"} (now {@code "x"}), {@code <BOM>""} as
 	 * {@code <BOM>"} (now empty). The name is the stored name without the byte order mark and its first quote.</li>
 	 * </ul>
+	 * A name of the form {@code <BOM>"x..."} whose second character after the byte order mark is not a quote is
+	 * unquoted like by the default parser regardless of the configured parser: it is the common case of a plain quoted
+	 * label stored by the default parser (e.g., if the legacy parser was configured after loading the dataset), whereas
+	 * the legacy parser stored it only for unlikely headers like {@code ""x""}.
 	 * This only applies if the stored name starts with a byte order mark directly followed by a quote. Otherwise, and
 	 * afterwards, the name is normalized as a label (see {@link #normalize(String)}). Names that merely look quoted
 	 * are not unquoted (the header {@code """x"""} yields the name {@code "x"}), and neither are names with whitespace
@@ -75,7 +79,11 @@ public final class ColumnNames {
 		String result = name;
 		if (name.length() >= 2 && name.charAt(0) == BYTE_ORDER_MARK && name.charAt(1) == '"') {
 			String quoted = name.substring(1);
-			if (legacyParser) {
+			if (quoted.length() >= 3 && quoted.charAt(1) != '"' && quoted.endsWith("\"")) {
+				// the common case of a plain quoted label stored by the default parser, also if the legacy parser is
+				// configured now; the legacy parser stored such a name only for unlikely headers like ""x""
+				result = quoted.substring(1, quoted.length() - 1);
+			} else if (legacyParser) {
 				result = quoted.substring(1);
 			} else if (quoted.length() >= 2 && quoted.endsWith("\"")) {
 				result = quoted.substring(1, quoted.length() - 1);
