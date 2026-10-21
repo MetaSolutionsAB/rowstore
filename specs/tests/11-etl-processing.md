@@ -129,7 +129,8 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 1 ms configured.
 
 **Assertions:**
-1. If two attempts fail, each attempt is `SAVEPOINT`, `SET LOCAL lock_timeout = '3s'`, `LOCK TABLE <dataTable> IN
+1. If two attempts fail, the statements are `SET LOCAL idle_in_transaction_session_timeout = 0` (once, before the first
+   savepoint), then per attempt `SAVEPOINT`, `SET LOCAL lock_timeout = '3s'`, `LOCK TABLE <dataTable> IN
    ACCESS EXCLUSIVE MODE`, a failed attempt is followed by `ROLLBACK TO SAVEPOINT`, and the third attempt succeeds
    (returns true)
 2. If all attempts with a timeout fail, there are three of them (one per delay), each rolled back to its savepoint,
