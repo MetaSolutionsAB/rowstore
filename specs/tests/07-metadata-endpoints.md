@@ -65,6 +65,26 @@ Tests for metadata endpoints: Swagger API documentation and WebGui HTML interfac
 **Assertions:**
 - `info.version` is present and not null
 
+### TC-SWAGGER-007: Swagger handles column names with quote, backslash and dollar sign
+
+**Setup:**
+- Create a dataset from this CSV (the quote is escaped by doubling it inside a quoted header, RFC 4180):
+  ```csv
+  id,"a ""b""",c\d,$1
+  1,2,3,4
+  ```
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}/swagger`
+
+**Expected Response:**
+- Status: `200`
+
+**Assertions:**
+- Response body parses as JSON
+- `paths./dataset/{id}.get.parameters[*].name` contains the exact names `id`, `a "b"`, `c\d` and `$1`
+
 ## WebGui Endpoint (`/dataset/{id}/html`)
 
 ### TC-WEBGUI-001: GET HTML page returns text/html

@@ -16,8 +16,10 @@
 
 package org.entrystore.rowstore;
 
+import com.zaxxer.hikari.HikariDataSource;
 import io.restassured.response.Response;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -26,11 +28,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.context.ApplicationContext;
 
+import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
+import java.util.List;
 
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.hamcrest.Matchers.equalTo;
@@ -43,6 +52,10 @@ import static org.hamcrest.Matchers.hasSize;
  *
  * The default (no pool) path is covered by all other integration tests since
  * RowStoreTestEnvironment does not set connectionPoolMax.
+ *
+ * The environment configures a separate queryDatabase (same container), ssl=false and socketTimeout=60.
+ * Tests TC-POOL-006 to TC-POOL-008 inspect the DataSource beans of the in-process server and are skipped
+ * when running against an external instance.
  */
 @DisplayName("Connection Pool Tests")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -144,6 +157,49 @@ class ConnectionPoolIT extends ConfigurableTestBase {
 
     @Test
     @Order(6)
+    @DisplayName("TC-POOL-006: SSL mode and driver timeouts are passed to the HikariCP pools")
+    void hikariPools_haveDriverSettings() {
+        for (HikariDataSource pool : List.of(primaryPool(), queryPool())) {
+            assertThat(pool.getDataSourceProperties())
+                    .as("data source properties of pool %s", pool.getPoolName())
+                    .containsEntry("sslmode", "disable")
+                    .containsEntry("connectTimeout", "5")
+                    .containsEntry("loginTimeout", "5")
+                    .containsEntry("socketTimeout", "60");
+        }
+    }
+
+    @Test
+    @Order(7)
+    @DisplayName("TC-POOL-007: Query pool is read-only, also in auto-commit mode")
+    void queryPool_isReadOnly() throws SQLException {
+        HikariDataSource primaryPool = primaryPool();
+        HikariDataSource queryPool = queryPool();
+        assertThat(queryPool).isNotSameAs(primaryPool);
+
+        assertThat(queryPool.getDataSourceProperties()).containsEntry("readOnlyMode", "always");
+        assertThat(primaryPool.getDataSourceProperties()).doesNotContainKey("readOnlyMode");
+
+        // readOnlyMode=always makes the driver run auto-commit statements in read-only transactions
+        assertThat(querySingleValue(queryPool, "SHOW transaction_read_only")).isEqualTo("on");
+        assertThat(querySingleValue(primaryPool, "SHOW transaction_read_only")).isEqualTo("off");
+    }
+
+    @Test
+    @Order(8)
+    @DisplayName("TC-POOL-008: Connections do not use SSL when ssl is false")
+    void connections_doNotUseSsl() throws SQLException {
+        // Note: the Testcontainers PostgreSQL image runs without SSL, so this cannot distinguish
+        // sslmode=disable from sslmode=prefer; TC-POOL-006 asserts the configured mode.
+        for (HikariDataSource pool : List.of(primaryPool(), queryPool())) {
+            assertThat(querySingleValue(pool, "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()"))
+                    .as("SSL in use by pool %s", pool.getPoolName())
+                    .isEqualTo("f");
+        }
+    }
+
+    @Test
+    @Order(9)
     @DisplayName("TC-EXPORT-014: Failed exports return their connections to the pool")
     void failedExports_returnConnectionsToPool() throws Exception {
         ConfigurableTestEnvironment environment = ConnectionPoolExtension.getEnvironment();
@@ -186,6 +242,31 @@ class ConnectionPoolIT extends ConfigurableTestBase {
                             .getFloat("measurements[0].value") == 0.0f);
         } finally {
             given().delete(urls.datasetUrl);
+        }
+    }
+
+    private HikariDataSource primaryPool() {
+        return dataSourceBean("dataSource");
+    }
+
+    private HikariDataSource queryPool() {
+        return dataSourceBean("queryDataSource");
+    }
+
+    private HikariDataSource dataSourceBean(String name) {
+        ApplicationContext context = ConnectionPoolExtension.getApplicationContext();
+        Assumptions.assumeTrue(context != null, "DataSource beans are only accessible for the in-process server");
+        DataSource ds = context.getBean(name, DataSource.class);
+        assertThat(ds).as("bean %s", name).isInstanceOf(HikariDataSource.class);
+        return (HikariDataSource) ds;
+    }
+
+    private static String querySingleValue(DataSource ds, String sql) throws SQLException {
+        try (Connection conn = ds.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            assertThat(rs.next()).as("result row for: %s", sql).isTrue();
+            return rs.getString(1);
         }
     }
 }

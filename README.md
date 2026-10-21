@@ -96,15 +96,15 @@ RowStore is configured through a simple JSON-file. The distribution contains an 
   - `type` - DB type, currently only `postgresql` is supported. Default: `postgresql`.
   - `host` - Hostname.
   - `port` - Port. Default: `5432`.
-  - `ssl` - `true` or `false`.
+  - `ssl` - `true` or `false`. `true` requires SSL (`sslmode=require`), `false` disables it (`sslmode=disable`), so a server that requires SSL refuses the connection. When not set, SSL is used if the server offers it (`sslmode=prefer`).
   - `database` - Name of database.
   - `user` - Username.
   - `password` - Password.
   - `connectionPoolMax` - Maximum size of connection pool. Set to a positive integer to enable HikariCP pooling. When not set or <= 0, no pool is used. Default: -1 (no pool).
   - `connectionPoolInit` - Minimum idle connections in the pool. Only effective when `connectionPoolMax` > 0. Default: 0.
   - `socketTimeout` - Socket timeout in seconds. Default: 0 (unlimited).
-  - `connectTimeout` - Connection timeout in seconds. Default: 5.
-  - `loginTimeout` - Login timeout in seconds. Default: 5.
+  - `connectTimeout` - Connection timeout in seconds, 0 means unlimited. Default: 5.
+  - `loginTimeout` - Login timeout in seconds, 0 means unlimited. Default: 5.
 - `queryDatabase` - Configures the database connection for read-only requests, e.g. if queries should be run against a read replica. Same configuration properties as `database`.
 - `loglevel` (String) - Determines the log level. Possible values: `DEBUG`, `INFO`, `WARN`, `ERROR`. Only relevant if run standalone; if run in a container (e.g. Tomcat) please refer to the container's logging configuration.
 - `querytimeout` (Integer) - Configures query timeout for dataset-queries in seconds. By default no query timeout is active (unless configured directly in the database).
@@ -268,7 +268,7 @@ An administrative table keeps track of datasets and their current status:
 
 A table per dataset holds the actual data in JSON:
 
-`CREATE TABLE IF NOT EXISTS {data-table} (rownr SERIAL, data JSONB NOT NULL)`
+`CREATE TABLE IF NOT EXISTS {data-table} (rownr BIGSERIAL PRIMARY KEY, data JSONB NOT NULL)`
 
 A table to manage aliases:
 

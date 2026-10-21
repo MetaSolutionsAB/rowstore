@@ -544,3 +544,19 @@ Martinsson,0,,
 - Initial delay: 10000ms
 - Retry count: 2
 - Retry delay: 5000ms
+
+---
+
+## Storage Schema Tests
+
+### TC-DATASET1-023: Data table row number column is bigint
+
+**Depends on:** Dataset created and available (dataset1)
+
+**Request:**
+- Direct database query (requires access to the RowStore database; skipped when testing an external instance):
+  `SELECT data_type FROM information_schema.columns WHERE table_name = 'data_{datasetId without dashes}' AND column_name = 'rownr'`
+
+**Assertions:**
+1. The data table has a `rownr` column
+2. The column's `data_type` is `bigint` (created as `BIGSERIAL`, so that replace-heavy datasets cannot exhaust a 32-bit sequence)

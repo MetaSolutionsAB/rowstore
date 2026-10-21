@@ -18,6 +18,8 @@ package org.entrystore.rowstore;
 
 import io.restassured.http.ContentType;
 import io.restassured.response.Response;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -27,6 +29,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
@@ -165,5 +170,37 @@ class SwaggerIT extends BaseIntegrationTest {
         .then()
                 .statusCode(200)
                 .body("info.version", notNullValue());
+    }
+
+    @Test
+    @Order(7)
+    @DisplayName("TC-SWAGGER-007: Swagger handles column names with quote, backslash and dollar sign")
+    void swagger_specialCharactersInColumnNames() {
+        // RFC 4180: a quote inside a quoted field is escaped by doubling it
+        String csv = "id,\"a \"\"b\"\"\",c\\d,$1\n1,2,3,4\n";
+        DatasetUrls urls = createDatasetAndWait(csv.getBytes(StandardCharsets.UTF_8));
+        try {
+            String body = given()
+                    .spec(jsonSpec)
+            .when()
+                    .get(urls.datasetUrl + "/swagger")
+            .then()
+                    .statusCode(200)
+                    .extract()
+                    .asString();
+
+            JSONObject swagger = new JSONObject(body);
+            JSONArray params = swagger.getJSONObject("paths")
+                    .getJSONObject("/dataset/" + urls.datasetId)
+                    .getJSONObject("get")
+                    .getJSONArray("parameters");
+            List<String> names = new ArrayList<>();
+            for (int i = 0; i < params.length(); i++) {
+                names.add(params.getJSONObject(i).getString("name"));
+            }
+            assertThat(names).contains("id", "a \"b\"", "c\\d", "$1");
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
     }
 }

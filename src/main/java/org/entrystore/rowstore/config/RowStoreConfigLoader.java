@@ -19,6 +19,7 @@ package org.entrystore.rowstore.config;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.core.config.Configurator;
 import org.entrystore.rowstore.store.RowStoreConfig;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,7 +57,18 @@ public class RowStoreConfigLoader {
 			jsonContent = new String(is.readAllBytes(), StandardCharsets.UTF_8);
 		}
 
-		RowStoreConfig config = new RowStoreConfig(new JSONObject(jsonContent));
+		RowStoreConfig config;
+		try {
+			config = new RowStoreConfig(new JSONObject(jsonContent));
+		} catch (JSONException e) {
+			// Not parseable as JSON at all
+			IllegalStateException ise = new IllegalStateException("rowstore.json invalid: " + e.getMessage(), e);
+			log.error(ise.getMessage());
+			throw ise;
+		} catch (IllegalStateException e) {
+			log.error(e.getMessage());
+			throw e;
+		}
 
 		setLogLevel(config.getLogLevel());
 
