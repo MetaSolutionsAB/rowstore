@@ -35,7 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * A configurable test environment for RowStore integration tests.
- * Allows creating test environments with different configurations (e.g., regex modes, rate limiting).
+ * Allows creating test environments with different configurations (e.g., regex modes, rate limiting, CSV parser).
  *
  * Unlike {@link RowStoreTestEnvironment} which is a singleton, this class can create
  * multiple independent environments with different configurations.
@@ -239,6 +239,7 @@ public class ConfigurableTestEnvironment {
             jsonConfig.put("maxetlprocesses", config.maxEtlProcesses);
             jsonConfig.put("querytimeout", config.queryTimeout);
             jsonConfig.put("querymaxlimit", config.queryMaxLimit);
+            jsonConfig.put("legacyparser", config.legacyParser);
             jsonConfig.put("loglevel", "INFO");
 
             // Rate limiting configuration
@@ -329,6 +330,7 @@ public class ConfigurableTestEnvironment {
         private final int socketTimeout;
         private final boolean separateQueryDatabase;
         private final List<String> trustedProxies;
+        private final boolean legacyParser;
 
         private Configuration(Builder builder) {
             this.regexpQueries = builder.regexpQueries;
@@ -345,6 +347,7 @@ public class ConfigurableTestEnvironment {
             this.socketTimeout = builder.socketTimeout;
             this.separateQueryDatabase = builder.separateQueryDatabase;
             this.trustedProxies = builder.trustedProxies;
+            this.legacyParser = builder.legacyParser;
         }
 
         public String getRegexpQueries() {
@@ -363,10 +366,10 @@ public class ConfigurableTestEnvironment {
          * Returns a unique key for caching environments with this configuration.
          */
         public String getCacheKey() {
-            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,socketTimeout=%d,queryDb=%b,trustedProxies=%s",
+            return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,socketTimeout=%d,queryDb=%b,trustedProxies=%s,legacyParser=%b",
                     regexpQueries, rateLimitEnabled, rateLimitTimeRange,
                     rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitRequestsClientIp, rateLimitType,
-                    connectionPoolMax, socketTimeout, separateQueryDatabase, trustedProxies);
+                    connectionPoolMax, socketTimeout, separateQueryDatabase, trustedProxies, legacyParser);
         }
 
         @Override
@@ -393,6 +396,7 @@ public class ConfigurableTestEnvironment {
         private int socketTimeout = -1;
         private boolean separateQueryDatabase = false;
         private List<String> trustedProxies = null;
+        private boolean legacyParser = false;
 
         public Builder regexpQueries(String regexpQueries) {
             this.regexpQueries = regexpQueries;
@@ -467,6 +471,11 @@ public class ConfigurableTestEnvironment {
          */
         public Builder trustedProxies(List<String> trustedProxies) {
             this.trustedProxies = trustedProxies;
+            return this;
+        }
+
+        public Builder legacyParser(boolean legacyParser) {
+            this.legacyParser = legacyParser;
             return this;
         }
 

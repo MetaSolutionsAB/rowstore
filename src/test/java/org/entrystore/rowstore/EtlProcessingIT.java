@@ -113,13 +113,13 @@ class EtlProcessingIT extends BaseIntegrationTest {
              Connection maintenance = RowStoreTestEnvironment.getInstance().openMaintenanceDatabaseConnection()) {
             String database = queryString(db, "SELECT current_database()");
 
-            // make the replace block on its TRUNCATE so the outage hits it while it is processing
+            // make the replace block when it locks the data table to replace it, so the outage hits it while it is processing
             locker.setAutoCommit(false);
             try (Statement stmt = locker.createStatement()) {
                 stmt.execute("LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
             }
             given().spec(csvSpec).body(csv("B", 2)).put(urls.datasetUrl).then().statusCode(202);
-            int loaderPid = await().atMost(MAX_WAIT).until(() -> blockedTruncatePid(db, dataTable), pid -> pid > 0);
+            int loaderPid = await().atMost(MAX_WAIT).until(() -> blockedSwapPid(db, dataTable), pid -> pid > 0);
 
             try {
                 // simulate an outage: no new connections, and the loader's connection is lost. This relies on the
@@ -264,13 +264,13 @@ class EtlProcessingIT extends BaseIntegrationTest {
     }
 
     /**
-     * @return The PID of the backend whose TRUNCATE of the data table waits for a lock, or 0 if there is none.
+     * @return The PID of the backend whose lock of the data table for replacing it waits, or 0 if there is none.
      */
-    private static int blockedTruncatePid(Connection conn, String dataTable) throws SQLException {
+    private static int blockedSwapPid(Connection conn, String dataTable) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT pid FROM pg_stat_activity WHERE datname = current_database() " +
                         "AND wait_event_type = 'Lock' AND query = ?")) {
-            ps.setString(1, "TRUNCATE " + dataTable);
+            ps.setString(1, "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
             List<Integer> pids = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
