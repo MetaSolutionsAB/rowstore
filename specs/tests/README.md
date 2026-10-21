@@ -10,7 +10,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 2 |
 | `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases, storage schema | 22 |
 | `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines | 32 |
-| `05-querying.md` | Query functionality: filters, pagination, JSONP, regex modes | 24 |
+| `05-querying.md` | Query functionality: filters, pagination, reserved `_callback` parameter, regex modes | 27 |
 | `06-export.md` | JSON/CSV export endpoints | 16 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
 | `08-error-handling.md` | Error codes: 400, 404, 423, 424, path parameters | 15 |
@@ -132,16 +132,16 @@ Dataset creation and modification are asynchronous. Tests should:
 | Datasets List | 2 |
 | Dataset Lifecycle | 22 |
 | CSV Formats | 32 |
-| Querying | 24 |
+| Querying | 27 |
 | Export | 16 |
 | Metadata Endpoints | 11 |
 | Error Handling | 15 |
 | Rate Limiting | 11 |
 | Configuration | 13 |
 | ETL Processing | 30 |
-| **Total** | **181** |
+| **Total** | **184** |
 
-Note: The specifications define 181 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 184 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 
