@@ -6,7 +6,7 @@ Tests for the connection budgets that limit the number of open database connecti
 wait timeouts resulting in 503, release of connections, independent budgets, configuration, usage reporting, and
 requests and ETL jobs holding at most one connection at a time. See
 [01-system-architecture.md](../01-system-architecture.md) (ARCH-7) and [06-configuration.md](../06-configuration.md)
-(CFG-4.05 to CFG-4.07).
+(CFG-4.05 to CFG-4.08).
 
 TC-CONN-001 to TC-CONN-007 and TC-CONN-024 to TC-CONN-026 are unit tests of the budget (`LimitedDataSourceTest`)
 with a fake data source, TC-CONN-008, TC-CONN-009 and TC-CONN-028 unit tests of the configuration
