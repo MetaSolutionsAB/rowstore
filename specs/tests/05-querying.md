@@ -154,9 +154,47 @@ Tests for query functionality including filters, pagination, and regex modes. Th
 - Status: `200`
 - Content-Type: `application/json`
 
+### TC-QUERY-018: Reserved _callback parameter is ignored
+
+Spec: QUERY-3.05
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}?_callback=x`
+
+**Expected Response:**
+- Status: `200`
+- Content-Type: `application/json`, body is plain JSON (not wrapped in `x(...)`)
+- `results`, `resultCount`, `offset`, `limit`, `prev`, `next` equal those of `/dataset/{id}` without `_callback`
+
+### TC-QUERY-019: Reserved _callback parameter is ignored together with column filters
+
+Spec: QUERY-3.05
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}/json?_callback=x&Name=McLoud`
+
+**Expected Response:**
+- Status: `200`
+- Content-Type: `application/json`, body is plain JSON
+- `results`, `resultCount`, `offset`, `limit`, `prev`, `next` equal those of `/dataset/{id}/json?Name=McLoud`
+
+### TC-QUERY-020: Reserved _callback parameter is carried over to prev/next links
+
+Spec: QUERY-3.05, QUERY-6.02
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}?_callback=x&_limit=2&_offset=2`
+
+**Expected Response:**
+- Status: `200`
+- `prev` and `next` URLs contain `_callback=x`
+
 ## JSONP Callback Tests
 
-JSONP support has been removed (API-7.01, QUERY-3.03), so these test cases are retired. A `_callback` parameter is treated like any other query parameter that is not a column name (QUERY-2.02).
+JSONP support has been removed (API-7.01, QUERY-3.03), so these test cases, which expected wrapped responses as in 1.x, are retired. `_callback` is accepted and ignored (QUERY-3.05, see TC-QUERY-018 to TC-QUERY-020).
 
 ### TC-JSONP-001: [REMOVED] Query with _callback wraps response
 
