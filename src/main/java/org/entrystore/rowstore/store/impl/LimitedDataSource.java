@@ -40,8 +40,11 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * A connection budget (ARCH-7): limits the number of connections of the target data source that are open at the
  * same time. {@link #getConnection()} waits for a free slot in FIFO order, for at most the wait timeout, and throws
- * {@link SQLTransientConnectionException} if no slot becomes free in time. The slot is released when the connection
+ * {@link ConnectionWaitTimeoutException} if no slot becomes free in time. The slot is released when the connection
  * is closed, exactly once, also if closing fails.
+ * <p>
+ * An optional session statement (e.g., {@code SET lock_timeout = ...}) is executed on every connection before it is
+ * handed out.
  * <p>
  * Statements and result sets created from a connection return the limited connection and statement from
  * getConnection() and getStatement(), so that closing a connection obtained from them releases the slot as well.
@@ -57,46 +60,58 @@ public class LimitedDataSource extends DelegatingDataSource {
 
 	static final long WARN_INTERVAL_MILLIS = 60000;
 
-	private final String name;
-
-	private final int maxConnections;
+	private final Slots slots;
 
 	private final long waitTimeoutMillis;
 
-	private final Semaphore slots;
-
-	private final AtomicInteger slowWaits = new AtomicInteger();
-
-	private final AtomicInteger timeouts = new AtomicInteger();
-
-	private final AtomicLong longestWaitMillis = new AtomicLong();
-
-	private final AtomicLong lastWarning = new AtomicLong();
+	private final String sessionSql;
 
 	/**
 	 * @param target The data source to limit.
 	 * @param name The name of the budget, for logging (e.g., "database query").
 	 * @param maxConnections The maximum number of open connections, must be greater than 0.
 	 * @param waitTimeoutMillis The maximum time to wait for a free slot, must be greater than 0.
+	 * @param sessionSql A statement executed on every connection before it is handed out, or null.
 	 */
-	public LimitedDataSource(DataSource target, String name, int maxConnections, long waitTimeoutMillis) {
+	public LimitedDataSource(DataSource target, String name, int maxConnections, long waitTimeoutMillis, String sessionSql) {
 		super(target);
 		if (maxConnections <= 0 || waitTimeoutMillis <= 0) {
 			throw new IllegalArgumentException("Maximum connections and wait timeout must be greater than 0");
 		}
-		this.name = name;
-		this.maxConnections = maxConnections;
+		this.slots = new Slots(name, maxConnections);
 		this.waitTimeoutMillis = waitTimeoutMillis;
-		this.slots = new Semaphore(maxConnections, true);
+		this.sessionSql = sessionSql;
+	}
+
+	public LimitedDataSource(DataSource target, String name, int maxConnections, long waitTimeoutMillis) {
+		this(target, name, maxConnections, waitTimeoutMillis, null);
+	}
+
+	private LimitedDataSource(LimitedDataSource budget, long waitTimeoutMillis) {
+		super(budget.getTargetDataSource());
+		this.slots = budget.slots;
+		this.waitTimeoutMillis = waitTimeoutMillis;
+		this.sessionSql = budget.sessionSql;
+	}
+
+	/**
+	 * @return Returns a data source that uses the same slots (and session statement) as this one, but waits at most
+	 * the given time for a free slot, e.g., for health checks that must not wait as long as requests.
+	 */
+	public LimitedDataSource withWaitTimeout(long waitTimeoutMillis) {
+		if (waitTimeoutMillis <= 0) {
+			throw new IllegalArgumentException("Wait timeout must be greater than 0");
+		}
+		return new LimitedDataSource(this, waitTimeoutMillis);
 	}
 
 	@Override
 	public Connection getConnection() throws SQLException {
 		acquire();
 		try {
-			return limit(super.getConnection());
+			return limit(prepare(super.getConnection()));
 		} catch (Throwable t) {
-			slots.release();
+			slots.semaphore.release();
 			throw t;
 		}
 	}
@@ -105,9 +120,9 @@ public class LimitedDataSource extends DelegatingDataSource {
 	public Connection getConnection(String username, String password) throws SQLException {
 		acquire();
 		try {
-			return limit(super.getConnection(username, password));
+			return limit(prepare(super.getConnection(username, password)));
 		} catch (Throwable t) {
-			slots.release();
+			slots.semaphore.release();
 			throw t;
 		}
 	}
@@ -116,15 +131,28 @@ public class LimitedDataSource extends DelegatingDataSource {
 	 * @return Returns the current usage of the budget.
 	 */
 	public ConnectionUsage getUsage() {
-		return new ConnectionUsage(maxConnections - slots.availablePermits(), maxConnections, slots.getQueueLength());
+		return new ConnectionUsage(slots.max - slots.semaphore.availablePermits(), slots.max, slots.semaphore.getQueueLength());
 	}
 
 	public String getName() {
-		return name;
+		return slots.name;
 	}
 
 	public int getMaxConnections() {
-		return maxConnections;
+		return slots.max;
+	}
+
+	/**
+	 * @return Returns whether the throwable or one of its causes is a timeout while waiting for a free connection of a
+	 * budget, which means that the database is in use, not that it is unreachable.
+	 */
+	public static boolean isWaitTimeout(Throwable t) {
+		for (Throwable c = t; c != null; c = c.getCause()) {
+			if (c instanceof ConnectionWaitTimeoutException) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private void acquire() throws SQLException {
@@ -132,33 +160,45 @@ public class LimitedDataSource extends DelegatingDataSource {
 		boolean acquired;
 		try {
 			// unlike tryAcquire() without timeout, this respects the fairness (FIFO order) of the semaphore
-			acquired = slots.tryAcquire(waitTimeoutMillis, TimeUnit.MILLISECONDS);
+			acquired = slots.semaphore.tryAcquire(waitTimeoutMillis, TimeUnit.MILLISECONDS);
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
-			throw new SQLTransientConnectionException("Interrupted while waiting for a " + name + " connection", e);
+			throw new SQLTransientConnectionException("Interrupted while waiting for a " + slots.name + " connection", e);
 		}
 		long waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
 		if (!acquired) {
 			recordSlowWait(waitedMillis, true);
-			throw new SQLTransientConnectionException("No " + name + " connection available within " +
-					waitTimeoutMillis + " ms, all " + maxConnections + " in use");
+			throw new ConnectionWaitTimeoutException("No " + slots.name + " connection available within " +
+					waitTimeoutMillis + " ms, all " + slots.max + " in use");
 		}
 		if (waitedMillis >= SLOW_WAIT_MILLIS) {
 			recordSlowWait(waitedMillis, false);
 		}
 	}
 
+	private Connection prepare(Connection conn) throws SQLException {
+		if (sessionSql != null) {
+			try (Statement stmt = conn.createStatement()) {
+				stmt.execute(sessionSql);
+			} catch (SQLException | RuntimeException e) {
+				conn.close();
+				throw e;
+			}
+		}
+		return conn;
+	}
+
 	private void recordSlowWait(long waitedMillis, boolean timedOut) {
-		(timedOut ? timeouts : slowWaits).incrementAndGet();
-		longestWaitMillis.accumulateAndGet(waitedMillis, Math::max);
+		(timedOut ? slots.timeouts : slots.slowWaits).incrementAndGet();
+		slots.longestWaitMillis.accumulateAndGet(waitedMillis, Math::max);
 		long now = System.currentTimeMillis();
-		long last = lastWarning.get();
-		if (now - last >= WARN_INTERVAL_MILLIS && lastWarning.compareAndSet(last, now)) {
+		long last = slots.lastWarning.get();
+		if (now - last >= WARN_INTERVAL_MILLIS && slots.lastWarning.compareAndSet(last, now)) {
 			ConnectionUsage usage = getUsage();
-			log.warn("Waiting for {} connections: {} wait(s) longer than {} ms and {} timeout(s) after {} ms " +
-							"since the last warning, longest wait {} ms; in use {}/{}, waiting {}",
-					name, slowWaits.getAndSet(0), SLOW_WAIT_MILLIS, timeouts.getAndSet(0), waitTimeoutMillis,
-					longestWaitMillis.getAndSet(0), usage.inUse(), usage.max(), usage.waiting());
+			log.warn("{} connections are scarce: since the last warning, {} request(s) waited longer than {} ms for a " +
+							"connection and {} request(s) got none within {} ms; longest wait {} ms, in use {}/{}, waiting {}",
+					slots.name, slots.slowWaits.getAndSet(0), SLOW_WAIT_MILLIS, slots.timeouts.getAndSet(0),
+					waitTimeoutMillis, slots.longestWaitMillis.getAndSet(0), usage.inUse(), usage.max(), usage.waiting());
 		}
 	}
 
@@ -166,7 +206,7 @@ public class LimitedDataSource extends DelegatingDataSource {
 		AtomicBoolean released = new AtomicBoolean();
 		return (Connection) wrap(Connection.class, target, null, () -> {
 			if (released.compareAndSet(false, true)) {
-				slots.release();
+				slots.semaphore.release();
 			}
 		});
 	}
@@ -177,7 +217,49 @@ public class LimitedDataSource extends DelegatingDataSource {
 	}
 
 	/**
+	 * Thrown if no connection of a budget became free within the wait timeout.
+	 */
+	public static class ConnectionWaitTimeoutException extends SQLTransientConnectionException {
+
+		public ConnectionWaitTimeoutException(String message) {
+			super(message);
+		}
+
+	}
+
+	/**
+	 * The slots of a budget, shared by the data sources returned by {@link #withWaitTimeout(long)}.
+	 */
+	private static final class Slots {
+
+		final String name;
+
+		final int max;
+
+		final Semaphore semaphore;
+
+		final AtomicInteger slowWaits = new AtomicInteger();
+
+		final AtomicInteger timeouts = new AtomicInteger();
+
+		final AtomicLong longestWaitMillis = new AtomicLong();
+
+		final AtomicLong lastWarning = new AtomicLong();
+
+		Slots(String name, int max) {
+			this.name = name;
+			this.max = max;
+			this.semaphore = new Semaphore(max, true);
+		}
+
+	}
+
+	/**
 	 * Delegates to a connection, a statement created from it or a result set of such a statement.
+	 * <p>
+	 * Only close() of the connection releases the slot; abort() does not, the connection has to be closed afterwards
+	 * as usual. Objects that are not created by statements are not wrapped, e.g., getMetaData().getConnection()
+	 * returns the connection of the target data source, which must not be closed. A proxy is equal only to itself.
 	 *
 	 * @param parent The proxy of the connection of a statement, or of the statement of a result set.
 	 * @param onClose Run when the connection is closed, null for statements and result sets.
@@ -187,10 +269,16 @@ public class LimitedDataSource extends DelegatingDataSource {
 		@Override
 		public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
 			String methodName = method.getName();
-			boolean noArgs = method.getParameterCount() == 0;
-			if (noArgs && ((target instanceof Statement && methodName.equals("getConnection")) ||
+			int parameterCount = method.getParameterCount();
+			if (parameterCount == 0 && ((target instanceof Statement && methodName.equals("getConnection")) ||
 					(target instanceof ResultSet && methodName.equals("getStatement")))) {
 				return parent;
+			}
+			if (parameterCount == 1 && methodName.equals("equals") && method.getParameterTypes()[0] == Object.class) {
+				return proxy == args[0];
+			}
+			if (parameterCount == 0 && methodName.equals("hashCode")) {
+				return System.identityHashCode(proxy);
 			}
 			Object result;
 			try {
@@ -198,7 +286,7 @@ public class LimitedDataSource extends DelegatingDataSource {
 			} catch (InvocationTargetException e) {
 				throw e.getCause();
 			} finally {
-				if (onClose != null && noArgs && methodName.equals("close")) {
+				if (onClose != null && parameterCount == 0 && methodName.equals("close")) {
 					onClose.run();
 				}
 			}

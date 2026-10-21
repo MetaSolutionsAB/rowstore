@@ -21,14 +21,24 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import io.restassured.response.Response;
+import org.entrystore.rowstore.ConnectionLimitTestSupport.SlowDataset;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+import static org.entrystore.rowstore.ConnectionLimitTestSupport.awaitLockWaiters;
+import static org.entrystore.rowstore.ConnectionLimitTestSupport.awaitSleepers;
+import static org.entrystore.rowstore.ConnectionLimitTestSupport.lockDataTable;
+import static org.entrystore.rowstore.ConnectionLimitTestSupport.storedStatus;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
@@ -199,6 +209,87 @@ class ConnectionLimitSingleSlotIT extends ConfigurableTestBase {
                 .body("connections.database.load.max", equalTo(1))
                 .body("connections.database.keySet()", hasItem("load"))
                 .time(lessThan(MAX_REQUEST_MILLIS), TimeUnit.MILLISECONDS);
+    }
+
+    @Test
+    @DisplayName("TC-CONN-019: A load does not hold a query connection while it holds its load connection, for appends and replaces")
+    void load_holdsNoQueryConnection() throws Exception {
+        DatasetUrls loaded = create();
+        byte[] csv = loadTestData("dataset1_utf8.csv");
+        for (boolean append : new boolean[]{true, false}) {
+            try (Connection lock = lockDataTable(ENV, loaded.datasetId, "ACCESS EXCLUSIVE")) {
+                if (append) {
+                    given().spec(csvSpec).body(csv).post(loaded.datasetUrl).then().statusCode(202);
+                } else {
+                    given().spec(csvSpec).body(csv).put(loaded.datasetUrl).then().statusCode(202);
+                }
+                // the load waits for the lock while it holds its load connection
+                awaitLockWaiters(ENV, loaded.datasetId, 1);
+
+                given().spec(jsonSpec)
+                .when()
+                        .get("/status")
+                .then()
+                        .statusCode(200)
+                        .body("connections.database.load.inUse", equalTo(1))
+                        .body("connections.database.query.inUse", equalTo(0));
+                lock.rollback();
+            }
+            waitForDatasetAvailable(loaded.infoUrl);
+        }
+        assertRowCount(loaded, 5);
+    }
+
+    @Test
+    @DisplayName("TC-CONN-020: A load writes its final status while all query connections are in use")
+    void load_writesStatusWhileQueryConnectionsInUse() throws Exception {
+        DatasetUrls loaded = create();
+        DatasetUrls other = create();
+        try (Connection lock = lockDataTable(ENV, loaded.datasetId, "ACCESS EXCLUSIVE")) {
+            given().spec(csvSpec).body(loadTestData("dataset1_utf8.csv")).post(loaded.datasetUrl).then().statusCode(202);
+            awaitLockWaiters(ENV, loaded.datasetId, 1);
+            try (SlowDataset ignored = new SlowDataset(ENV, other.datasetId, 30)) {
+                // a query of the other dataset holds the only query connection
+                CompletableFuture<Response> query = CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(other.datasetUrl));
+                awaitSleepers(ENV, other.datasetId, 1);
+
+                lock.rollback();
+
+                // within less than the wait timeout, so the status was not written with a query connection
+                await().atMost(Duration.ofMillis(MAX_REQUEST_MILLIS)).pollInterval(Duration.ofMillis(100))
+                        .until(() -> storedStatus(ENV, loaded.datasetId) == ETL_STATUS_AVAILABLE);
+                assertThat(query).isNotDone();
+            }
+        }
+        assertRowCount(loaded, 10);
+    }
+
+    @Test
+    @DisplayName("TC-CONN-022: Health check and status do not wait for the wait timeout if all query connections are in use")
+    void healthAndStatus_doNotWaitForWaitTimeout() throws Exception {
+        DatasetUrls slow = create();
+        try (SlowDataset ignored = new SlowDataset(ENV, slow.datasetId, 30)) {
+            CompletableFuture<Response> query = CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(slow.datasetUrl));
+            awaitSleepers(ENV, slow.datasetId, 1);
+
+            given()
+            .when()
+                    .get("/actuator/health")
+            .then()
+                    .statusCode(200)
+                    .body("status", equalTo("UP"))
+                    .time(lessThan(MAX_REQUEST_MILLIS), TimeUnit.MILLISECONDS);
+
+            given().spec(jsonSpec)
+            .when()
+                    .get("/status")
+            .then()
+                    .statusCode(200)
+                    .body("datasets", equalTo(-1))
+                    .body("connections.database.query.inUse", equalTo(1))
+                    .time(lessThan(MAX_REQUEST_MILLIS), TimeUnit.MILLISECONDS);
+            assertThat(query).isNotDone();
+        }
     }
 
     private DatasetUrls create() {

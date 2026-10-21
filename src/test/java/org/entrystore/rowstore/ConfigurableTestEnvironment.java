@@ -269,6 +269,11 @@ public class ConfigurableTestEnvironment {
                 database.put("connectionWaitTimeout", config.connectionWaitTimeout);
             }
             jsonConfig.put("database", database);
+            if (config.queryDatabasePort > 0) {
+                JSONObject queryDatabase = new JSONObject(database.toString());
+                queryDatabase.put("port", config.queryDatabasePort);
+                jsonConfig.put("queryDatabase", queryDatabase);
+            }
 
             tempConfigFile = Files.createTempFile("rowstore-config-test-", ".json");
             Files.writeString(tempConfigFile, jsonConfig.toString(2));
@@ -319,6 +324,7 @@ public class ConfigurableTestEnvironment {
         private final int maxQueryConnections;
         private final int maxExportConnections;
         private final int connectionWaitTimeout;
+        private final int queryDatabasePort;
         private final boolean legacyParser;
 
         private Configuration(Builder builder) {
@@ -336,6 +342,7 @@ public class ConfigurableTestEnvironment {
             this.maxQueryConnections = builder.maxQueryConnections;
             this.maxExportConnections = builder.maxExportConnections;
             this.connectionWaitTimeout = builder.connectionWaitTimeout;
+            this.queryDatabasePort = builder.queryDatabasePort;
             this.legacyParser = builder.legacyParser;
         }
 
@@ -356,11 +363,11 @@ public class ConfigurableTestEnvironment {
          */
         public String getCacheKey() {
             return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,legacyParser=%b," +
-                            "maxEtl=%d,maxQueryConnections=%d,maxExportConnections=%d,connectionWaitTimeout=%d",
+                            "maxEtl=%d,maxQueryConnections=%d,maxExportConnections=%d,connectionWaitTimeout=%d,queryDatabasePort=%d",
                     regexpQueries, rateLimitEnabled, rateLimitTimeRange,
                     rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitRequestsClientIp, rateLimitType,
                     connectionPoolMax, legacyParser, maxEtlProcesses, maxQueryConnections, maxExportConnections,
-                    connectionWaitTimeout);
+                    connectionWaitTimeout, queryDatabasePort);
         }
 
         @Override
@@ -387,6 +394,7 @@ public class ConfigurableTestEnvironment {
         private int maxQueryConnections = -1;
         private int maxExportConnections = -1;
         private int connectionWaitTimeout = -1;
+        private int queryDatabasePort = -1;
         private boolean legacyParser = false;
 
         public Builder regexpQueries(String regexpQueries) {
@@ -456,6 +464,14 @@ public class ConfigurableTestEnvironment {
 
         public Builder connectionWaitTimeout(int connectionWaitTimeout) {
             this.connectionWaitTimeout = connectionWaitTimeout;
+            return this;
+        }
+
+        /**
+         * Configures a separate queryDatabase like the database, but with the given port (e.g., an unused port).
+         */
+        public Builder queryDatabasePort(int queryDatabasePort) {
+            this.queryDatabasePort = queryDatabasePort;
             return this;
         }
 

@@ -221,7 +221,7 @@ public class EtlProcessor {
 			log.error("Populating dataset {} failed", dataset.getId(), e);
 			// populate() normally sets the status itself, this covers failures outside its status handling
 			try {
-				dataset.setStatus(EtlStatus.ERROR);
+				dataset.setStatusFromEtlJob(EtlStatus.ERROR);
 			} catch (RuntimeException e1) {
 				log.error("Unable to set status of dataset {} to error", dataset.getId(), e1);
 			}

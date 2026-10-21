@@ -159,7 +159,7 @@ public class RowStoreConfig {
 	private static void requirePositive(JSONObject block, String blockName, String... keys) {
 		for (String key : keys) {
 			if (block.has(key) && block.optInt(key, 0) <= 0) {
-				throw new IllegalStateException("rowstore.json: '" + blockName + "." + key + "' must be greater than 0");
+				throw new IllegalStateException("rowstore.json: '" + blockName + "." + key + "' must be a number greater than 0");
 			}
 		}
 	}

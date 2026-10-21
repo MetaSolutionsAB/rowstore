@@ -64,6 +64,16 @@ public interface RowStore {
 	}
 
 	/**
+	 * @param queryDatabase Whether the connection is for the query database instead of the primary database.
+	 * @return Returns a database connection for health and status checks: like {@link #getConnection()} and
+	 * {@link #getQueryConnection()}, but it waits only briefly for a free connection.
+	 * @throws SQLException
+	 */
+	default Connection getProbeConnection(boolean queryDatabase) throws SQLException {
+		return queryDatabase ? getQueryConnection() : getConnection();
+	}
+
+	/**
 	 * @return Returns a JdbcTemplate for short write and read operations (query budget of the primary database).
 	 */
 	JdbcTemplate getJdbcTemplate();
@@ -72,6 +82,14 @@ public interface RowStore {
 	 * @return Returns a JdbcTemplate for short read operations (query budget, may target a read replica).
 	 */
 	JdbcTemplate getQueryJdbcTemplate();
+
+	/**
+	 * @return Returns a JdbcTemplate for ETL jobs (load budget of the primary database), e.g., for status writes of a
+	 * load while it does not hold its load connection.
+	 */
+	default JdbcTemplate getLoadJdbcTemplate() {
+		return getJdbcTemplate();
+	}
 
 	/**
 	 * @return Returns the usage of the connection budgets per database block ("database", "queryDatabase") and

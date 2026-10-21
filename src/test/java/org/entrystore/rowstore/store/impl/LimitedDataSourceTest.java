@@ -36,6 +36,7 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -204,6 +205,75 @@ class LimitedDataSourceTest {
         assertThat(target.closed.get()).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("TC-CONN-024: A wait timeout is distinguished from a failure to open a connection")
+    void waitTimeout_isDistinguishedFromConnectionFailure() throws Exception {
+        LimitedDataSource ds = new LimitedDataSource(target, "test", 1, 100);
+        SQLException timeout;
+        try (Connection ignored = ds.getConnection()) {
+            timeout = catchSqlException(ds::getConnection);
+        }
+        assertThat((Throwable) timeout).isInstanceOf(LimitedDataSource.ConnectionWaitTimeoutException.class)
+                .isInstanceOf(SQLTransientConnectionException.class);
+        assertThat(LimitedDataSource.isWaitTimeout(timeout)).isTrue();
+        assertThat(LimitedDataSource.isWaitTimeout(new CompletionException(
+                new CannotGetJdbcConnectionException("Failed to obtain JDBC Connection", timeout)))).isTrue();
+
+        target.failOpen = true;
+        SQLException openFailure = catchSqlException(ds::getConnection);
+        assertThat(LimitedDataSource.isWaitTimeout(openFailure)).isFalse();
+        assertThat(LimitedDataSource.isWaitTimeout(new SQLTransientConnectionException("pool timeout"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("TC-CONN-025: A data source with a shorter wait timeout shares the slots, the session statement runs on every connection")
+    void shorterWaitTimeoutAndSessionStatement() throws Exception {
+        LimitedDataSource ds = new LimitedDataSource(target, "test", 1, 10000, "SET lock_timeout = 5000");
+        LimitedDataSource probe = ds.withWaitTimeout(100);
+        try (Connection ignored = ds.getConnection()) {
+            long start = System.nanoTime();
+            assertThatThrownBy(probe::getConnection).isInstanceOf(LimitedDataSource.ConnectionWaitTimeoutException.class);
+            assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(5));
+            assertThat(probe.getUsage()).isEqualTo(new ConnectionUsage(1, 1, 0));
+        }
+        try (Connection ignored = probe.getConnection()) {
+            assertThat(ds.getUsage().inUse()).isEqualTo(1);
+        }
+        assertThat(target.executed).containsExactly("SET lock_timeout = 5000", "SET lock_timeout = 5000");
+
+        // a failing session statement closes the connection and releases the slot
+        target.failExecute = true;
+        assertThatThrownBy(ds::getConnection).isInstanceOf(SQLException.class).hasMessage("execute failed");
+        assertThat(ds.getUsage().inUse()).isZero();
+        assertThat(target.closed.get()).isEqualTo(target.opened.get());
+    }
+
+    @Test
+    @DisplayName("TC-CONN-026: A limited connection, statement and result set are equal only to themselves")
+    void proxies_areEqualOnlyToThemselves() throws Exception {
+        LimitedDataSource ds = new LimitedDataSource(target, "test", 2, 200);
+        try (Connection first = ds.getConnection(); Connection second = ds.getConnection()) {
+            assertThat(first).isEqualTo(first).isNotEqualTo(second);
+            assertThat(first.hashCode()).isEqualTo(first.hashCode());
+            Statement stmt = first.createStatement();
+            assertThat(stmt).isEqualTo(stmt).isEqualTo(stmt.executeQuery("SELECT 1").getStatement());
+        }
+    }
+
+    private static SQLException catchSqlException(SqlCall call) {
+        try {
+            call.run();
+        } catch (SQLException e) {
+            return e;
+        }
+        throw new AssertionError("No SQLException thrown");
+    }
+
+    @FunctionalInterface
+    private interface SqlCall {
+        void run() throws SQLException;
+    }
+
     private static void awaitTrue(BooleanSupplier condition) {
         await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(5)).until(condition::getAsBoolean);
     }
@@ -215,8 +285,10 @@ class LimitedDataSourceTest {
 
         final AtomicInteger opened = new AtomicInteger();
         final AtomicInteger closed = new AtomicInteger();
+        final List<String> executed = new CopyOnWriteArrayList<>();
         volatile boolean failOpen;
         volatile boolean failClose;
+        volatile boolean failExecute;
 
         @Override
         public Connection getConnection() throws SQLException {
@@ -233,7 +305,7 @@ class LimitedDataSourceTest {
                     closed.incrementAndGet();
                     yield null;
                 }
-                case "createStatement" -> statement(conn[0]);
+                case "createStatement" -> statement(conn[0], this);
                 case "unwrap" -> p;
                 default -> defaultValue(method.getReturnType());
             });
@@ -245,10 +317,17 @@ class LimitedDataSourceTest {
             return getConnection();
         }
 
-        private static Statement statement(Connection conn) {
+        private static Statement statement(Connection conn, FakeDataSource ds) {
             Statement[] stmt = new Statement[1];
             stmt[0] = proxy(Statement.class, (p, method, args) -> switch (method.getName()) {
                 case "getConnection" -> conn;
+                case "execute" -> {
+                    if (ds.failExecute) {
+                        throw new SQLException("execute failed");
+                    }
+                    ds.executed.add((String) args[0]);
+                    yield false;
+                }
                 case "executeQuery" -> proxy(ResultSet.class, (rp, rm, ra) ->
                         rm.getName().equals("getStatement") ? stmt[0] : defaultValue(rm.getReturnType()));
                 default -> defaultValue(method.getReturnType());

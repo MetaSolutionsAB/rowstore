@@ -17,16 +17,13 @@
 package org.entrystore.rowstore;
 
 import io.restassured.response.Response;
+import org.entrystore.rowstore.ConnectionLimitTestSupport.SlowDataset;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,15 +32,18 @@ import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
+import static org.entrystore.rowstore.ConnectionLimitTestSupport.awaitLockWaiters;
+import static org.entrystore.rowstore.ConnectionLimitTestSupport.awaitSleepers;
+import static org.entrystore.rowstore.ConnectionLimitTestSupport.lockDataTable;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 
 /**
  * Integration tests for the connection budgets (ARCH-7) with small limits: 2 query connections, 1 export connection,
- * 2 ETL processes (load connections) and a wait timeout of 2 s. Data tables are locked with a direct database
- * connection to make requests hold their connections.
+ * 2 ETL processes (load connections) and a wait timeout of 2 s (lock timeout of query connections 1 s). Requests are
+ * made to hold their connections with direct database connections, by locking data tables or by making queries of a
+ * dataset sleep.
  * Specification: specs/tests/12-connection-limits.md
  */
 @DisplayName("Connection Limit Tests")
@@ -120,13 +120,15 @@ class ConnectionLimitIT extends ConfigurableTestBase {
     }
 
     @Test
-    @DisplayName("TC-CONN-012: A request gets 503 if all query connections stay in use for longer than the wait timeout")
+    @DisplayName("TC-CONN-012: Requests get 503 if all query connections stay in use for longer than the wait timeout, status is still reported")
     void allQueryConnectionsInUse_resultsIn503AfterWaitTimeout() throws Exception {
-        try (Connection lock = lockDataTable(first.datasetId)) {
-            // both queries hold a query connection while they wait for the lock
-            CompletableFuture<Response> q1 = CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(first.datasetUrl));
-            CompletableFuture<Response> q2 = CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(first.datasetUrl));
-            awaitLockWaiters(lock, first.datasetId, 2);
+        CompletableFuture<Response> q1;
+        CompletableFuture<Response> q2;
+        try (SlowDataset ignored = new SlowDataset(ENV, first.datasetId, 30)) {
+            // both queries hold a query connection while they sleep
+            q1 = CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(first.datasetUrl));
+            q2 = CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(first.datasetUrl));
+            awaitSleepers(ENV, first.datasetId, 2);
 
             long start = System.nanoTime();
             given().spec(jsonSpec)
@@ -138,21 +140,31 @@ class ConnectionLimitIT extends ConfigurableTestBase {
             assertThat(waited).isGreaterThanOrEqualTo(Duration.ofMillis(WAIT_TIMEOUT_SECONDS * 1000 - 100))
                     .isLessThan(Duration.ofSeconds(WAIT_TIMEOUT_SECONDS + 8));
 
-            lock.rollback();
-            assertThat(q1.get(30, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
-            assertThat(q2.get(30, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
+            given().spec(jsonSpec).get("/datasets").then().statusCode(503);
+
+            given().spec(jsonSpec)
+            .when()
+                    .get("/status")
+            .then()
+                    .statusCode(200)
+                    .body("datasets", equalTo(-1))
+                    .body("connections.database.query.inUse", equalTo(2));
         }
+        // the sleeping queries were cancelled
+        assertThat(q1.get(30, TimeUnit.SECONDS).statusCode()).isEqualTo(503);
+        assertThat(q2.get(30, TimeUnit.SECONDS).statusCode()).isEqualTo(503);
         given().spec(jsonSpec).get(second.infoUrl).then().statusCode(200);
+        given().spec(jsonSpec).get(first.infoUrl).then().statusCode(200);
     }
 
     @Test
     @DisplayName("TC-CONN-013: A long export does not block queries, an excess export fails after the wait timeout")
     void longExport_doesNotBlockQueries() throws Exception {
-        try (Connection lock = lockDataTable(first.datasetId)) {
-            // the export holds the only export connection while it waits for the lock
+        try (Connection lock = lockDataTable(ENV, first.datasetId, "ACCESS EXCLUSIVE")) {
+            // the export holds the only export connection while it waits for the lock (exports have no lock timeout)
             CompletableFuture<Response> export = CompletableFuture.supplyAsync(() -> given()
                     .accept("application/json").get(first.datasetUrl + "/export"));
-            awaitLockWaiters(lock, first.datasetId, 1);
+            awaitLockWaiters(ENV, first.datasetId, 1);
 
             long start = System.nanoTime();
             given().spec(jsonSpec)
@@ -182,35 +194,48 @@ class ConnectionLimitIT extends ConfigurableTestBase {
         assertThat(given().spec(jsonSpec).get("/status").jsonPath().getInt("connections.database.export.inUse")).isZero();
     }
 
-    /**
-     * Locks the data table of a dataset exclusively until the returned connection is rolled back or closed.
-     */
-    private Connection lockDataTable(String datasetId) throws SQLException {
-        Connection conn = ENV.openDatabaseConnection();
-        conn.setAutoCommit(false);
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute("LOCK TABLE " + dataTable(datasetId) + " IN ACCESS EXCLUSIVE MODE");
-        }
-        return conn;
-    }
-
-    /**
-     * Waits until the given number of sessions wait for a lock on the data table of a dataset.
-     */
-    private static void awaitLockWaiters(Connection conn, String datasetId, int count) {
-        await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(50)).until(() -> {
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT count(*) FROM pg_locks WHERE NOT granted AND relation = ?::regclass")) {
-                ps.setString(1, dataTable(datasetId));
-                try (ResultSet rs = ps.executeQuery()) {
-                    return rs.next() && rs.getInt(1) == count;
+    @Test
+    @DisplayName("TC-CONN-021: Requests for a dataset blocked behind a queued exclusive lock get 503 after the lock timeout, other datasets are served")
+    void requestsBlockedByLock_get503AfterLockTimeout_otherDatasetsServed() throws Exception {
+        // a long reader of the first dataset, and an exclusive lock queued behind it (like a replace waiting to swap)
+        try (Connection reader = lockDataTable(ENV, first.datasetId, "ACCESS SHARE");
+             Connection locker = ENV.openDatabaseConnection()) {
+            locker.setAutoCommit(false);
+            CompletableFuture<Void> queuedLock = CompletableFuture.runAsync(() -> {
+                try (var stmt = locker.createStatement()) {
+                    stmt.execute("LOCK TABLE " + ConnectionLimitTestSupport.dataTable(first.datasetId) + " IN ACCESS EXCLUSIVE MODE");
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
                 }
-            }
-        });
-    }
+            });
+            awaitLockWaiters(ENV, first.datasetId, 1);
 
-    private static String dataTable(String datasetId) {
-        return "data_" + datasetId.replace("-", "");
+            // more requests for the first dataset than query connections
+            List<CompletableFuture<Response>> blocked = new ArrayList<>();
+            for (int i = 0; i < 3; i++) {
+                blocked.add(CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(first.datasetUrl)));
+            }
+            awaitLockWaiters(ENV, first.datasetId, 3);
+
+            long start = System.nanoTime();
+            given().spec(jsonSpec)
+                    .queryParam("name", "Åkesson")
+            .when()
+                    .get(second.datasetUrl)
+            .then()
+                    .statusCode(200)
+                    .body("results", hasSize(1));
+            assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(WAIT_TIMEOUT_SECONDS));
+
+            for (CompletableFuture<Response> request : blocked) {
+                assertThat(request.get(30, TimeUnit.SECONDS).statusCode()).isEqualTo(503);
+            }
+
+            reader.rollback();
+            queuedLock.get(10, TimeUnit.SECONDS);
+            locker.rollback();
+        }
+        given().spec(jsonSpec).get(first.datasetUrl).then().statusCode(200);
     }
 
 }

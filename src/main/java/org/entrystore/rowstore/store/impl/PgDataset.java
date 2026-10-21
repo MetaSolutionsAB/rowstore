@@ -39,6 +39,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.dao.TransientDataAccessResourceException;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -114,7 +116,7 @@ public class PgDataset implements Dataset {
 	/**
 	 * SQL state of a lock that could not be acquired within lock_timeout.
 	 */
-	private static final String LOCK_NOT_AVAILABLE = "55P03";
+	private static final String LOCK_NOT_AVAILABLE = PgRowStore.LOCK_NOT_AVAILABLE;
 
 	protected PgDataset(RowStore rowstore, String id) {
 		if (rowstore == null) {
@@ -188,7 +190,19 @@ public class PgDataset implements Dataset {
 	@Override
 	public void setStatus(int status) {
 		try {
-			writeStatus(status);
+			writeStatus(status, rowstore.getJdbcTemplate());
+		} catch (DataAccessException e) {
+			log.error(e.getMessage());
+		}
+	}
+
+	/**
+	 * @see Dataset#setStatusFromEtlJob(int)
+	 */
+	@Override
+	public void setStatusFromEtlJob(int status) {
+		try {
+			writeStatus(status, rowstore.getLoadJdbcTemplate());
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 		}
@@ -200,11 +214,11 @@ public class PgDataset implements Dataset {
 	 *
 	 * @throws DataAccessException If the status could not be written.
 	 */
-	private void writeStatus(int status) {
+	private void writeStatus(int status, JdbcTemplate jdbcTemplate) {
 		long before = System.currentTimeMillis();
 		try {
 			log.info("Setting status of {} to {}({})", getId(), EtlStatus.toString(status), status);
-			rowstore.getJdbcTemplate().update(
+			jdbcTemplate.update(
 					"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid",
 					status, id);
 			this.status = status;
@@ -215,14 +229,15 @@ public class PgDataset implements Dataset {
 
 	/**
 	 * Writes the status to the database and retries with backoff if this fails, e.g., because the database is
-	 * temporarily unreachable. Used for the final status of a load, which must not be lost.
+	 * temporarily unreachable. Used for the final status of a load, which must not be lost. Uses the load budget,
+	 * since the load's connection is closed when the status is written (ARCH-7.02).
 	 *
 	 * @return Returns true if the status was written.
 	 */
 	private boolean writeStatusWithRetry(int status) {
 		for (int attempt = 0; ; attempt++) {
 			try {
-				writeStatus(status);
+				writeStatus(status, rowstore.getLoadJdbcTemplate());
 				return true;
 			} catch (DataAccessException e) {
 				if (attempt >= statusRetryDelaysMillis.length) {
@@ -257,10 +272,12 @@ public class PgDataset implements Dataset {
 	 * RowStore instance, so a dataset that already is in PROCESSING is stale (e.g., because a load was interrupted
 	 * by a database outage) and is taken over.
 	 *
+	 * Uses the load budget, since it is called by the load before it obtains its connection (ARCH-7.02).
+	 *
 	 * @throws DataAccessException If the status could not be written.
 	 */
 	private void markAsProcessing() {
-		int updated = rowstore.getJdbcTemplate().update(
+		int updated = rowstore.getLoadJdbcTemplate().update(
 				"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE id = ?::uuid AND status <> ?",
 				EtlStatus.PROCESSING, id, EtlStatus.PROCESSING);
 		if (updated == 0) {
@@ -619,7 +636,8 @@ public class PgDataset implements Dataset {
 	 */
 	public Map<String, String> cleanColumnNames() throws SQLException {
 		try {
-			initFromDb();
+			// runs as an ETL job, so it uses the load budget (ARCH-7.02)
+			initFromDb(rowstore.getLoadJdbcTemplate());
 		} catch (IllegalStateException e) {
 			log.info("Not cleaning column names of dataset {}, it does not exist anymore", getId());
 			return Map.of();
@@ -1068,6 +1086,10 @@ public class PgDataset implements Dataset {
 			}
 		} catch (SQLException e) {
 			log.debug(e.getMessage());
+			if (LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+				// the data table is locked, e.g., by a replace (503, ARCH-7.03)
+				throw new TransientDataAccessResourceException("Data table of dataset " + getId() + " is locked", e);
+			}
 			return new QueryResult.Error(e.getSQLState());
 		} finally {
 			log.debug("Performing database query took {} ms, total time was {} ms", queryTime, System.currentTimeMillis() - totalTime);
@@ -1107,8 +1129,9 @@ public class PgDataset implements Dataset {
 				" WHERE rownr=(SELECT min(rownr) FROM " + getDataTable() + ")";
 		try {
 			return new HashSet<>(rowstore.getQueryJdbcTemplate().queryForList(sql, String.class));
-		} catch (DataAccessResourceFailureException e) {
-			// e.g., no connection available within the wait timeout (503), must not be mistaken for no columns
+		} catch (DataAccessResourceFailureException | TransientDataAccessResourceException e) {
+			// e.g., no connection available within the wait timeout or the data table is locked (503), must not be
+			// mistaken for no columns
 			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
@@ -1126,10 +1149,17 @@ public class PgDataset implements Dataset {
 	 * @throws DataAccessException If the database could not be queried, e.g., because it is unreachable.
 	 */
 	private void initFromDb() {
+		initFromDb(rowstore.getJdbcTemplate());
+	}
+
+	/**
+	 * Like {@link #initFromDb()}, with the given JdbcTemplate (e.g., of the load budget for ETL jobs).
+	 */
+	private void initFromDb(JdbcTemplate jdbcTemplate) {
 		long before = System.currentTimeMillis();
 		try {
 			log.debug("Loading dataset {} from database", getId());
-			Map<String, Object> row = rowstore.getJdbcTemplate().queryForMap(
+			Map<String, Object> row = jdbcTemplate.queryForMap(
 					"SELECT * FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", getId());
 			this.canonicalId = row.get("id").toString();
 			this.status = (int) row.get("status");
@@ -1172,7 +1202,7 @@ public class PgDataset implements Dataset {
 			Long result = rowstore.getQueryJdbcTemplate().queryForObject(
 					"SELECT COUNT(rownr)::BIGINT FROM " + getDataTable(), Long.class);
 			return result != null ? result : -1;
-		} catch (DataAccessResourceFailureException e) {
+		} catch (DataAccessResourceFailureException | TransientDataAccessResourceException e) {
 			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
@@ -1192,7 +1222,7 @@ public class PgDataset implements Dataset {
 			return new HashSet<>(rowstore.getQueryJdbcTemplate().queryForList(
 					"SELECT alias FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE dataset_id = ?::uuid",
 					String.class, getId()));
-		} catch (DataAccessResourceFailureException e) {
+		} catch (DataAccessResourceFailureException | TransientDataAccessResourceException e) {
 			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
@@ -1259,6 +1289,9 @@ public class PgDataset implements Dataset {
 			}
 			conn.commit();
 		} catch (SQLException e) {
+			if (LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+				throw new TransientDataAccessResourceException("Aliases of dataset " + getId() + " are locked", e);
+			}
 			log.error(e.getMessage());
 			return false;
 		} finally {
@@ -1275,7 +1308,7 @@ public class PgDataset implements Dataset {
 					"SELECT dataset_id FROM " + PgDatasets.ALIAS_TABLE_NAME + " WHERE alias = ?",
 					(rs, rowNum) -> (UUID) rs.getObject("dataset_id"), alias);
 			return results.isEmpty() ? null : results.get(0).toString();
-		} catch (DataAccessResourceFailureException e) {
+		} catch (DataAccessResourceFailureException | TransientDataAccessResourceException e) {
 			// An unreachable database must not be mistaken for an unknown alias (mapped to 503). Unlike in
 			// initFromDb(), other failures are still treated as an unknown alias because the alias is
 			// unvalidated user input, which may be rejected by the database (e.g., invalid byte sequences).

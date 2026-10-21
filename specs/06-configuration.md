@@ -38,7 +38,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-3.05** `legacyparser` (boolean, default `false`) — When `true`, uses OpenCSV's `CSVParserBuilder` instead of `RFC4180ParserBuilder` for CSV parsing. See [ETL-4.03](04-etl-pipeline.md#etl-4-csv-processing).
 
-> **CFG-3.06** `querytimeout` (int, default `-1`) — Query timeout in seconds. When > 0, applied via `setQueryTimeout()` on the JDBC statement. Timed-out queries return 503. See [QUERY-7.01](05-querying.md#query-7-query-timeout).
+> **CFG-3.06** `querytimeout` (int, default `-1`) — Query timeout in seconds. When > 0, applied via `setQueryTimeout()` on the JDBC statement of a query and on all other statements of short operations (query budget, ARCH-7.03). Timed-out queries return 503. See [QUERY-7.01](05-querying.md#query-7-query-timeout).
 
 > **CFG-3.07** `querymaxlimit` (int, default `100`) — Maximum value allowed for the `_limit` query parameter. Client-requested limits exceeding this value are capped. See [QUERY-3.01](05-querying.md#query-3-special-parameters).
 
@@ -76,9 +76,9 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-4.06** `maxExportConnections` (int, default `2`) — Maximum number of connections of the database that are open at the same time for exports (export budget). Only used for the database that serves queries: `queryDatabase` if configured, otherwise `database`.
 
-> **CFG-4.07** `connectionWaitTimeout` (int, seconds) — Maximum time a request waits for a connection of a budget before it fails with 503 ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)). Defaults to `querytimeout` (CFG-3.06) if that is greater than 0, otherwise to `30`.
+> **CFG-4.07** `connectionWaitTimeout` (int, seconds) — Maximum time a request waits for a connection of a budget before it fails with 503 ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)). Defaults to `querytimeout` (CFG-3.06) if that is greater than 0, otherwise to `30`. Connections of the query budget wait at most half of this time for a lock (`lock_timeout`).
 >
-> The load budget of the `database` is limited by `maxetlprocesses` (CFG-3.03). Values of CFG-4.05 to CFG-4.07 that are not numbers greater than 0 are rejected at startup with an error naming the key (e.g., `rowstore.json: 'database.maxQueryConnections' must be greater than 0`); there is no "unlimited" value. See [ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits) for sizing the limits of many instances that share a PostgreSQL cluster.
+> The load budget of the `database` is limited by `maxetlprocesses` (CFG-3.03). Values of CFG-4.05 to CFG-4.07 that are not numbers greater than 0 are rejected at startup with an error naming the key (e.g., `rowstore.json: 'database.maxQueryConnections' must be a number greater than 0`); there is no "unlimited" value. See [ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits) for sizing the limits of many instances that share a PostgreSQL cluster.
 
 ## CFG-5 Read Replica Configuration
 
@@ -189,3 +189,4 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |
 | 2026-10-20 | CFG-5.01: replica queries may be cancelled by replayed replaces |
 | 2026-10-21 | CFG-4.05 to CFG-4.07: connection limits per database block |
+| 2026-10-21 | CFG-3.06: querytimeout applies to all statements of short operations; CFG-4.07: lock timeout of query connections |

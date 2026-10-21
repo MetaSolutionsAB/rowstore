@@ -74,7 +74,7 @@ class RowStoreConfigConnectionLimitsTest {
 
         assertThatThrownBy(() -> new RowStoreConfig(json))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("rowstore.json: '" + block + "." + key + "' must be greater than 0");
+                .hasMessage("rowstore.json: '" + block + "." + key + "' must be a number greater than 0");
     }
 
     private static JSONObject config(JSONObject database) {

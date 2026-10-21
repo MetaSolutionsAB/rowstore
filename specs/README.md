@@ -123,9 +123,9 @@ Current limitations relevant to this area.
 | ARCH-6.03 | Why Spring Boot (industry standard, HikariCP, Flyway, Actuator, virtual threads) |
 | ARCH-7.01 | Unpooled by default; connections per instance limited by connection budgets at the data source level |
 | ARCH-7.02 | Budgets: query (maxQueryConnections), export (maxExportConnections), load (maxetlprocesses), per database block |
-| ARCH-7.03 | FIFO wait up to connectionWaitTimeout, then 503 |
+| ARCH-7.03 | FIFO wait up to connectionWaitTimeout, then 503; querytimeout and lock timeout bound query connections |
 | ARCH-7.04 | A request or ETL job holds at most one connection at a time |
-| ARCH-7.05 | Aggregated WARN for slow waits and timeouts; usage in /status and health details |
+| ARCH-7.05 | Aggregated WARN for slow waits and timeouts; usage in /status and health details; health of both databases with short wait |
 | ARCH-7.06 | Sizing formula per instance and database; PgBouncer for many instances |
 | ARCH-7.07 | Budgets apply on top of an enabled HikariCP pool; pool size warning |
 

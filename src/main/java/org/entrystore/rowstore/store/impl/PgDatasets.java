@@ -23,6 +23,8 @@ import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.TransientDataAccessResourceException;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -69,6 +71,9 @@ public class PgDatasets implements Datasets {
 							rs.getTimestamp("created"),
 							rs.getString("data_table")));
 			return new HashSet<>(datasets);
+		} catch (DataAccessResourceFailureException | TransientDataAccessResourceException e) {
+			// e.g., no connection available within the wait timeout (503)
+			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 			return null;
@@ -170,6 +175,10 @@ public class PgDatasets implements Datasets {
 			log.info("Purged dataset " + id);
 			return true;
 		} catch (SQLException e) {
+			if (PgRowStore.LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+				// the data table is in use, e.g., by an export (503, ARCH-7.03)
+				throw new TransientDataAccessResourceException("Data table of dataset " + id + " is locked", e);
+			}
 			log.error(e.getMessage());
 			return false;
 		} finally {
@@ -224,15 +233,19 @@ public class PgDatasets implements Datasets {
 	}
 
 	/**
+	 * Used by health and status checks, so it waits only briefly for a free connection.
+	 *
 	 * @see Datasets#amount()
 	 */
 	@Override
 	public int amount() {
 		long before = System.currentTimeMillis();
 		try {
-			Integer result = rowstore.getJdbcTemplate().queryForObject(
+			Integer result = rowstore.getProbeJdbcTemplate().queryForObject(
 					"SELECT COUNT(*) FROM " + DATASETS_TABLE_NAME, Integer.class);
 			return result != null ? result : -1;
+		} catch (DataAccessResourceFailureException | TransientDataAccessResourceException e) {
+			throw e;
 		} catch (DataAccessException e) {
 			log.error(e.getMessage());
 			return -1;

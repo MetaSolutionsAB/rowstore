@@ -8,17 +8,24 @@ requests and ETL jobs holding at most one connection at a time. See
 [01-system-architecture.md](../01-system-architecture.md) (ARCH-7) and [06-configuration.md](../06-configuration.md)
 (CFG-4.05 to CFG-4.07).
 
-TC-CONN-001 to TC-CONN-007 are unit tests of the budget (`LimitedDataSourceTest`) with a fake data source,
-TC-CONN-008 and TC-CONN-009 unit tests of the configuration (`RowStoreConfigConnectionLimitsTest`). TC-CONN-010 to
-TC-CONN-013 are integration tests with small limits (`ConnectionLimitIT`: 2 query connections, 1 export connection,
-`maxetlprocesses` 2, wait timeout 2 s), TC-CONN-014 to TC-CONN-018 integration tests with one connection per budget
-(`ConnectionLimitSingleSlotIT`: 1 query connection, 1 export connection, `maxetlprocesses` 1, wait timeout 5 s).
+TC-CONN-001 to TC-CONN-007 and TC-CONN-024 to TC-CONN-026 are unit tests of the budget (`LimitedDataSourceTest`)
+with a fake data source, TC-CONN-008 and TC-CONN-009 unit tests of the configuration
+(`RowStoreConfigConnectionLimitsTest`). TC-CONN-010 to TC-CONN-013 and TC-CONN-021 are integration tests with small
+limits (`ConnectionLimitIT`: 2 query connections, 1 export connection, `maxetlprocesses` 2, wait timeout 2 s, hence
+lock timeout 1 s), TC-CONN-014 to TC-CONN-020 and TC-CONN-022 integration tests with one connection per budget
+(`ConnectionLimitSingleSlotIT`: 1 query connection, 1 export connection, `maxetlprocesses` 1, wait timeout 5 s, hence
+lock timeout 2.5 s), and TC-CONN-023 an integration test with an unreachable separate query database
+(`ConnectionLimitHealthIT`).
+
+Some tests make requests hold their connections by making the queries of a dataset slow: its data table is renamed and
+replaced by a view that calls `pg_sleep` ("slow dataset"); afterwards the sleeping queries are cancelled and the data
+table is restored.
 
 ## Prerequisites
 
 - Unit tests: none
 - Integration tests: a RowStore instance started with the limits above and direct database access (to lock data
-  tables and to change stored column names)
+  tables, to change stored column names, to make datasets slow and to read stored statuses)
 
 ## Test Data
 
@@ -92,7 +99,7 @@ TC-CONN-013 are integration tests with small limits (`ConnectionLimitIT`: 2 quer
 **Assertions:**
 1. `0`, negative values and non-numeric values of `maxQueryConnections`, `maxExportConnections` and
    `connectionWaitTimeout` in `database` or `queryDatabase` are rejected with
-   `rowstore.json: '<block>.<key>' must be greater than 0`
+   `rowstore.json: '<block>.<key>' must be a number greater than 0`
 
 ## Small limits (integration tests)
 
@@ -114,17 +121,19 @@ TC-CONN-013 are integration tests with small limits (`ConnectionLimitIT`: 2 quer
 **Assertions:**
 1. All queries return 200
 
-### TC-CONN-012: A request gets 503 if all query connections stay in use for longer than the wait timeout
+### TC-CONN-012: Requests get 503 if all query connections stay in use for longer than the wait timeout, status is still reported
 
 **Steps:**
-1. Lock the data table of dataset A exclusively with a direct database connection
-2. Send two queries of dataset A; wait until both wait for the lock (each holding a query connection)
-3. `GET /dataset/{B}/info`
-4. Release the lock
+1. Make dataset A slow (30 s)
+2. Send two queries of dataset A; wait until both sleep (each holding a query connection)
+3. `GET /dataset/{B}/info`, `GET /datasets`, `GET /status`
+4. Cancel the sleeping queries and restore dataset A
 
 **Assertions:**
-1. Step 3 returns 503 after at least the wait timeout (2 s)
-2. After the lock is released, both queries of step 2 return 200, and step 3 returns 200 again
+1. `GET /dataset/{B}/info` returns 503 after at least the wait timeout (2 s)
+2. `GET /datasets` returns 503
+3. `GET /status` returns 200 with `datasets` -1 and `connections.database.query.inUse` 2
+4. The cancelled queries return 503; afterwards the info of A and B returns 200
 
 ### TC-CONN-013: A long export does not block queries, an excess export fails after the wait timeout
 
@@ -140,6 +149,20 @@ TC-CONN-013 are integration tests with small limits (`ConnectionLimitIT`: 2 quer
    the response status is sent, otherwise a truncated response (API-6.05)
 3. After the lock is released, the export of step 2 returns all 5 rows, a further export of B returns 200, and no
    export connection is in use
+
+### TC-CONN-021: Requests for a dataset blocked behind a queued exclusive lock get 503 after the lock timeout, other datasets are served
+
+**Steps:**
+1. Hold a share lock on the data table of dataset A (a long reader) and queue an exclusive lock behind it (like a
+   replace waiting to swap the data table)
+2. Send three queries of dataset A (more than query connections); wait until they wait for the lock
+3. Query dataset B
+4. Release the locks
+
+**Assertions:**
+1. The query of dataset B returns 200 with 1 result within less than the wait timeout
+2. The queries of dataset A return 503 (lock timeout)
+3. After the locks are released, queries of dataset A return 200
 
 ## One connection per budget (integration tests)
 
@@ -176,3 +199,72 @@ TC-CONN-013 are integration tests with small limits (`ConnectionLimitIT`: 2 quer
 **Assertions:**
 1. `GET /actuator/health` returns status UP within 4 s
 2. `GET /status` reports `max` 1 for the query, export and load budgets within 4 s
+
+### TC-CONN-019: A load does not hold a query connection while it holds its load connection, for appends and replaces
+
+**Steps (for an append and for a replace):**
+1. Lock the data table of a dataset exclusively; submit the load; wait until the load waits for the lock
+2. `GET /status`
+3. Release the lock
+
+**Assertions:**
+1. `connections.database.load.inUse` is 1 and `connections.database.query.inUse` is 0
+2. Both loads succeed; the dataset has 5 rows
+
+### TC-CONN-020: A load writes its final status while all query connections are in use
+
+**Steps:**
+1. Lock the data table of dataset A exclusively; submit an append; wait until the load waits for the lock
+2. Make dataset B slow (30 s) and send a query of B (holding the only query connection)
+3. Release the lock
+
+**Assertions:**
+1. The stored status of A is AVAILABLE within 4 s (less than the wait timeout), while the query of B still holds the
+   query connection
+2. A has 10 rows
+
+### TC-CONN-022: Health check and status do not wait for the wait timeout if all query connections are in use
+
+**Steps:**
+1. Make a dataset slow (30 s) and send a query of it (holding the only query connection)
+
+**Assertions:**
+1. `GET /actuator/health` returns 200 with status UP within 4 s (the database is reported as busy)
+2. `GET /status` returns 200 with `datasets` -1 and `connections.database.query.inUse` 1 within 4 s
+
+## Separate query database (integration test)
+
+### TC-CONN-023: An unreachable separate query database is reported as DOWN by the health check
+
+**Steps:**
+1. Start RowStore with a `queryDatabase` like `database`, but with a port on which no database listens
+
+**Assertions:**
+1. `GET /actuator/health` returns 503 with status DOWN
+2. `GET /status` (primary database) returns 200 with a dataset count, budgets `connections.queryDatabase.query` (max
+   10) and `connections.queryDatabase.export` (max 2), and no `connections.database.export`
+
+## Budget details (unit tests)
+
+### TC-CONN-024: A wait timeout is distinguished from a failure to open a connection
+
+**Assertions:**
+1. A wait timeout is a `ConnectionWaitTimeoutException` (an `SQLTransientConnectionException`), recognized by
+   `LimitedDataSource.isWaitTimeout` also as a cause (e.g., in `CannotGetJdbcConnectionException` and
+   `CompletionException`), so that, e.g., the column name cleanup continues instead of stopping as if the database
+   were unreachable
+2. A failure to open a connection and other `SQLTransientConnectionException`s are not wait timeouts
+
+### TC-CONN-025: A data source with a shorter wait timeout shares the slots, the session statement runs on every connection
+
+**Assertions:**
+1. While the only connection is held, a data source created with `withWaitTimeout(100)` times out after about 100 ms
+   and reports the same usage; it uses the same slot
+2. The session statement (e.g., `SET lock_timeout = 5000`) is executed on every connection
+3. If the session statement fails, the connection is closed and the slot released
+
+### TC-CONN-026: A limited connection, statement and result set are equal only to themselves
+
+**Assertions:**
+1. A limited connection is equal to itself and not to another one, with a stable hash code; a statement is equal to
+   itself and to the statement returned by its result set

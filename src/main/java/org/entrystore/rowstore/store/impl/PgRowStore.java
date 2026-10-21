@@ -32,8 +32,10 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.SQLExceptionTranslator;
 import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
@@ -76,13 +78,39 @@ public class PgRowStore implements RowStore {
 	private final LimitedDataSource loadSlots;
 
 	/**
+	 * Data sources for health and status checks: the query budgets, with a short wait for a free connection.
+	 */
+	private final LimitedDataSource primaryProbe;
+
+	private final LimitedDataSource queryProbe;
+
+	/**
 	 * The budgets per database block and budget name, for reporting their usage.
 	 */
 	private final Map<String, Map<String, LimitedDataSource>> budgets = new LinkedHashMap<>();
 
+	/**
+	 * Maximum time health and status checks wait for a free connection, see {@link #getProbeConnection(boolean)}.
+	 */
+	static final long PROBE_WAIT_MILLIS = 2000;
+
+	/**
+	 * SQL state of a lock that could not be acquired within lock_timeout.
+	 */
+	static final String LOCK_NOT_AVAILABLE = "55P03";
+
+	/**
+	 * SQL state of a statement that was cancelled, e.g., because of the statement timeout (querytimeout).
+	 */
+	static final String QUERY_CANCELED = "57014";
+
 	private final JdbcTemplate jdbcTemplate;
 
 	private final JdbcTemplate queryJdbcTemplate;
+
+	private final JdbcTemplate loadJdbcTemplate;
+
+	private final JdbcTemplate probeJdbcTemplate;
 
 	private Datasets datasets;
 
@@ -105,36 +133,89 @@ public class PgRowStore implements RowStore {
 		RowStoreConfig.Database primaryDb = config.getDatabase();
 		RowStoreConfig.Database queryDb = config.getQueryDatabase();
 		boolean separateQueryDatabase = queryDb != primaryDb;
-		primaryQuerySlots = addBudget("database", "query", datasource, primaryDb.getMaxQueryConnections(), primaryDb);
+		primaryQuerySlots = addBudget("database", "query", datasource, primaryDb.getMaxQueryConnections(), primaryDb, true);
 		if (separateQueryDatabase) {
-			querySlots = addBudget("queryDatabase", "query", queryDatasource, queryDb.getMaxQueryConnections(), queryDb);
-			exportSlots = addBudget("queryDatabase", "export", queryDatasource, queryDb.getMaxExportConnections(), queryDb);
+			querySlots = addBudget("queryDatabase", "query", queryDatasource, queryDb.getMaxQueryConnections(), queryDb, true);
+			exportSlots = addBudget("queryDatabase", "export", queryDatasource, queryDb.getMaxExportConnections(), queryDb, false);
 		} else {
 			querySlots = primaryQuerySlots;
-			exportSlots = addBudget("database", "export", datasource, primaryDb.getMaxExportConnections(), primaryDb);
+			exportSlots = addBudget("database", "export", datasource, primaryDb.getMaxExportConnections(), primaryDb, false);
 		}
 		// every ETL job holds at most one load connection, so loads never wait for a load connection
-		loadSlots = addBudget("database", "load", datasource, etlProcessor.getMaxEtlProcesses(), primaryDb);
+		loadSlots = addBudget("database", "load", datasource, etlProcessor.getMaxEtlProcesses(), primaryDb, false);
 		checkPoolSize(primaryDb, "database");
 		if (separateQueryDatabase) {
 			checkPoolSize(queryDb, "queryDatabase");
 		}
+		primaryProbe = probe(primaryQuerySlots, primaryDb);
+		queryProbe = separateQueryDatabase ? probe(querySlots, queryDb) : primaryProbe;
 
-		this.jdbcTemplate = new JdbcTemplate(primaryQuerySlots);
-		this.queryJdbcTemplate = new JdbcTemplate(querySlots);
+		this.jdbcTemplate = queryTemplate(primaryQuerySlots);
+		this.queryJdbcTemplate = queryTemplate(querySlots);
+		this.loadJdbcTemplate = new JdbcTemplate(loadSlots);
+		this.probeJdbcTemplate = queryTemplate(primaryProbe);
 
 		resetInterruptedLoads();
 		dropLeftoverShadowTables();
 		log.info("Started RowStore {}", versionInfo.getVersion());
 	}
 
+	/**
+	 * Creates a budget. Connections of query budgets wait at most half the wait timeout for a lock (ARCH-7.03), so that
+	 * a request for a dataset whose data table is locked, e.g., by a replace waiting for a long export, frees its
+	 * connection in time for the requests waiting behind it. Connections of other budgets keep the default lock_timeout;
+	 * pooled connections may have been used by a query budget before, so it is reset for them.
+	 *
+	 * @param queryBudget Whether the budget is for short operations.
+	 */
 	private LimitedDataSource addBudget(String dbName, String budgetName, DataSource target, int maxConnections,
-										RowStoreConfig.Database db) {
-		LimitedDataSource budget = new LimitedDataSource(target, dbName + " " + budgetName, maxConnections,
-				TimeUnit.SECONDS.toMillis(db.getConnectionWaitTimeout()));
+										RowStoreConfig.Database db, boolean queryBudget) {
+		long waitMillis = TimeUnit.SECONDS.toMillis(db.getConnectionWaitTimeout());
+		String sessionSql = null;
+		if (queryBudget) {
+			sessionSql = "SET lock_timeout = " + lockTimeoutMillis(db);
+		} else if (db.getConnectionPoolMax() > 0) {
+			sessionSql = "RESET lock_timeout";
+		}
+		LimitedDataSource budget = new LimitedDataSource(target, dbName + " " + budgetName, maxConnections, waitMillis, sessionSql);
 		budgets.computeIfAbsent(dbName, k -> new LinkedHashMap<>()).put(budgetName, budget);
-		log.info("Limiting {} connections to {} (wait timeout {} s)", budget.getName(), maxConnections, db.getConnectionWaitTimeout());
+		log.info("Limiting {} connections to {} (wait timeout {} s{})", budget.getName(), maxConnections,
+				db.getConnectionWaitTimeout(), queryBudget ? ", lock timeout " + lockTimeoutMillis(db) + " ms" : "");
 		return budget;
+	}
+
+	/**
+	 * @return Returns the lock timeout of connections of the query budgets of a database: half its wait timeout.
+	 */
+	static long lockTimeoutMillis(RowStoreConfig.Database db) {
+		return Math.max(1, TimeUnit.SECONDS.toMillis(db.getConnectionWaitTimeout()) / 2);
+	}
+
+	private static LimitedDataSource probe(LimitedDataSource querySlots, RowStoreConfig.Database db) {
+		return querySlots.withWaitTimeout(Math.min(PROBE_WAIT_MILLIS, TimeUnit.SECONDS.toMillis(db.getConnectionWaitTimeout())));
+	}
+
+	/**
+	 * Creates a JdbcTemplate for short operations: statements are limited by querytimeout (if configured), and lock and
+	 * statement timeouts are translated to {@link TransientDataAccessResourceException}, which results in 503.
+	 */
+	private JdbcTemplate queryTemplate(DataSource budget) {
+		JdbcTemplate template = new JdbcTemplate(budget);
+		if (config.getQueryTimeout() > 0) {
+			template.setQueryTimeout(config.getQueryTimeout());
+		}
+		SQLExceptionTranslator translator = template.getExceptionTranslator();
+		template.setExceptionTranslator((task, sql, e) -> isTemporarilyUnavailable(e) ?
+				new TransientDataAccessResourceException(task + " failed: " + e.getMessage(), e) :
+				translator.translate(task, sql, e));
+		return template;
+	}
+
+	/**
+	 * @return Returns whether the exception is a lock timeout or a cancelled statement (e.g., statement timeout).
+	 */
+	static boolean isTemporarilyUnavailable(SQLException e) {
+		return LOCK_NOT_AVAILABLE.equals(e.getSQLState()) || QUERY_CANCELED.equals(e.getSQLState());
 	}
 
 	/**
@@ -251,6 +332,11 @@ public class PgRowStore implements RowStore {
 				break;
 			} catch (SQLException | RuntimeException e) {
 				Throwable cause = e instanceof CompletionException && e.getCause() != null ? e.getCause() : e;
+				if (LimitedDataSource.isWaitTimeout(cause)) {
+					// the database is in use, not unreachable; the dataset is cleaned at the next startup or by an append
+					log.warn("Skipped cleaning column names of dataset {}: {}", dataset.getId(), cause.getMessage());
+					continue;
+				}
 				if (isConnectionFailure(cause)) {
 					log.warn("Stopped cleaning column names, the database is not reachable: {}", cause.getMessage());
 					break;
@@ -311,13 +397,41 @@ public class PgRowStore implements RowStore {
 	}
 
 	/**
+	 * @see RowStore#getProbeConnection(boolean)
+	 */
+	@Override
+	public Connection getProbeConnection(boolean queryDatabase) {
+		return connect(queryDatabase ? queryProbe : primaryProbe);
+	}
+
+	/**
+	 * An ETL job writes the status of its dataset while it does not hold its load connection, so a load connection is
+	 * always free (ARCH-7.02).
+	 *
+	 * @see RowStore#getLoadJdbcTemplate()
+	 */
+	@Override
+	public JdbcTemplate getLoadJdbcTemplate() {
+		return loadJdbcTemplate;
+	}
+
+	/**
+	 * @return Returns a JdbcTemplate for health and status checks (query budget of the primary database with a short
+	 * wait for a free connection).
+	 */
+	JdbcTemplate getProbeJdbcTemplate() {
+		return probeJdbcTemplate;
+	}
+
+	/**
 	 * @throws CannotGetJdbcConnectionException If no connection could be obtained, like JdbcTemplate.
 	 */
 	private static Connection connect(DataSource budget) {
 		try {
 			return budget.getConnection();
 		} catch (SQLException e) {
-			throw new CannotGetJdbcConnectionException("Failed to obtain JDBC Connection", e);
+			// unlike the message of SQLException, the message of DataAccessException does not include the cause
+			throw new CannotGetJdbcConnectionException("Failed to obtain JDBC Connection: " + e.getMessage(), e);
 		}
 	}
 
