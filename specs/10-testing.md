@@ -82,11 +82,11 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | `GET /dataset/{id}/export` | [06-export.md](tests/06-export.md) | ExportIT |
 > | `GET /dataset/{id}/html` | — | WebGuiIT |
 > | `GET /dataset/{id}/swagger` | — | SwaggerIT |
-> | CSV formats | [04-csv-formats.md](tests/04-csv-formats.md) | CsvParsingIT, CsvEmptyLineIT, CsvEmptyLineLegacyParserIT, DatasetEncodingIT, DatasetSemicolonIT, DatasetEmptyColumnIT, DatasetCorruptIT |
+> | CSV formats | [04-csv-formats.md](tests/04-csv-formats.md) | CsvParsingIT, CsvEmptyLineIT, CsvEmptyLineLegacyParserIT, CsvBomIT, CsvBomLegacyParserIT, DatasetEncodingIT, DatasetSemicolonIT, DatasetEmptyColumnIT, DatasetCorruptIT |
 > | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT |
 > | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT, RateLimitAverageIT, RateLimitPartialConfigIT, RateLimitZeroValueIT |
 > | CORS | — | CorsIT |
-> | ETL processing | [11-etl-processing.md](tests/11-etl-processing.md) | EtlProcessingIT, DatasetReplaceIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest, PgDatasetSwapLockTest) |
+> | ETL processing | [11-etl-processing.md](tests/11-etl-processing.md) | EtlProcessingIT, DatasetReplaceIT, ColumnNameCleanupIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest, PgDatasetSwapLockTest, ColumnNamesTest, DatasetUtilBomReaderTest, PgRowStoreConnectionFailureTest) |
 
 ## TEST-9 Framework-Agnostic Specs
 

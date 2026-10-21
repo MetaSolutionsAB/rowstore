@@ -30,6 +30,9 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -85,10 +88,30 @@ public class EtlProcessor {
 	/**
 	 * Runs a task exclusively for a dataset: after all previously submitted jobs of the dataset and never
 	 * concurrently with another job of the same dataset. Like a load, the task holds an ETL permit while running.
+	 *
+	 * @return Returns a future that is completed when the task has finished, exceptionally if the task threw an
+	 * exception, and that is cancelled if the task is discarded without running (e.g., at shutdown).
+	 * @throws RejectedExecutionException If the ETL processor is shut down.
 	 */
-	public void runExclusively(Dataset dataset, Runnable task) {
+	public CompletableFuture<Void> runExclusively(Dataset dataset, Runnable task) {
+		return callExclusively(dataset, () -> {
+			task.run();
+			return null;
+		});
+	}
+
+	/**
+	 * Like {@link #runExclusively(Dataset, Runnable)}, for a task with a result.
+	 *
+	 * @return Returns a future that is completed with the task's result, exceptionally if the task threw an
+	 * exception, and that is cancelled if the task is discarded without running (e.g., at shutdown).
+	 * @throws RejectedExecutionException If the ETL processor is shut down.
+	 */
+	public <T> CompletableFuture<T> callExclusively(Dataset dataset, Callable<T> task) {
 		String datasetId = dataset.getCanonicalId();
-		enqueue(datasetId, new TaskJob(datasetId, task), false);
+		TaskJob<T> job = new TaskJob<>(datasetId, task, new CompletableFuture<>());
+		enqueue(datasetId, job, false);
+		return job.done();
 	}
 
 	private void enqueue(String datasetId, Job job, boolean supersedesWaitingLoads) {
@@ -269,16 +292,27 @@ public class EtlProcessor {
 
 	}
 
-	private record TaskJob(String datasetId, Runnable task) implements Job {
+	private record TaskJob<T>(String datasetId, Callable<T> task, CompletableFuture<T> done) implements Job {
 
 		@Override
 		public void run() {
-			task.run();
+			T result;
+			try {
+				result = task.call();
+			} catch (RuntimeException | Error e) {
+				done.completeExceptionally(e);
+				throw e;
+			} catch (Exception e) {
+				done.completeExceptionally(e);
+				throw new CompletionException(e);
+			}
+			done.complete(result);
 		}
 
 		@Override
 		public void discard(String reason) {
 			log.warn("Discarding queued task for dataset {}: {}", datasetId, reason);
+			done.cancel(false);
 		}
 
 	}

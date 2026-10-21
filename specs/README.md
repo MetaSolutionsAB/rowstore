@@ -137,6 +137,7 @@ Current limitations relevant to this area.
 | DOM-4.01 | datasets table schema |
 | DOM-4.02 | aliases table schema |
 | DOM-4.03 | Per-dataset data table schema |
+| DOM-4.04 | maintenance_tasks table: completed one-time maintenance tasks, skipped at later startups |
 | DOM-5.01 | text_pattern_ops indexes per column |
 | DOM-5.02 | MD5-hashed index names |
 | DOM-5.03 | Fields > 256 chars not indexed |
@@ -191,13 +192,15 @@ Current limitations relevant to this area.
 | ETL-4.01 | Charset detection: juniversalchardet → ICU4J → UTF-8 |
 | ETL-4.02 | Separator detection: semicolon if consistent in first 2 lines, else comma |
 | ETL-4.03 | Parser: RFC4180Parser (default) or CSVParser (legacy) |
-| ETL-4.04 | Column names: lowercase, trimmed, empty skipped |
+| ETL-4.04 | Column names: lowercase, ends trimmed (trim and Unicode whitespace), BOM and soft hyphens removed, empty skipped |
 | ETL-4.05 | Empty lines: trailing ignored, otherwise the load fails (line number logged), both parsers alike |
+| ETL-4.06 | Leading byte order mark skipped before parsing and separator detection |
+| ETL-4.07 | Labels sanitized: U+FEFF and U+00AD removed anywhere; also used by the append check; affected names change |
 | ETL-5.01 | Batch insert every 200 rows, rollback on error |
 | ETL-6.01 | POST = append (validates column match) |
 | ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate); owner and privileges kept |
 | ETL-6.03 | Replace status: PROCESSING, AVAILABLE or ERROR; previous data served until replaced and kept on failure |
-| ETL-6.04 | Swap lock: four 3 s lock_timeout probes with short delays, then an unbounded wait; timeouts to configure; replica query cancellation |
+| ETL-6.04 | Swap lock: four 3 s lock_timeout probes with short delays, then a last attempt of at most 30 minutes, giving up with ERROR and previous data; lock holders logged; replica query cancellation |
 | ETL-6.05 | Leftover shadow tables dropped at next replace, on delete and at startup |
 | ETL-7.01 | text_pattern_ops index per column, escapeString for DDL |
 | ETL-7.02 | Skip index for fields > 256 chars |
@@ -211,6 +214,13 @@ Current limitations relevant to this area.
 | ETL-9.01 | Temp file: deleteOnExit + explicit deletion (after load, on discard, on early failure) |
 | ETL-10.01 | Final status from locally tracked outcome; exceptions logged with stack trace |
 | ETL-10.02 | Final status write retried with backoff (96 s of delays plus connection timeouts) |
+| ETL-11.01 | Background cleanup of column names after startup; affected = first-row key not clean; skipped datasets |
+| ETL-11.02 | Cleaning rule per configured parser, derived from the parsers: unquote only after a leading BOM directly followed by a quote, then normalize; residual ambiguity |
+| ETL-11.03 | Rename per dataset as exclusive ETL task, one dataset at a time, one transaction; old indexes dropped last with the swap lock pattern; rewrite cost; stop on connection failures |
+| ETL-11.04 | Append before the cleanup renames the columns to its labels within the append |
+| ETL-11.05 | Empty or colliding cleaned names, also old and new name in any row: dataset skipped with WARN, no change |
+| ETL-11.06 | Idempotent; PUT yields clean names; column names of affected datasets change |
+| ETL-11.07 | Completed run recorded in maintenance_tasks, cleanup skipped at later startups |
 
 ### QUERY — Query Processing
 

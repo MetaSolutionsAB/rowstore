@@ -20,21 +20,32 @@ import jakarta.annotation.PreDestroy;
 import org.entrystore.rowstore.etl.EtlProcessor;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.resources.VersionInfo;
+import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.Datasets;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStoreConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.SQLNonTransientConnectionException;
+import java.sql.SQLTransientConnectionException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * A PostgreSQL-specific implementation of the RowStore interface.
@@ -61,6 +72,15 @@ public class PgRowStore implements RowStore {
 
 	private final RowStoreConfig config;
 
+	private volatile boolean shuttingDown;
+
+	/**
+	 * Name of the cleanup of column names (ETL-11) in the table of maintenance tasks.
+	 */
+	public static final String COLUMN_NAME_CLEANUP_TASK = "column-name-cleanup";
+
+	private final MaintenanceTasks maintenanceTasks;
+
 	public PgRowStore(DataSource datasource,
 					  @Qualifier("queryDataSource") DataSource queryDatasource,
 					  RowStoreConfig config,
@@ -73,6 +93,7 @@ public class PgRowStore implements RowStore {
 		this.queryDatasource = queryDatasource;
 		this.jdbcTemplate = new JdbcTemplate(datasource);
 		this.queryJdbcTemplate = new JdbcTemplate(queryDatasource);
+		this.maintenanceTasks = new MaintenanceTasks(jdbcTemplate);
 
 		etlProcessor = new EtlProcessor(this);
 		resetInterruptedLoads();
@@ -129,6 +150,109 @@ public class PgRowStore implements RowStore {
 			log.warn("Dropped {} leftover shadow table(s): {}", dropped.size(), dropped);
 		}
 		return dropped;
+	}
+
+	@EventListener(ApplicationReadyEvent.class)
+	public void onApplicationReady() {
+		startColumnNameCleanup();
+	}
+
+	/**
+	 * Starts the cleanup of column names (see {@link #cleanColumnNames()}) in the background, unless a run of it has
+	 * completed before (ETL-11.07).
+	 *
+	 * @return Returns the thread of the cleanup, or null if it was skipped.
+	 */
+	public Thread startColumnNameCleanup() {
+		if (maintenanceTasks.isCompleted(COLUMN_NAME_CLEANUP_TASK)) {
+			log.info("Column names were cleaned completely before, skipping the cleanup");
+			return null;
+		}
+		return Thread.ofVirtual().name("column-name-cleanup").start(() -> {
+			try {
+				cleanColumnNames();
+			} catch (RuntimeException e) {
+				log.error("Cleaning column names failed", e);
+			}
+		});
+	}
+
+	/**
+	 * Renames the columns of datasets whose stored column names are not clean, e.g., because they were stored before
+	 * 2.0 with a byte order mark or soft hyphens (see PgDataset#cleanColumnNames()). Called in the background after
+	 * startup. Each dataset is renamed as a task that runs exclusively for the dataset in the order of its ETL jobs
+	 * (EtlProcessor#callExclusively). Datasets are renamed one at a time, the next one only after the previous one has
+	 * finished, to limit the load on the database. Datasets that are clean are not touched, so a repeated run renames
+	 * nothing. The cleanup stops (logged once at WARN level) when RowStore shuts down or the database is not reachable;
+	 * the remaining datasets are cleaned at the next startup or by an append (see PgDataset#populate).
+	 * <p>
+	 * If all datasets were checked and none of them failed (datasets skipped because of colliding names count as
+	 * checked, since a repeated run cannot clean them either), the run is recorded as completed, so that later startups
+	 * skip the cleanup (ETL-11.07). New uploads always store clean names.
+	 *
+	 * @return Returns the IDs of the datasets whose columns were renamed.
+	 */
+	public List<String> cleanColumnNames() {
+		Set<Dataset> all = getDatasets().getAll();
+		if (all == null) {
+			log.error("Unable to clean column names, the datasets could not be listed");
+			return List.of();
+		}
+		List<String> cleaned = new ArrayList<>();
+		boolean complete = true;
+		for (Dataset d : all) {
+			PgDataset dataset = (PgDataset) d;
+			if (shuttingDown) {
+				log.warn("Stopped cleaning column names, RowStore is shutting down");
+				complete = false;
+				break;
+			}
+			try {
+				if (!dataset.hasUncleanColumnNames()) {
+					continue;
+				}
+				Map<String, String> renames = etlProcessor.callExclusively(dataset, dataset::cleanColumnNames).join();
+				if (renames == null) {
+					// the data table could not be locked, the dataset is cleaned at a later startup
+					complete = false;
+				} else if (!renames.isEmpty()) {
+					cleaned.add(dataset.getCanonicalId());
+				}
+			} catch (CancellationException | RejectedExecutionException e) {
+				log.warn("Stopped cleaning column names, the ETL processor is shut down");
+				complete = false;
+				break;
+			} catch (SQLException | RuntimeException e) {
+				complete = false;
+				Throwable cause = e instanceof CompletionException && e.getCause() != null ? e.getCause() : e;
+				if (isConnectionFailure(cause)) {
+					log.warn("Stopped cleaning column names, the database is not reachable: {}", cause.getMessage());
+					break;
+				}
+				log.error("Unable to clean column names of dataset {}", dataset.getId(), cause);
+			}
+		}
+		if (!cleaned.isEmpty()) {
+			log.info("Cleaned column names of {} dataset(s): {}", cleaned.size(), cleaned);
+		}
+		if (complete) {
+			maintenanceTasks.markCompleted(COLUMN_NAME_CLEANUP_TASK);
+		}
+		return cleaned;
+	}
+
+	/**
+	 * @return Returns whether the throwable or one of its causes indicates that the database is not reachable.
+	 */
+	static boolean isConnectionFailure(Throwable t) {
+		for (Throwable c = t; c != null; c = c.getCause()) {
+			if (c instanceof DataAccessResourceFailureException || c instanceof SQLTransientConnectionException ||
+					c instanceof SQLNonTransientConnectionException ||
+					(c instanceof SQLException se && se.getSQLState() != null && se.getSQLState().startsWith("08"))) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -189,6 +313,7 @@ public class PgRowStore implements RowStore {
 	@PreDestroy
 	public void shutdown() {
 		log.info("Shutting down RowStore");
+		shuttingDown = true;
 		etlProcessor.shutdown();
 		log.info("Shutdown complete");
 	}

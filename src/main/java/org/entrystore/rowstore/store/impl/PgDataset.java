@@ -28,6 +28,7 @@ import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.QueryResult;
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.RowStream;
+import org.entrystore.rowstore.util.ColumnNames;
 import org.entrystore.rowstore.util.DatasetUtil;
 import org.entrystore.rowstore.util.Hashing;
 import org.json.JSONException;
@@ -44,9 +45,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.Reader;
-import java.nio.file.Files;
+import java.nio.charset.Charset;
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -90,19 +91,33 @@ public class PgDataset implements Dataset {
 	private final int maxSizeForIndex = 256;
 
 	/**
+	 * Suffix of the temporary name of an index whose final name is taken by an index that is dropped later in the
+	 * same transaction, see renameColumns().
+	 */
+	private static final String REPLACEMENT_INDEX_SUFFIX = "_tmp";
+
+	/**
 	 * Delays between the attempts to write the final status of a load: six attempts over about 1.5 minutes.
 	 */
 	private long[] statusRetryDelaysMillis = {1000, 5000, 15000, 30000, 45000};
 
 	/**
-	 * Maximum time an attempt to lock the data table for a replace waits, except the last attempt, which waits
-	 * without a timeout, see lockDataTableForReplace().
+	 * Maximum time an attempt to lock the data table for a replace waits, except the last attempt, which waits at most
+	 * {@link #FINAL_SWAP_LOCK_TIMEOUT}, see lockDataTableForReplace().
 	 */
 	static final String SWAP_LOCK_TIMEOUT = "3s";
 
 	/**
-	 * Delays between the attempts to lock the data table for a replace: four attempts with a timeout and a last one
-	 * without. The delays are short because the load's transaction is idle meanwhile and holds its connection and ETL permit.
+	 * Maximum time the last attempt to lock the data table waits, e.g., for a backup or a long export. If it expires,
+	 * the operation that needs the lock fails, e.g., a replace keeps the previous data (ETL-6.04).
+	 */
+	static final String FINAL_SWAP_LOCK_TIMEOUT = "30min";
+
+	private String finalSwapLockTimeout = FINAL_SWAP_LOCK_TIMEOUT;
+
+	/**
+	 * Delays between the attempts to lock the data table for a replace: four short attempts and a last, long one.
+	 * The delays are short because the load's transaction is idle meanwhile and holds its connection and ETL permit.
 	 */
 	private long[] swapRetryDelaysMillis = {1000, 2000, 5000, 5000};
 
@@ -330,7 +345,8 @@ public class PgDataset implements Dataset {
 			CSVReader cr = null;
 			try {
 				conn = rowstore.getConnection();
-				char separator = detectSeparator(csvFile);
+				Charset charset = DatasetUtil.detectCharset(csvFile);
+				char separator = detectSeparator(csvFile, charset);
 
 				ICSVParser csvParser;
 				if (rowstore.getConfig().isLegacyParserEnabled()) {
@@ -344,14 +360,16 @@ public class PgDataset implements Dataset {
 							withQuoteChar('"').
 							build();
 				}
-				LineTrackingReader lineReader = new LineTrackingReader(new InputStreamReader(
-						Files.newInputStream(csvFile.toPath()), DatasetUtil.detectCharset(csvFile).newDecoder()));
+				// a byte order mark is skipped before the text reaches the parser (ETL-4.06)
+				LineTrackingReader lineReader = new LineTrackingReader(DatasetUtil.newReaderSkippingBom(csvFile.toPath(), charset));
 				cr = new CSVReaderBuilder(lineReader).
 						withSkipLines(0).
 						withCSVParser(csvParser).
 						build();
 				long lineCount = 0;
 				Set<String> labels = new LinkedHashSet<>();
+				// indexes of columns renamed by an append, to be dropped right before the commit
+				List<String> staleIndexes = List.of();
 				String[] line;
 
 				conn.setAutoCommit(false);
@@ -390,7 +408,7 @@ public class PgDataset implements Dataset {
 						// We convert all column names to lower case,
 						// otherwise all queries must be case sensitive later
 						for (String s : line) {
-							String l = s.trim().toLowerCase();
+							String l = ColumnNames.normalize(s);
 							if (l.length() > 0) {
 								labels.add(l);
 							} else {
@@ -403,12 +421,25 @@ public class PgDataset implements Dataset {
 							Set<String> oldColumnNames = getColumnNames(false);
 
 							// if there are no old column names we assume this dataset is newly created
-							if (oldColumnNames.size() > 0 &&
-									!((oldColumnNames.size() == labels.size()) && oldColumnNames.containsAll(labels))) {
-								log.error("Column name mismatch: new tabular structure does not equal existing structure");
-								log.error("Rolling back transaction");
-								conn.rollback();
-								return false;
+							if (oldColumnNames.size() > 0 && !oldColumnNames.equals(labels)) {
+								// Column names stored before 2.0 may differ from the labels only because they were not
+								// cleaned; they are renamed now instead of by the cleanup at startup (ETL-11.04)
+								Map<String, String> renames = ColumnNames.renamesForLabels(oldColumnNames, labels);
+								if (renames == null || renames.isEmpty()) {
+									log.error("Column name mismatch: new tabular structure does not equal existing structure");
+									log.error("Rolling back transaction");
+									conn.rollback();
+									return false;
+								}
+								if (hasRenameCollision(conn, renames)) {
+									log.error("Column name mismatch: the column names of the dataset cannot be renamed to the new ones, " +
+											"rows contain both an old and a new name: {}", describeRenames(renames));
+									log.error("Rolling back transaction");
+									conn.rollback();
+									return false;
+								}
+								log.info("Renaming columns of dataset {} with the append: {}", getId(), describeRenames(renames));
+								staleIndexes = renameColumns(conn, renames);
 							}
 						}
 					} else {
@@ -442,9 +473,15 @@ public class PgDataset implements Dataset {
 				stmt.executeBatch();
 
 				if (append) {
-					createIndexes(conn, targetTable, labels);
+					createIndexes(conn, targetTable, labels, columnSize);
+					// last statements before the commit, since they lock the data table exclusively
+					if (!dropIndexes(conn, staleIndexes)) {
+						log.info("Rolling back transaction");
+						conn.rollback();
+						return false;
+					}
 				} else {
-					List<String> shadowIndexes = createIndexes(conn, targetTable, labels);
+					List<String> shadowIndexes = createIndexes(conn, targetTable, labels, columnSize);
 					// planner statistics for the new data, so that queries are planned well right after the swap
 					try (Statement analyzeStmt = conn.createStatement()) {
 						executeDdl(analyzeStmt, "ANALYZE " + targetTable);
@@ -512,21 +549,36 @@ public class PgDataset implements Dataset {
 	/**
 	 * Creates an index for each field that has no index yet and whose values are not too large.
 	 *
+	 * @param fieldSizes The maximum length of the values per field; fields without an entry are indexed.
 	 * @return Returns the names of the created indexes.
 	 */
-	private List<String> createIndexes(Connection conn, String table, Set<String> fields) throws SQLException {
+	private List<String> createIndexes(Connection conn, String table, Set<String> fields, Map<String, Integer> fieldSizes) throws SQLException {
+		return createIndexes(conn, table, fields, fieldSizes, Set.of());
+	}
+
+	/**
+	 * Like {@link #createIndexes(Connection, String, Set, Map)}, but an index whose name is one of the given indexes,
+	 * which are to be dropped later in the transaction, is created under its name with the suffix
+	 * {@link #REPLACEMENT_INDEX_SUFFIX} and has to be renamed after they have been dropped.
+	 */
+	private List<String> createIndexes(Connection conn, String table, Set<String> fields, Map<String, Integer> fieldSizes,
+									   Set<String> indexesToBeDropped) throws SQLException {
 		long before = System.currentTimeMillis();
 		List<String> createdIndexes = new ArrayList<>();
 		Set<String> existingIndices = getIndexNames(conn, table);
 		for (String field : fields) {
 			// We do not try to index fields that are too large as we would get an error from PostgreSQL
 			// TODO instead of just skipping the index we could run a fulltext-index on such fields
-			Integer fieldSize = columnSize.get(field);
+			Integer fieldSize = fieldSizes.get(field);
 			if (fieldSize != null && fieldSize > maxSizeForIndex) {
 				log.warn("Skipping index creation for field \"" + field + "\"; the configured max field size is " + maxSizeForIndex + ", but the actual size is " + fieldSize);
 				continue;
 			}
-			String indexName = table + "_jsonidx_" + Hashing.md5(field).substring(0, 8);
+			String indexName = indexName(table, field);
+			if (indexesToBeDropped.contains(indexName)) {
+				// the index names are only unique by a prefix of the MD5, so an index to be dropped may have the name
+				indexName += REPLACEMENT_INDEX_SUFFIX;
+			}
 			if (existingIndices.contains(indexName)) {
 				log.debug("Index with name " + indexName + " already exists, skipping creation");
 				continue;
@@ -559,6 +611,213 @@ public class PgDataset implements Dataset {
 		return createdIndexes;
 	}
 
+	private static String indexName(String table, String field) {
+		return table + "_jsonidx_" + Hashing.md5(field).substring(0, 8);
+	}
+
+	/**
+	 * @return Returns whether the dataset has column names that are not clean, see {@link #cleanColumnNames()}.
+	 * @throws SQLException If the database could not be queried.
+	 */
+	boolean hasUncleanColumnNames() throws SQLException {
+		if (status == EtlStatus.CREATED || dataTable == null) {
+			return false;
+		}
+		boolean legacyParser = rowstore.getConfig().isLegacyParserEnabled();
+		try (Connection conn = rowstore.getConnection()) {
+			Set<String> columnNames = readColumnNames(conn);
+			return columnNames != null &&
+					columnNames.stream().anyMatch(c -> !ColumnNames.cleanStoredName(c, legacyParser).equals(c));
+		}
+	}
+
+	/**
+	 * Renames the columns whose stored names are not clean (see {@link ColumnNames#cleanStoredName(String, boolean)}),
+	 * e.g., because they were stored before 2.0 with a byte order mark. The rows, the per-column indexes and the column
+	 * names are changed in one transaction; the status is not changed. Nothing is changed if a clean name would be
+	 * empty or collide with another column name (in any row), if the dataset has no data, or if its data table does not
+	 * exist. Must not run concurrently with a load of the dataset, see
+	 * {@link org.entrystore.rowstore.etl.EtlProcessor#callExclusively}.
+	 *
+	 * @return Returns the renamed columns (stored name to clean name), empty if nothing was renamed, or null if the
+	 * renames could not be completed because the data table could not be locked to drop the old indexes (ETL-6.04),
+	 * so that the dataset is to be cleaned again later.
+	 * @throws SQLException If the database could not be accessed.
+	 * @throws DataAccessException If the dataset could not be loaded from the database.
+	 */
+	public Map<String, String> cleanColumnNames() throws SQLException {
+		try {
+			initFromDb();
+		} catch (IllegalStateException e) {
+			log.info("Not cleaning column names of dataset {}, it does not exist anymore", getId());
+			return Map.of();
+		}
+		if (status == EtlStatus.CREATED || dataTable == null) {
+			return Map.of();
+		}
+		try (Connection conn = rowstore.getConnection()) {
+			conn.setAutoCommit(false);
+			try {
+				Set<String> columnNames = readColumnNames(conn);
+				if (columnNames == null) {
+					log.warn("Not cleaning column names of dataset {}, its data table {} does not exist", getId(), dataTable);
+					conn.rollback();
+					return Map.of();
+				}
+				Map<String, String> renames = ColumnNames.renamesForStoredNames(columnNames, rowstore.getConfig().isLegacyParserEnabled());
+				if (renames == null) {
+					log.warn("Not cleaning column names of dataset {}, the cleaned names would be empty or collide: {}", getId(),
+							columnNames.stream().map(c -> "\"" + ColumnNames.escapeForLog(c) + "\"").toList());
+					conn.rollback();
+					return Map.of();
+				}
+				if (renames.isEmpty()) {
+					conn.rollback();
+					return Map.of();
+				}
+				if (hasRenameCollision(conn, renames)) {
+					log.warn("Not cleaning column names of dataset {}, rows contain both an old and a new name: {}", getId(),
+							describeRenames(renames));
+					conn.rollback();
+					return Map.of();
+				}
+				List<String> staleIndexes = renameColumns(conn, renames);
+				if (!dropIndexes(conn, staleIndexes)) {
+					conn.rollback();
+					return null;
+				}
+				conn.commit();
+				log.info("Renamed columns of dataset {}: {}", getId(), describeRenames(renames));
+				return renames;
+			} catch (SQLException | RuntimeException e) {
+				conn.rollback();
+				throw e;
+			}
+		}
+	}
+
+	/**
+	 * @return Returns whether a row of the data table contains both an old name and its new name, so that renaming
+	 * would overwrite a value. Scans the data table.
+	 */
+	private boolean hasRenameCollision(Connection conn, Map<String, String> renames) throws SQLException {
+		String sql = "SELECT EXISTS (SELECT 1 FROM " + dataTable + " CROSS JOIN unnest(?::text[], ?::text[]) AS r(old_name, new_name) " +
+				"WHERE data ?? r.old_name AND data ?? r.new_name)";
+		try (PreparedStatement ps = conn.prepareStatement(sql)) {
+			ps.setArray(1, conn.createArrayOf("text", renames.keySet().toArray(new String[0])));
+			ps.setArray(2, conn.createArrayOf("text", renames.values().toArray(new String[0])));
+			try (ResultSet rs = ps.executeQuery()) {
+				return rs.next() && rs.getBoolean(1);
+			}
+		}
+	}
+
+	/**
+	 * Renames columns in the caller's transaction: renames the keys of all rows in one statement and creates indexes
+	 * for the new names (unless their values are too large, see createIndexes()). None of these statements blocks
+	 * readers of the data table. The indexes of the old names are not dropped, since this requires an exclusive lock
+	 * until the end of the transaction; the caller has to drop them right before the commit, see
+	 * {@link #dropIndexes(Connection, List)}. An index of a new name whose name equals that of an index of an old name
+	 * (the names only contain a prefix of the MD5 of the column name) is created under a temporary name, which
+	 * dropIndexes() changes to the final name.
+	 *
+	 * @param renames Old name to new name; the new names must not be existing column names.
+	 * @return Returns the existing indexes of the old names.
+	 */
+	private List<String> renameColumns(Connection conn, Map<String, String> renames) throws SQLException {
+		long before = System.currentTimeMillis();
+		String[] oldNames = renames.keySet().toArray(new String[0]);
+		String[] newNames = renames.values().toArray(new String[0]);
+		// The row's keys are matched with ??, the escaped ? operator; a row without a key gets no new key
+		String sql = "UPDATE " + dataTable + " SET data = (data - ?::text[]) || " +
+				"COALESCE((SELECT jsonb_object_agg(r.new_name, data -> r.old_name) " +
+				"FROM unnest(?::text[], ?::text[]) AS r(old_name, new_name) WHERE data ?? r.old_name), '{}'::jsonb) " +
+				"WHERE data ??| ?::text[]";
+		try (PreparedStatement ps = conn.prepareStatement(sql)) {
+			Array oldNameArray = conn.createArrayOf("text", oldNames);
+			ps.setArray(1, oldNameArray);
+			ps.setArray(2, oldNameArray);
+			ps.setArray(3, conn.createArrayOf("text", newNames));
+			ps.setArray(4, oldNameArray);
+			log.debug("Executing: " + ps);
+			ps.executeUpdate();
+		}
+		// one scan for all columns, one row per column
+		Map<String, Integer> fieldSizes = new HashMap<>();
+		String sizeSql = "SELECT k, max(length(data->>k)) FROM " + dataTable + " CROSS JOIN unnest(?::text[]) AS k GROUP BY k";
+		try (PreparedStatement ps = conn.prepareStatement(sizeSql)) {
+			ps.setArray(1, conn.createArrayOf("text", newNames));
+			try (ResultSet rs = ps.executeQuery()) {
+				while (rs.next()) {
+					if (rs.getObject(2) != null) {
+						fieldSizes.put(rs.getString(1), rs.getInt(2));
+					}
+				}
+			}
+		}
+		Set<String> existingIndexes = getIndexNames(conn, dataTable);
+		List<String> staleIndexes = new ArrayList<>();
+		for (String oldName : oldNames) {
+			String index = indexName(dataTable, oldName);
+			if (existingIndexes.contains(index)) {
+				staleIndexes.add(index);
+			}
+		}
+		createIndexes(conn, dataTable, new LinkedHashSet<>(renames.values()), fieldSizes, new HashSet<>(staleIndexes));
+		log.debug("Renaming columns took {} ms", System.currentTimeMillis() - before);
+		return staleIndexes;
+	}
+
+	/**
+	 * Drops indexes of the data table in the caller's transaction, which must be committed right afterwards, and gives
+	 * the indexes that were created under a temporary name because of them (see renameColumns()) their final name.
+	 * Dropping an index locks the data table exclusively until the end of the transaction, which is acquired like for
+	 * a replace, see {@link #lockDataTableForReplace(Connection)}.
+	 *
+	 * @return Returns false if the data table could not be locked (timeout of the last attempt, or interrupted).
+	 */
+	private boolean dropIndexes(Connection conn, List<String> indexes) throws SQLException {
+		if (indexes.isEmpty()) {
+			return true;
+		}
+		if (!lockDataTable(conn, "drop the indexes of renamed columns")) {
+			return false;
+		}
+		Set<String> existingIndexes = getIndexNames(conn, dataTable);
+		try (Statement stmt = conn.createStatement()) {
+			for (String index : indexes) {
+				executeDdl(stmt, "DROP INDEX " + index);
+			}
+			for (String index : indexes) {
+				if (existingIndexes.contains(index + REPLACEMENT_INDEX_SUFFIX)) {
+					executeDdl(stmt, "ALTER INDEX " + index + REPLACEMENT_INDEX_SUFFIX + " RENAME TO " + index);
+				}
+			}
+		}
+		return true;
+	}
+
+	private static List<String> describeRenames(Map<String, String> renames) {
+		return renames.entrySet().stream()
+				.map(e -> "\"" + ColumnNames.escapeForLog(e.getKey()) + "\" -> \"" + e.getValue() + "\"").toList();
+	}
+
+	/**
+	 * @return Returns the column names (the keys of the first row), or null if the data table does not exist.
+	 */
+	private Set<String> readColumnNames(Connection conn) throws SQLException {
+		try (PreparedStatement ps = conn.prepareStatement("SELECT to_regclass(?) IS NOT NULL")) {
+			ps.setString(1, dataTable);
+			try (ResultSet rs = ps.executeQuery()) {
+				if (!rs.next() || !rs.getBoolean(1)) {
+					return null;
+				}
+			}
+		}
+		return new HashSet<>(queryForStrings(conn, "SELECT jsonb_object_keys(data) FROM " + dataTable +
+				" WHERE rownr = (SELECT min(rownr) FROM " + dataTable + ")"));
+	}
+
 	/**
 	 * Creates the shadow table for a replace, within the load's transaction. A shadow table is never committed under
 	 * its own name, but a table left behind under this name must not be loaded into, so it is dropped first.
@@ -582,7 +841,7 @@ public class PgDataset implements Dataset {
 	 * relying on anything attached to a data table.
 	 *
 	 * @param shadowIndexes The names of the indexes created for the shadow table.
-	 * @return Returns false if interrupted while waiting to lock the data table, see {@link #lockDataTableForReplace(Connection)}.
+	 * @return Returns false if the data table could not be locked (timeout of the last attempt, or interrupted), see {@link #lockDataTableForReplace(Connection)}.
 	 */
 	private boolean replaceDataTable(Connection conn, String shadowTable, List<String> shadowIndexes) throws SQLException {
 		long before = System.currentTimeMillis();
@@ -645,18 +904,31 @@ public class PgDataset implements Dataset {
 	 * Locks the data table exclusively for replacing it, within the load's transaction. The lock has to wait for
 	 * readers of the data table, e.g., a long streaming export, and while it waits, it blocks new queries of the
 	 * data table. Therefore the first attempts wait at most {@link #SWAP_LOCK_TIMEOUT} each and are retried after a
-	 * delay, so that queries are not blocked for longer than that at a time. The last attempt waits without a
-	 * timeout, so that a replace eventually succeeds even if the data table is read for a long time (e.g., by a
-	 * backup); meanwhile new queries of the data table wait as well.
+	 * delay, so that queries are not blocked for longer than that at a time. The last attempt waits at most
+	 * {@link #FINAL_SWAP_LOCK_TIMEOUT}, so that a replace succeeds even if the data table is read for a long time
+	 * (e.g., by an export); meanwhile new queries of the data table wait as well. If the data table is held for longer
+	 * (e.g., by a backup or a session left idle in a transaction), the caller gives up instead of blocking the dataset
+	 * indefinitely. The sessions holding the data table are logged before the last attempt and when giving up.
 	 *
 	 * After the lock has been acquired, the attempt's lock_timeout stays in force until the end of the transaction.
 	 * This is harmless, since the remaining statements only touch the locked data table, objects that depend on it,
 	 * and the shadow table, which was created in the same transaction.
 	 *
-	 * @return Returns true if the lock was acquired, false if interrupted while waiting for the next attempt.
-	 * @throws SQLException If locking failed for another reason than a lock timeout of an attempt with a timeout.
+	 * @return Returns true if the lock was acquired, false if the last attempt timed out or if interrupted while
+	 * waiting for the next attempt; the transaction can then only be rolled back.
+	 * @throws SQLException If locking failed for another reason than a lock timeout.
 	 */
 	boolean lockDataTableForReplace(Connection conn) throws SQLException {
+		return lockDataTable(conn, "replace it");
+	}
+
+	/**
+	 * Locks the data table exclusively within the caller's transaction, like {@link #lockDataTableForReplace(Connection)}.
+	 * The remaining statements of the transaction must only touch the data table and objects depending on it.
+	 *
+	 * @param purpose What the lock is needed for, for logging (e.g., "replace it").
+	 */
+	private boolean lockDataTable(Connection conn, String purpose) throws SQLException {
 		// The transaction is idle during the delays between the attempts, so that an idle_in_transaction_session_timeout
 		// configured for the database user would end it. Set before the first savepoint, so that rolling back an
 		// attempt does not revert it; applies to this transaction only.
@@ -665,29 +937,72 @@ public class PgDataset implements Dataset {
 		}
 		for (int attempt = 0; ; attempt++) {
 			boolean lastAttempt = attempt >= swapRetryDelaysMillis.length;
+			if (lastAttempt) {
+				logLockHolders(conn, "Waiting up to " + finalSwapLockTimeout + " to " + purpose + ", data table " +
+						dataTable + " of dataset " + getId() + " is held by");
+			}
 			Savepoint savepoint = conn.setSavepoint();
 			try (Statement stmt = conn.createStatement()) {
-				executeDdl(stmt, "SET LOCAL lock_timeout = '" + (lastAttempt ? "0" : SWAP_LOCK_TIMEOUT) + "'");
+				executeDdl(stmt, "SET LOCAL lock_timeout = '" + (lastAttempt ? finalSwapLockTimeout : SWAP_LOCK_TIMEOUT) + "'");
 				executeDdl(stmt, "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
 				return true;
 			} catch (SQLException e) {
-				if (lastAttempt || !LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+				if (!LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
 					throw e;
 				}
 				// also reverts SET LOCAL
 				conn.rollback(savepoint);
+				if (lastAttempt) {
+					log.error("Unable to lock data table {} of dataset {} within {} to {}, giving up", dataTable, getId(),
+							finalSwapLockTimeout, purpose);
+					logLockHolders(conn, "Data table " + dataTable + " of dataset " + getId() + " is held by");
+					return false;
+				}
 			}
 			long delay = swapRetryDelaysMillis[attempt];
-			log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to replace it in {} ms{}",
-					dataTable, getId(), delay, attempt == swapRetryDelaysMillis.length - 1 ? " without a lock timeout" : "");
+			log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to {} in {} ms{}",
+					dataTable, getId(), purpose, delay,
+					attempt == swapRetryDelaysMillis.length - 1 ? " with a lock timeout of " + finalSwapLockTimeout : "");
 			try {
 				Thread.sleep(delay);
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
-				log.error("Interrupted while waiting to replace data table {} of dataset {}", dataTable, getId());
+				log.error("Interrupted while waiting to lock data table {} of dataset {} to {}", dataTable, getId(), purpose);
 				return false;
 			}
 		}
+	}
+
+	/**
+	 * Logs the sessions that hold a lock on the data table, so that an operator can see what blocks it (e.g., a backup,
+	 * an export, or a session left idle in a transaction). Best effort within a savepoint, so that a failure does not
+	 * abort the caller's transaction; the query text of other users' sessions is only visible to privileged users.
+	 */
+	private void logLockHolders(Connection conn, String message) {
+		String sql = "SELECT a.pid, a.usename, a.application_name, a.state, a.xact_start, left(a.query, 200) " +
+				"FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid " +
+				"WHERE l.locktype = 'relation' AND l.relation = to_regclass(?) AND l.granted AND l.pid <> pg_backend_pid()";
+		List<String> holders = new ArrayList<>();
+		try {
+			Savepoint savepoint = conn.setSavepoint();
+			try (PreparedStatement ps = conn.prepareStatement(sql)) {
+				ps.setString(1, dataTable);
+				try (ResultSet rs = ps.executeQuery()) {
+					while (rs.next()) {
+						holders.add("pid " + rs.getInt(1) + " (user " + rs.getString(2) + ", application \"" + rs.getString(3) +
+								"\", " + rs.getString(4) + ", transaction since " + rs.getTimestamp(5) + "): " + rs.getString(6));
+					}
+				}
+				conn.releaseSavepoint(savepoint);
+			} catch (SQLException e) {
+				conn.rollback(savepoint);
+				throw e;
+			}
+		} catch (SQLException e) {
+			log.warn("Unable to determine the sessions holding data table {}: {}", dataTable, e.getMessage());
+			return;
+		}
+		log.warn("{} {}", message, holders.isEmpty() ? "no other session anymore" : holders);
 	}
 
 	/**
@@ -695,6 +1010,13 @@ public class PgDataset implements Dataset {
 	 */
 	void setSwapRetryDelays(long... delaysMillis) {
 		this.swapRetryDelaysMillis = delaysMillis.clone();
+	}
+
+	/**
+	 * Sets the lock timeout of the last attempt to lock the data table (a PostgreSQL interval). Intended for tests.
+	 */
+	void setFinalSwapLockTimeout(String timeout) {
+		this.finalSwapLockTimeout = timeout;
 	}
 
 	private static void executeDdl(Statement stmt, String sql) throws SQLException {
@@ -1092,11 +1414,13 @@ public class PgDataset implements Dataset {
 		}
 	}
 
-	private char detectSeparator(File csvFile) {
+	/**
+	 * Detects the separator from the first two lines, which are read like by the parser, i.e., without a byte order
+	 * mark (ETL-4.02, ETL-4.06).
+	 */
+	private char detectSeparator(File csvFile, Charset charset) {
 		char result = ',';
-		BufferedReader br = null;
-		try {
-			br = Files.newBufferedReader(csvFile.toPath(), DatasetUtil.detectCharset(csvFile));
+		try (BufferedReader br = new BufferedReader(DatasetUtil.newReaderSkippingBom(csvFile.toPath(), charset))) {
 			String line1 = br.readLine();
 			String line2 = br.readLine();
 			int semiCount1 = StringUtils.countMatches(line1, ";");
@@ -1108,14 +1432,6 @@ public class PgDataset implements Dataset {
 			}
 		} catch (IOException e) {
 			log.info(e.getMessage());
-		} finally {
-			if (br != null) {
-				try {
-					br.close();
-				} catch (IOException e) {
-					log.error(e.getMessage());
-				}
-			}
 		}
 		return result;
 	}
