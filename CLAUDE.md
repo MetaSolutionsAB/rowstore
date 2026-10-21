@@ -139,7 +139,7 @@ background cleanup of column names stored before 2.0 with a byte order mark or s
 **ETL Layer** (`etl/`):
 - `EtlProcessor` - Per-dataset job queues: loads of a dataset run one at a time in submission order on a virtual
   thread, a replace discards the dataset's queued (not yet started) loads, and a `Semaphore` (`maxetlprocesses`)
-  limits the number of running loads; `runExclusively()` runs other tasks (column name cleanup) in the same order
+  limits the number of running loads; `runExclusively()`/`callExclusively()` run other tasks (column name cleanup) in the same order
 - `EtlResource` - ETL job wrapper
 - `EtlStatus` - Status constants (CREATED=0, ACCEPTED_DATA=1, PROCESSING=2, AVAILABLE=3, ERROR=4)
 
