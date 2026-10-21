@@ -27,6 +27,9 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -185,6 +188,17 @@ public class ConfigurableTestEnvironment {
      */
     public Configuration getConfig() {
         return config;
+    }
+
+    /**
+     * Opens a direct JDBC connection to the test database, e.g., for failure injection.
+     */
+    public Connection openDatabaseConnection() throws SQLException {
+        if (!started) {
+            throw new IllegalStateException("Test environment has not been started");
+        }
+        return DriverManager.getConnection(sharedPostgresContainer.getJdbcUrl(),
+                sharedPostgresContainer.getUsername(), sharedPostgresContainer.getPassword());
     }
 
     private static void startSharedPostgres() {
