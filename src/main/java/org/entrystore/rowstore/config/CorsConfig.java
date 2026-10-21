@@ -17,8 +17,10 @@
 package org.entrystore.rowstore.config;
 
 import org.entrystore.rowstore.store.RowStoreConfig;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
@@ -34,8 +36,12 @@ public class CorsConfig {
 		this.rowStoreConfig = rowStoreConfig;
 	}
 
+	/**
+	 * Registered before RateLimitFilter (and after PathParameterFilter), so that 429 responses carry CORS headers
+	 * and browsers can read Retry-After.
+	 */
 	@Bean
-	public CorsFilter corsFilter() {
+	public FilterRegistrationBean<CorsFilter> corsFilter() {
 		CorsConfiguration config = new CorsConfiguration();
 		config.setAllowedOrigins(rowStoreConfig.getCorsAllowedOrigins());
 		config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"));
@@ -44,7 +50,9 @@ public class CorsConfig {
 
 		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
 		source.registerCorsConfiguration("/**", config);
-		return new CorsFilter(source);
+		FilterRegistrationBean<CorsFilter> registration = new FilterRegistrationBean<>(new CorsFilter(source));
+		registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 2);
+		return registration;
 	}
 
 }

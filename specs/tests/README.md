@@ -13,9 +13,9 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `05-querying.md` | Query functionality: filters, pagination, JSONP, regex modes | 24 |
 | `06-export.md` | JSON/CSV export endpoints | 16 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
-| `08-error-handling.md` | Error codes: 400, 404, 423, 424 | 13 |
-| `09-rate-limiting.md` | Rate limiting (429) - requires separate profile | 5 |
-| `10-configuration.md` | rowstore.json validation and data source settings | 11 |
+| `08-error-handling.md` | Error codes: 400, 404, 423, 424, path parameters | 15 |
+| `09-rate-limiting.md` | Rate limiting (429), client address via trusted proxies - requires separate profiles | 11 |
+| `10-configuration.md` | rowstore.json validation and data source settings | 13 |
 | `11-etl-processing.md` | ETL scheduling and failure handling (unit and integration tests) | 19 |
 
 ## Prerequisites
@@ -135,13 +135,13 @@ Dataset creation and modification are asynchronous. Tests should:
 | Querying | 24 |
 | Export | 16 |
 | Metadata Endpoints | 11 |
-| Error Handling | 13 |
-| Rate Limiting | 5 |
-| Configuration | 11 |
+| Error Handling | 15 |
+| Rate Limiting | 11 |
+| Configuration | 13 |
 | ETL Processing | 19 |
-| **Total** | **148** |
+| **Total** | **158** |
 
-Note: The specifications define 148 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 158 test cases including all profiles. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 
