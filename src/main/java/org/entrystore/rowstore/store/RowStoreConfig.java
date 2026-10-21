@@ -349,7 +349,8 @@ public class RowStoreConfig {
 
 		private String name;
 
-		private boolean ssl;
+		// null if not configured
+		private Boolean ssl;
 
 		private int connectionPoolInit;
 
@@ -382,7 +383,9 @@ public class RowStoreConfig {
 			setName(requiredString(dbConfig, "database", name + ".database"));
 			setUser(requiredString(dbConfig, "user", name + ".user"));
 			setPassword(requiredString(dbConfig, "password", name + ".password"));
-			setSsl(dbConfig.optBoolean("ssl", false));
+			if (dbConfig.has("ssl")) {
+				setSsl(dbConfig.optBoolean("ssl", false));
+			}
 			setConnectionPoolInit(dbConfig.optInt("connectionPoolInit", -1));
 			setConnectionPoolMax(dbConfig.optInt("connectionPoolMax", -1));
 			setSocketTimeout(dbConfig.optInt("socketTimeout", 0));		// seconds, PG default 0
@@ -501,7 +504,18 @@ public class RowStoreConfig {
 		}
 
 		public boolean getSsl() {
-			return ssl;
+			return Boolean.TRUE.equals(ssl);
+		}
+
+		/**
+		 * @return the pgjdbc sslmode: require if ssl is true, disable if ssl is false, and the
+		 * pgjdbc default prefer if ssl is not configured (as in 1.7)
+		 */
+		public String getSslMode() {
+			if (ssl == null) {
+				return "prefer";
+			}
+			return ssl ? "require" : "disable";
 		}
 
 		public int getConnectionPoolInit() {

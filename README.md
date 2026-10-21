@@ -217,7 +217,7 @@ Unknown keys are ignored (e.g. `exportpagesize`, which was never used and has be
   - `database` (required) - Name of database.
   - `user` (required) - Username.
   - `password` (required) - Password, may be empty.
-  - `ssl` - `true` or `false`. `true` requires SSL (`sslmode=require`), `false` disables it (`sslmode=disable`), so a server that requires SSL refuses the connection. Default: `false`.
+  - `ssl` - `true` or `false`. `true` requires SSL (`sslmode=require`), `false` disables it (`sslmode=disable`), so a server that requires SSL refuses the connection. When not set, SSL is used if the server offers it (`sslmode=prefer`, as in 1.7).
   - `connectionPoolMax` - Maximum size of the connection pool. Set to a positive integer to enable HikariCP pooling. When not set or <= 0, no pool is used. Default: -1 (no pool).
   - `connectionPoolInit` - Minimum idle connections in the pool. Only effective when `connectionPoolMax` > 0. Default: -1 (no minimum idle connections).
   - `socketTimeout` - Socket timeout of the database driver in seconds, 0 means unlimited. Default: 0.

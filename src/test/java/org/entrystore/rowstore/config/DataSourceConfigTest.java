@@ -35,19 +35,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("DataSourceConfig Tests")
 class DataSourceConfigTest {
 
+    // An empty ssl value means that the key is not set
     @ParameterizedTest(name = "ssl={0}")
-    @CsvSource({"false, disable", "true, require"})
+    @CsvSource({"false, disable", "true, require", ", prefer"})
     @DisplayName("TC-DS-001: Unpooled query data source applies SSL mode, timeouts and read-only mode")
-    void unpooledQueryDataSource_appliesDriverSettings(boolean ssl, String expectedSslMode) throws Exception {
+    void unpooledQueryDataSource_appliesDriverSettings(Boolean ssl, String expectedSslMode) throws Exception {
         JSONObject db = new JSONObject()
                 .put("host", "db-replica")
                 .put("database", "rowstore")
                 .put("user", "reader")
                 .put("password", "pw")
-                .put("ssl", ssl)
                 .put("socketTimeout", 60)
                 .put("connectTimeout", 7)
                 .put("loginTimeout", 8);
+        if (ssl != null) {
+            db.put("ssl", ssl);
+        }
         JSONObject json = new JSONObject()
                 .put("baseurl", "http://localhost/")
                 .put("database", new JSONObject(db.toString()).put("host", "db-primary"))
@@ -59,7 +62,7 @@ class DataSourceConfigTest {
         assertThat(ds).isInstanceOf(PGSimpleDataSource.class);
         PGSimpleDataSource pgDs = (PGSimpleDataSource) ds;
         assertThat(pgDs.getServerNames()).containsExactly("db-replica");
-        assertThat(pgDs.getSsl()).isEqualTo(ssl);
+        assertThat(pgDs.getSsl()).isEqualTo(Boolean.TRUE.equals(ssl));
         assertThat(pgDs.getSslMode()).isEqualTo(expectedSslMode);
         assertThat(pgDs.getSocketTimeout()).isEqualTo(60);
         assertThat(pgDs.getConnectTimeout()).isEqualTo(7);

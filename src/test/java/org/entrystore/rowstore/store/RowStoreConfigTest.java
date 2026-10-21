@@ -112,6 +112,7 @@ class RowStoreConfigTest {
         assertThat(db.getUser()).isEqualTo("app");
         assertThat(db.getPassword()).isEqualTo("secret");
         assertThat(db.getSsl()).isTrue();
+        assertThat(db.getSslMode()).isEqualTo("require");
         assertThat(db.getConnectionPoolInit()).isEqualTo(2);
         assertThat(db.getConnectionPoolMax()).isEqualTo(10);
         assertThat(db.getSocketTimeout()).isEqualTo(60);
@@ -145,6 +146,7 @@ class RowStoreConfigTest {
         assertThat(db.getType()).isEqualTo("postgresql");
         assertThat(db.getPort()).isEqualTo(5432);
         assertThat(db.getSsl()).isFalse();
+        assertThat(db.getSslMode()).isEqualTo("prefer");
         assertThat(db.getConnectionPoolInit()).isEqualTo(-1);
         assertThat(db.getConnectionPoolMax()).isEqualTo(-1);
         assertThat(db.getSocketTimeout()).isZero();

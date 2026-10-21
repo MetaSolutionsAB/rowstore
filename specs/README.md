@@ -272,7 +272,7 @@ Current limitations relevant to this area.
 | CFG-3.10 | cors.allowedorigins (JSON array, default ["*"]) |
 | CFG-3.11 | trustedproxies (IPs/CIDR ranges, default private ranges, [] trusts nobody) |
 | CFG-4.01 | database object: type, host, port, database, user, password |
-| CFG-4.02 | ssl (boolean, default false) → sslmode require/disable |
+| CFG-4.02 | ssl (boolean, optional) → sslmode require/disable, prefer when not set |
 | CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1: no pool) |
 | CFG-4.04 | socketTimeout (0), connectTimeout (5), loginTimeout (5) |
 | CFG-4.05 | maxQueryConnections (int, default 10) |
