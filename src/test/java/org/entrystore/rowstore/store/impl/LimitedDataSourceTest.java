@@ -29,7 +29,6 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import javax.sql.DataSource;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLTransientConnectionException;
 import java.sql.Statement;
@@ -188,24 +187,6 @@ class LimitedDataSourceTest {
     }
 
     @Test
-    @DisplayName("TC-CONN-007: Statements and result sets return the limited connection, closing it releases the slot")
-    void statementAndResultSet_returnLimitedConnection() throws Exception {
-        LimitedDataSource ds = new LimitedDataSource(target, "test", 1, 200);
-        Connection conn = ds.getConnection();
-        Statement stmt = conn.createStatement();
-        ResultSet rs = stmt.executeQuery("SELECT 1");
-        assertThat(stmt.getConnection()).isSameAs(conn);
-        assertThat(rs.getStatement()).isSameAs(stmt);
-        assertThat(conn.unwrap(Connection.class)).isNotSameAs(conn);
-
-        // like the export, which closes the connection of the statement of the result set
-        rs.getStatement().getConnection().close();
-
-        assertThat(ds.getUsage().inUse()).isZero();
-        assertThat(target.closed.get()).isEqualTo(1);
-    }
-
-    @Test
     @DisplayName("TC-CONN-024: A wait timeout is distinguished from a failure to open a connection")
     void waitTimeout_isDistinguishedFromConnectionFailure() throws Exception {
         LimitedDataSource ds = new LimitedDataSource(target, "test", 1, 100);
@@ -249,14 +230,12 @@ class LimitedDataSourceTest {
     }
 
     @Test
-    @DisplayName("TC-CONN-026: A limited connection, statement and result set are equal only to themselves")
-    void proxies_areEqualOnlyToThemselves() throws Exception {
+    @DisplayName("TC-CONN-026: A limited connection is equal only to itself")
+    void connection_isEqualOnlyToItself() throws Exception {
         LimitedDataSource ds = new LimitedDataSource(target, "test", 2, 200);
         try (Connection first = ds.getConnection(); Connection second = ds.getConnection()) {
             assertThat(first).isEqualTo(first).isNotEqualTo(second);
             assertThat(first.hashCode()).isEqualTo(first.hashCode());
-            Statement stmt = first.createStatement();
-            assertThat(stmt).isEqualTo(stmt).isEqualTo(stmt.executeQuery("SELECT 1").getStatement());
         }
     }
 
@@ -296,8 +275,7 @@ class LimitedDataSourceTest {
                 throw new SQLException("open failed");
             }
             opened.incrementAndGet();
-            Connection[] conn = new Connection[1];
-            conn[0] = proxy(Connection.class, (p, method, args) -> switch (method.getName()) {
+            return proxy(Connection.class, (p, method, args) -> switch (method.getName()) {
                 case "close" -> {
                     if (failClose) {
                         throw new SQLException("close failed");
@@ -305,11 +283,9 @@ class LimitedDataSourceTest {
                     closed.incrementAndGet();
                     yield null;
                 }
-                case "createStatement" -> statement(conn[0], this);
-                case "unwrap" -> p;
+                case "createStatement" -> statement(this);
                 default -> defaultValue(method.getReturnType());
             });
-            return conn[0];
         }
 
         @Override
@@ -317,10 +293,8 @@ class LimitedDataSourceTest {
             return getConnection();
         }
 
-        private static Statement statement(Connection conn, FakeDataSource ds) {
-            Statement[] stmt = new Statement[1];
-            stmt[0] = proxy(Statement.class, (p, method, args) -> switch (method.getName()) {
-                case "getConnection" -> conn;
+        private static Statement statement(FakeDataSource ds) {
+            return proxy(Statement.class, (p, method, args) -> switch (method.getName()) {
                 case "execute" -> {
                     if (ds.failExecute) {
                         throw new SQLException("execute failed");
@@ -328,11 +302,8 @@ class LimitedDataSourceTest {
                     ds.executed.add((String) args[0]);
                     yield false;
                 }
-                case "executeQuery" -> proxy(ResultSet.class, (rp, rm, ra) ->
-                        rm.getName().equals("getStatement") ? stmt[0] : defaultValue(rm.getReturnType()));
                 default -> defaultValue(method.getReturnType());
             });
-            return stmt[0];
         }
 
         @SuppressWarnings("unchecked")

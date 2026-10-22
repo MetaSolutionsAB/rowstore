@@ -27,7 +27,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLTransientConnectionException;
 import java.sql.Statement;
@@ -46,8 +45,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * An optional session statement (e.g., {@code SET lock_timeout = ...}) is executed on every connection before it is
  * handed out.
  * <p>
- * Statements and result sets created from a connection return the limited connection and statement from
- * getConnection() and getStatement(), so that closing a connection obtained from them releases the slot as well.
+ * Only the connection is limited: statements and result sets are those of the target connection, so
+ * {@code getStatement().getConnection()} returns the target connection, and closing that one does not release the
+ * slot. The connection that {@link #getConnection()} returned has to be closed.
  * <p>
  * Waits longer than {@link #SLOW_WAIT_MILLIS} and timeouts are logged at WARN level, aggregated to at most one
  * message per {@link #WARN_INTERVAL_MILLIS}.
@@ -214,16 +214,12 @@ public class LimitedDataSource extends DelegatingDataSource {
 
 	private Connection limit(Connection target) {
 		AtomicBoolean released = new AtomicBoolean();
-		return (Connection) wrap(Connection.class, target, null, () -> {
-			if (released.compareAndSet(false, true)) {
-				slots.semaphore.release();
-			}
-		});
-	}
-
-	private static Object wrap(Class<?> type, Object target, Object parent, Runnable onClose) {
-		return Proxy.newProxyInstance(LimitedDataSource.class.getClassLoader(), new Class<?>[]{type},
-				new Handler(target, parent, onClose));
+		return (Connection) Proxy.newProxyInstance(LimitedDataSource.class.getClassLoader(),
+				new Class<?>[]{Connection.class}, new Handler(target, () -> {
+					if (released.compareAndSet(false, true)) {
+						slots.semaphore.release();
+					}
+				}));
 	}
 
 	/**
@@ -265,47 +261,32 @@ public class LimitedDataSource extends DelegatingDataSource {
 	}
 
 	/**
-	 * Delegates to a connection, a statement created from it or a result set of such a statement.
-	 * <p>
-	 * Only close() of the connection releases the slot; abort() does not, the connection has to be closed afterwards
-	 * as usual. Objects that are not created by statements are not wrapped, e.g., getMetaData().getConnection()
-	 * returns the connection of the target data source, which must not be closed. A proxy is equal only to itself.
+	 * Delegates to a connection. Only close() releases the slot; abort() does not, the connection has to be closed
+	 * afterwards as usual. A proxy is equal only to itself.
 	 *
-	 * @param parent The proxy of the connection of a statement, or of the statement of a result set.
-	 * @param onClose Run when the connection is closed, null for statements and result sets.
+	 * @param onClose Run when the connection is closed.
 	 */
-	private record Handler(Object target, Object parent, Runnable onClose) implements InvocationHandler {
+	private record Handler(Connection target, Runnable onClose) implements InvocationHandler {
 
 		@Override
 		public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
 			String methodName = method.getName();
 			int parameterCount = method.getParameterCount();
-			if (parameterCount == 0 && ((target instanceof Statement && methodName.equals("getConnection")) ||
-					(target instanceof ResultSet && methodName.equals("getStatement")))) {
-				return parent;
-			}
 			if (parameterCount == 1 && methodName.equals("equals") && method.getParameterTypes()[0] == Object.class) {
 				return proxy == args[0];
 			}
 			if (parameterCount == 0 && methodName.equals("hashCode")) {
 				return System.identityHashCode(proxy);
 			}
-			Object result;
 			try {
-				result = method.invoke(target, args);
+				return method.invoke(target, args);
 			} catch (InvocationTargetException e) {
 				throw e.getCause();
 			} finally {
-				if (onClose != null && parameterCount == 0 && methodName.equals("close")) {
+				if (parameterCount == 0 && methodName.equals("close")) {
 					onClose.run();
 				}
 			}
-			Class<?> returnType = method.getReturnType();
-			if (result != null && (Statement.class.isAssignableFrom(returnType) ||
-					(returnType == ResultSet.class && target instanceof Statement))) {
-				return wrap(returnType, result, proxy, null);
-			}
-			return result;
 		}
 
 	}
