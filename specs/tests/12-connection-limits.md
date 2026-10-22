@@ -8,7 +8,7 @@ requests and ETL jobs holding at most one connection at a time. See
 [01-system-architecture.md](../01-system-architecture.md) (ARCH-7) and [06-configuration.md](../06-configuration.md)
 (CFG-4.05 to CFG-4.08).
 
-TC-CONN-001 to TC-CONN-007 and TC-CONN-024 to TC-CONN-026 are unit tests of the budget (`LimitedDataSourceTest`)
+TC-CONN-001 to TC-CONN-006 and TC-CONN-024 to TC-CONN-026 are unit tests of the budget (`LimitedDataSourceTest`)
 with a fake data source, TC-CONN-008, TC-CONN-009 and TC-CONN-028 unit tests of the configuration
 (`RowStoreConfigConnectionLimitsTest`), TC-CONN-027 a unit test of the session statements (`PgRowStoreSessionSqlTest`).
 TC-CONN-010 to TC-CONN-013, TC-CONN-021 and TC-CONN-029 are integration tests with small
@@ -80,11 +80,10 @@ table is restored.
 1. While an export budget with 1 connection is exhausted, both connections of a query budget can be opened without
    waiting
 
-### TC-CONN-007: Statements and result sets return the limited connection, closing it releases the slot
+### TC-CONN-007: [REMOVED] Statements and result sets return the limited connection, closing it releases the slot
 
-**Assertions:**
-1. `Statement.getConnection()` returns the limited connection and `ResultSet.getStatement()` the limited statement
-2. Closing the connection obtained via `rs.getStatement().getConnection()` (as the export does) releases the slot
+Only the connection is limited since the export closes the connection it obtained (RowStream) instead of the
+connection of the statement of its result set.
 
 ## Configuration (unit tests)
 
@@ -264,11 +263,10 @@ table is restored.
 2. The session statement (e.g., `SET lock_timeout = 5000`) is executed on every connection
 3. If the session statement fails, the connection is closed and the slot released
 
-### TC-CONN-026: A limited connection, statement and result set are equal only to themselves
+### TC-CONN-026: A limited connection is equal only to itself
 
 **Assertions:**
-1. A limited connection is equal to itself and not to another one, with a stable hash code; a statement is equal to
-   itself and to the statement returned by its result set
+1. A limited connection is equal to itself and not to another one, with a stable hash code
 
 ## Lock timeout configuration (unit tests)
 

@@ -22,6 +22,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 
 import static org.awaitility.Awaitility.await;
 
@@ -32,6 +36,25 @@ import static org.awaitility.Awaitility.await;
 final class ConnectionLimitTestSupport {
 
     private ConnectionLimitTestSupport() {
+    }
+
+    /**
+     * Runs concurrent client requests, each on its own thread. The common pool of CompletableFuture has too few threads
+     * on machines with few CPUs (e.g., CI runners), so that requests that a test expects to wait at the same time would
+     * run one after another.
+     */
+    private static final ExecutorService CLIENTS = Executors.newCachedThreadPool(r -> {
+        Thread thread = new Thread(r, "connection-limit-client");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    static <T> CompletableFuture<T> supplyAsync(Supplier<T> request) {
+        return CompletableFuture.supplyAsync(request, CLIENTS);
+    }
+
+    static CompletableFuture<Void> runAsync(Runnable request) {
+        return CompletableFuture.runAsync(request, CLIENTS);
     }
 
     static String dataTable(String datasetId) {

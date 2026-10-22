@@ -269,6 +269,16 @@ public class EtlProcessor {
 		return activeProcesses.get();
 	}
 
+	/**
+	 * @return Returns the number of jobs that are queued but have not started yet, including the next job of a
+	 * dataset while it waits for a permit.
+	 */
+	public int getQueuedEtlProcesses() {
+		synchronized (waitingJobs) {
+			return waitingJobs.values().stream().mapToInt(Deque::size).sum();
+		}
+	}
+
 	private interface Job {
 
 		void run();

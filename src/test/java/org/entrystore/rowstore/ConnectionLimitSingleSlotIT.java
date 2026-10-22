@@ -39,6 +39,7 @@ import static org.entrystore.rowstore.ConnectionLimitTestSupport.awaitLockWaiter
 import static org.entrystore.rowstore.ConnectionLimitTestSupport.awaitSleepers;
 import static org.entrystore.rowstore.ConnectionLimitTestSupport.lockDataTable;
 import static org.entrystore.rowstore.ConnectionLimitTestSupport.storedStatus;
+import static org.entrystore.rowstore.ConnectionLimitTestSupport.supplyAsync;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
@@ -250,7 +251,7 @@ class ConnectionLimitSingleSlotIT extends ConfigurableTestBase {
             awaitLockWaiters(ENV, loaded.datasetId, 1);
             try (SlowDataset ignored = new SlowDataset(ENV, other.datasetId, 30)) {
                 // a query of the other dataset holds the only query connection
-                CompletableFuture<Response> query = CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(other.datasetUrl));
+                CompletableFuture<Response> query = supplyAsync(() -> given().spec(jsonSpec).get(other.datasetUrl));
                 awaitSleepers(ENV, other.datasetId, 1);
 
                 lock.rollback();
@@ -269,7 +270,7 @@ class ConnectionLimitSingleSlotIT extends ConfigurableTestBase {
     void healthAndStatus_doNotWaitForWaitTimeout() throws Exception {
         DatasetUrls slow = create();
         try (SlowDataset ignored = new SlowDataset(ENV, slow.datasetId, 30)) {
-            CompletableFuture<Response> query = CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(slow.datasetUrl));
+            CompletableFuture<Response> query = supplyAsync(() -> given().spec(jsonSpec).get(slow.datasetUrl));
             awaitSleepers(ENV, slow.datasetId, 1);
 
             given()

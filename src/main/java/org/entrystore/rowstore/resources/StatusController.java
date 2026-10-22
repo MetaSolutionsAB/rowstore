@@ -64,6 +64,7 @@ public class StatusController {
 				versionInfo.getVersion(),
 				getDatasetCount(),
 				rowStore.getEtlProcessor().getActiveEtlProcesses(),
+				rowStore.getEtlProcessor().getQueuedEtlProcesses(),
 				rowStore.getConnectionUsage()
 		);
 		return ResponseEntity.ok(body);
