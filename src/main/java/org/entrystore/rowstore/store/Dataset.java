@@ -18,7 +18,7 @@ package org.entrystore.rowstore.store;
 
 import java.io.File;
 import java.io.IOException;
-import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.Date;
 import java.util.Map;
 import java.util.Set;
@@ -89,9 +89,14 @@ public interface Dataset {
 	QueryResult query(Map<String, String> tuples, int limit, int offset);
 
 	/**
-	 * @return Returns a ResultSet containing all data of the dataset's table. ResultSet and the underlying Statement and Connection need to be closed manually after the ResultSet is consumed.
+	 * Opens a cursor over all rows of the dataset's table, on a connection of the export budget (ARCH-7.02).
+	 *
+	 * @return Returns a stream of all rows. It holds a database connection and must be closed after it is consumed.
+	 * @throws SQLException If the query fails. No database resources are held in that case.
+	 * @throws org.springframework.jdbc.CannotGetJdbcConnectionException If no export connection becomes available
+	 * within the connection wait timeout.
 	 */
-	ResultSet streamAll();
+	RowStream streamAll() throws SQLException;
 
 	/**
 	 * @return Returns the dataset's column names.

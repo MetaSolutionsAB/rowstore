@@ -23,6 +23,8 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Savepoint;
 import java.sql.Statement;
@@ -61,20 +63,38 @@ class PgDatasetSwapLockTest {
         failingLocks = 2;
         assertThat(dataset.lockDataTableForReplace(connection())).isTrue();
         assertThat(executed).containsExactly(
+                "SET LOCAL idle_in_transaction_session_timeout = 0",
                 "SAVEPOINT", "SET LOCAL lock_timeout = '3s'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE",
                 "ROLLBACK TO SAVEPOINT",
                 "SAVEPOINT", "SET LOCAL lock_timeout = '3s'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE",
                 "ROLLBACK TO SAVEPOINT",
                 "SAVEPOINT", "SET LOCAL lock_timeout = '3s'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
 
-        // one attempt with a timeout per delay, then an attempt that waits until it gets the lock
+        // one short attempt per delay, then the lock holders are logged and the last, long attempt gets the lock
         executed.clear();
-        failingLocks = Integer.MAX_VALUE;
+        failingLocks = 3;
         assertThat(dataset.lockDataTableForReplace(connection())).isTrue();
         assertThat(executed.stream().filter(s -> s.equals("SET LOCAL lock_timeout = '3s'"))).hasSize(3);
         assertThat(executed.stream().filter(s -> s.equals("ROLLBACK TO SAVEPOINT"))).hasSize(3);
-        assertThat(executed.subList(executed.size() - 3, executed.size())).containsExactly(
-                "SAVEPOINT", "SET LOCAL lock_timeout = '0'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
+        assertThat(executed.subList(executed.size() - 5, executed.size())).containsExactly(
+                "SAVEPOINT", "LOCK HOLDERS",
+                "SAVEPOINT", "SET LOCAL lock_timeout = '30min'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
+    }
+
+    @Test
+    @DisplayName("TC-ETL-051: If the last attempt to lock the data table times out, locking gives up and logs the lock holders")
+    void lastAttemptTimesOut_givesUp() throws SQLException {
+        PgDataset dataset = newDataset();
+        dataset.setSwapRetryDelays(1, 1, 1);
+        failingLocks = Integer.MAX_VALUE;
+
+        assertThat(dataset.lockDataTableForReplace(connection())).isFalse();
+        assertThat(executed.stream().filter(s -> s.startsWith("LOCK TABLE"))).hasSize(4);
+        assertThat(executed.subList(executed.size() - 8, executed.size())).containsExactly(
+                "SAVEPOINT", "LOCK HOLDERS",
+                "SAVEPOINT", "SET LOCAL lock_timeout = '30min'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE",
+                "ROLLBACK TO SAVEPOINT",
+                "SAVEPOINT", "LOCK HOLDERS");
     }
 
     @Test
@@ -96,6 +116,23 @@ class PgDatasetSwapLockTest {
         RowStore rowStore = (RowStore) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{RowStore.class}, (proxy, method, args) -> null);
         return new PgDataset(rowStore, id, EtlStatus.PROCESSING, new Date(), dataTable);
+    }
+
+    /**
+     * A prepared statement for the query of the sessions holding the data table, recorded as "LOCK HOLDERS",
+     * which finds no sessions.
+     */
+    private PreparedStatement lockHoldersStatement() {
+        ResultSet resultSet = (ResultSet) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[]{ResultSet.class}, (proxy, method, args) -> method.getName().equals("next") ? false : null);
+        return (PreparedStatement) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[]{PreparedStatement.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("executeQuery")) {
+                        executed.add("LOCK HOLDERS");
+                        return resultSet;
+                    }
+                    return null;
+                });
     }
 
     /**
@@ -133,6 +170,7 @@ class PgDatasetSwapLockTest {
                         yield null;
                     }
                     case "createStatement" -> statement;
+                    case "prepareStatement" -> lockHoldersStatement();
                     default -> null;
                 });
     }

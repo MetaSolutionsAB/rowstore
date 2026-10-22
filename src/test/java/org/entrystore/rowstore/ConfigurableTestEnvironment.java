@@ -30,6 +30,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -177,6 +178,13 @@ public class ConfigurableTestEnvironment {
     }
 
     /**
+     * Returns the Spring context of the in-process RowStore server, e.g. for inspecting beans.
+     */
+    public ConfigurableApplicationContext getApplicationContext() {
+        return applicationContext;
+    }
+
+    /**
      * Returns the configuration used by this environment.
      */
     public Configuration getConfig() {
@@ -247,6 +255,10 @@ public class ConfigurableTestEnvironment {
                 jsonConfig.put("ratelimit", rateLimit);
             }
 
+            if (config.trustedProxies != null) {
+                jsonConfig.put("trustedproxies", config.trustedProxies);
+            }
+
             // Database configuration
             JSONObject database = new JSONObject();
             database.put("type", "postgresql");
@@ -258,6 +270,9 @@ public class ConfigurableTestEnvironment {
             database.put("ssl", false);
             if (config.connectionPoolMax > 0) {
                 database.put("connectionPoolMax", config.connectionPoolMax);
+            }
+            if (config.socketTimeout > 0) {
+                database.put("socketTimeout", config.socketTimeout);
             }
             if (config.maxQueryConnections > 0) {
                 database.put("maxQueryConnections", config.maxQueryConnections);
@@ -273,6 +288,11 @@ public class ConfigurableTestEnvironment {
                 JSONObject queryDatabase = new JSONObject(database.toString());
                 queryDatabase.put("port", config.queryDatabasePort);
                 jsonConfig.put("queryDatabase", queryDatabase);
+            }
+
+            // Separate query database pointing to the same container
+            if (config.separateQueryDatabase) {
+                jsonConfig.put("queryDatabase", new JSONObject(database.toString()));
             }
 
             tempConfigFile = Files.createTempFile("rowstore-config-test-", ".json");
@@ -326,6 +346,9 @@ public class ConfigurableTestEnvironment {
         private final int connectionWaitTimeout;
         private final int queryDatabasePort;
         private final boolean legacyParser;
+        private final int socketTimeout;
+        private final boolean separateQueryDatabase;
+        private final List<String> trustedProxies;
 
         private Configuration(Builder builder) {
             this.regexpQueries = builder.regexpQueries;
@@ -344,6 +367,9 @@ public class ConfigurableTestEnvironment {
             this.connectionWaitTimeout = builder.connectionWaitTimeout;
             this.queryDatabasePort = builder.queryDatabasePort;
             this.legacyParser = builder.legacyParser;
+            this.socketTimeout = builder.socketTimeout;
+            this.separateQueryDatabase = builder.separateQueryDatabase;
+            this.trustedProxies = builder.trustedProxies;
         }
 
         public String getRegexpQueries() {
@@ -363,11 +389,12 @@ public class ConfigurableTestEnvironment {
          */
         public String getCacheKey() {
             return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,legacyParser=%b," +
+                            "socketTimeout=%d,queryDb=%b,trustedProxies=%s," +
                             "maxEtl=%d,maxQueryConnections=%d,maxExportConnections=%d,connectionWaitTimeout=%d,queryDatabasePort=%d",
                     regexpQueries, rateLimitEnabled, rateLimitTimeRange,
                     rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitRequestsClientIp, rateLimitType,
-                    connectionPoolMax, legacyParser, maxEtlProcesses, maxQueryConnections, maxExportConnections,
-                    connectionWaitTimeout, queryDatabasePort);
+                    connectionPoolMax, legacyParser, socketTimeout, separateQueryDatabase, trustedProxies,
+                    maxEtlProcesses, maxQueryConnections, maxExportConnections, connectionWaitTimeout, queryDatabasePort);
         }
 
         @Override
@@ -396,6 +423,9 @@ public class ConfigurableTestEnvironment {
         private int connectionWaitTimeout = -1;
         private int queryDatabasePort = -1;
         private boolean legacyParser = false;
+        private int socketTimeout = -1;
+        private boolean separateQueryDatabase = false;
+        private List<String> trustedProxies = null;
 
         public Builder regexpQueries(String regexpQueries) {
             this.regexpQueries = regexpQueries;
@@ -477,6 +507,27 @@ public class ConfigurableTestEnvironment {
 
         public Builder legacyParser(boolean legacyParser) {
             this.legacyParser = legacyParser;
+            return this;
+        }
+
+        public Builder socketTimeout(int socketTimeout) {
+            this.socketTimeout = socketTimeout;
+            return this;
+        }
+
+        /**
+         * Adds a queryDatabase block identical to the database block (same container).
+         */
+        public Builder separateQueryDatabase(boolean separateQueryDatabase) {
+            this.separateQueryDatabase = separateQueryDatabase;
+            return this;
+        }
+
+        /**
+         * Sets the "trustedproxies" array; null (the default) omits the key so that the built-in default applies.
+         */
+        public Builder trustedProxies(List<String> trustedProxies) {
+            this.trustedProxies = trustedProxies;
             return this;
         }
 

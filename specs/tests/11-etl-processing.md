@@ -134,12 +134,22 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 1 ms configured.
 
 **Assertions:**
-1. If two attempts fail, each attempt is `SAVEPOINT`, `SET LOCAL lock_timeout = '3s'`, `LOCK TABLE <dataTable> IN
+1. If two attempts fail, the statements are `SET LOCAL idle_in_transaction_session_timeout = 0` (once, before the first
+   savepoint), then per attempt `SAVEPOINT`, `SET LOCAL lock_timeout = '3s'`, `LOCK TABLE <dataTable> IN
    ACCESS EXCLUSIVE MODE`, a failed attempt is followed by `ROLLBACK TO SAVEPOINT`, and the third attempt succeeds
    (returns true)
-2. If all attempts with a timeout fail, there are three of them (one per delay), each rolled back to its savepoint,
-   and the last attempt is `SAVEPOINT`, `SET LOCAL lock_timeout = '0'`, `LOCK TABLE ...`, which waits and succeeds
-   (returns true; there is no giving up on lock timeouts, ETL-6.04)
+2. If the three short attempts (one per delay) fail, each is rolled back to its savepoint, the lock holders are
+   queried (within a savepoint), and the last attempt is `SAVEPOINT`, `SET LOCAL lock_timeout = '30min'`,
+   `LOCK TABLE ...`, which succeeds (returns true)
+
+### TC-ETL-051: If the last attempt to lock the data table times out, locking gives up and logs the lock holders
+
+**Setup:** As TC-ETL-027; all `LOCK TABLE` statements fail with SQL state `55P03`, including the last attempt with
+`lock_timeout = '30min'`.
+
+**Assertions:**
+1. `lockDataTableForReplace()` returns false (the caller rolls back, ETL-6.04), after four `LOCK TABLE` attempts
+2. The last attempt is rolled back to its savepoint, and the lock holders are queried before it and afterwards
 
 ### TC-ETL-028: A lock for replacing the data table that fails for another reason is not retried
 
@@ -147,6 +157,14 @@ state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 
 
 **Assertions:**
 1. The `SQLException` is thrown after one attempt, without rolling back to the savepoint
+
+### TC-ETL-050: A load of a dataset that was deleted while the load was queued is skipped
+
+**Setup:** As TC-ETL-007, but the dataset does not exist in the database anymore: the conditional transition to PROCESSING updates no row.
+
+**Assertions:**
+1. `populate()` returns false without reading the CSV file
+2. No status is written apart from the attempted transition to PROCESSING (in particular no ERROR)
 
 ### TC-ETL-015: Different spellings of the same dataset ID share one queue
 
@@ -312,6 +330,7 @@ state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 
    `<dataTable>_jsonidx_<md5("name")[0..8]>` and `<dataTable>_jsonidx_<md5("value")[0..8]>`; its primary key
    constraint is `<dataTable>_pkey`; its serial sequence is `public.<dataTable>_rownr_seq`
 3. The column `rownr` and its sequence are `bigint`
+4. `pg_stats` has statistics for the column `data` of `<dataTable>` (the shadow table is analyzed before the swap)
 
 ### TC-ETL-023: A replace waits for a reader of the data table, e.g., an export, and then succeeds
 
@@ -444,16 +463,32 @@ names.
 2. The dataset is clean, queries by the clean names return the old and the appended rows
 3. A subsequent cleanup does not return the dataset
 
-### TC-ETL-035: The cleanup runs in the background after startup
+### TC-ETL-035: The cleanup runs in the background after startup until a run has completed
 
 **Steps:**
 1. Create a separate database and start a RowStore instance on it; create a dataset and wait until it is available;
    stop the instance
-2. Give the dataset broken names via JDBC
-3. Start another RowStore instance on the database
+2. Give the dataset broken names via JDBC and delete the rows of `maintenance_tasks` (like a database of 1.x)
+3. Start another RowStore instance on the database and stop it
+4. Give the dataset broken names again and start a third instance
 
 **Assertions:**
-1. Within 30 seconds after the start, the dataset is clean (without any further request)
+1. After step 1, `maintenance_tasks` contains `column-name-cleanup` (the first start found nothing to clean)
+2. Within 30 seconds after the start in step 3, the dataset is clean (without any further request) and the cleanup is
+   recorded as completed again
+3. In step 4, `startColumnNameCleanup()` returns null (skipped, ETL-11.07) and the broken names remain
+
+### TC-ETL-052: A cleanup in which a dataset fails is not recorded as completed
+
+**Steps:**
+1. Delete the rows of `maintenance_tasks`; create a dataset and rename the column `data` of its data table, so that
+   reading its column names fails with an SQL error that is not a connection failure
+2. Run `cleanColumnNames()`
+3. Restore the column and run `cleanColumnNames()` again
+
+**Assertions:**
+1. After step 2, the cleanup is not recorded as completed
+2. After step 3, it is recorded as completed (`column-name-cleanup` in `maintenance_tasks`)
 
 ### TC-ETL-036: A dataset whose data table is missing is skipped without failing the cleanup
 

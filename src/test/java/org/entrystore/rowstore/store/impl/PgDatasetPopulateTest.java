@@ -95,6 +95,18 @@ class PgDatasetPopulateTest {
                 .containsExactly(EtlStatus.PROCESSING, EtlStatus.ERROR, EtlStatus.ERROR, EtlStatus.ERROR);
     }
 
+    @Test
+    @DisplayName("TC-ETL-050: A load of a dataset that was deleted while the load was queued is skipped")
+    void deletedDataset_loadIsSkippedWithoutStatusWrite() throws Exception {
+        PgDataset dataset = newDataset();
+        jdbcTemplate.datasetExists = false;
+
+        assertThat(dataset.populate(tempDir.resolve("missing.csv").toFile(), false)).isFalse();
+
+        // only the conditional transition to PROCESSING, which updates no row, and no final status
+        assertThat(jdbcTemplate.statusWrites).containsExactly(EtlStatus.PROCESSING);
+    }
+
     private PgDataset newDataset() {
         String id = UUID.randomUUID().toString();
         return new PgDataset(rowStore(), id, EtlStatus.ACCEPTED_DATA, new Date(), "data_" + id.replace("-", ""));
@@ -131,6 +143,7 @@ class PgDatasetPopulateTest {
         final List<Integer> statusWrites = new CopyOnWriteArrayList<>();
         final AtomicInteger statusReads = new AtomicInteger();
         final AtomicInteger failingErrorWrites = new AtomicInteger();
+        volatile boolean datasetExists = true;
 
         @Override
         public int update(String sql, Object... args) {
@@ -141,7 +154,15 @@ class PgDatasetPopulateTest {
                     throw new DataAccessResourceFailureException("Simulated database outage");
                 }
             }
-            return 1;
+            return datasetExists ? 1 : 0;
+        }
+
+        @Override
+        public <T> T queryForObject(String sql, Class<T> requiredType, Object... args) {
+            if (sql.startsWith("SELECT COUNT(*)")) {
+                return requiredType.cast(datasetExists ? 1 : 0);
+            }
+            throw new UnsupportedOperationException(sql);
         }
 
         @Override

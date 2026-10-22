@@ -72,6 +72,15 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 > The table name is `data_` followed by the dataset UUID with hyphens removed (32 hex characters), yielding a 37-character table name.
 > Tables created before 2.0 use `rownr SERIAL` (32-bit); they are not migrated at upgrade, but a data table becomes `BIGSERIAL` on its first replace (PUT) after the upgrade, since a replace loads into a newly created table (ETL-6.02).
 
+> **DOM-4.04** The **`maintenance_tasks`** table (Flyway migration `V2__maintenance_tasks.sql`) records one-time maintenance tasks that RowStore runs at startup, so that a task whose run has completed is skipped at later startups (e.g., the cleanup of column names, ETL-11.07):
+> ```sql
+> CREATE TABLE IF NOT EXISTS maintenance_tasks (
+>     name TEXT PRIMARY KEY,
+>     completed TIMESTAMP NOT NULL
+> )
+> ```
+> A task is identified by its name and recorded once (`MaintenanceTasks.markCompleted()`, `isCompleted()`). Deleting its row makes it run again. New one-time tasks of later versions use this table with their own name.
+
 ## DOM-5 Index Strategy
 
 > **DOM-5.01** During ETL processing, a `text_pattern_ops` index is automatically created for each column:
@@ -128,3 +137,4 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated source references for Spring Boot migration |
 | 2026-10-20 | Shadow table naming for replaces (DOM-6.02); pre-2.0 SERIAL data tables become BIGSERIAL on their first replace (DOM-4.03) |
+| 2026-10-21 | Table `maintenance_tasks` for one-time maintenance tasks (DOM-4.04) |
