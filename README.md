@@ -183,7 +183,7 @@ Aliases may only contain alpha-numeric characters (including Unicode) and may be
 
 ### /status
 
-- `GET http://{base-url}/status` - Returns some basic information about the RowStore instance: version, number of datasets (-1 if it could not be determined, e.g. because all database connections are in use), the number of loads that are currently running (`activeEtlProcesses`; uploads waiting for their turn are not counted), and the usage of the database connection budgets (`connections`, per database and budget: `inUse`, `max`, `waiting`), e.g. `"connections": {"database": {"query": {"inUse": 1, "max": 10, "waiting": 0}, "export": {"inUse": 0, "max": 2, "waiting": 0}, "load": {"inUse": 0, "max": 5, "waiting": 0}}}`.
+- `GET http://{base-url}/status` - Returns some basic information about the RowStore instance: version, number of datasets (-1 if it could not be determined, e.g. because all database connections are in use), the number of loads that are currently running (`activeEtlProcesses`; uploads waiting for their turn are not counted), the number of loads that are queued but have not started yet (`queuedEtlProcesses`), and the usage of the database connection budgets (`connections`, per database and budget: `inUse`, `max`, `waiting`), e.g. `"connections": {"database": {"query": {"inUse": 1, "max": 10, "waiting": 0}, "export": {"inUse": 0, "max": 2, "waiting": 0}, "load": {"inUse": 0, "max": 5, "waiting": 0}}}`.
 
 ## Configuration
 
