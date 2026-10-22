@@ -35,6 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.entrystore.rowstore.ConnectionLimitTestSupport.awaitLockWaiters;
 import static org.entrystore.rowstore.ConnectionLimitTestSupport.awaitSleepers;
 import static org.entrystore.rowstore.ConnectionLimitTestSupport.lockDataTable;
+import static org.entrystore.rowstore.ConnectionLimitTestSupport.runAsync;
+import static org.entrystore.rowstore.ConnectionLimitTestSupport.supplyAsync;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
@@ -114,7 +116,7 @@ class ConnectionLimitIT extends ConfigurableTestBase {
     void burstOfQueries_succeeds() throws Exception {
         List<CompletableFuture<Integer>> requests = new ArrayList<>();
         for (int i = 0; i < 16; i++) {
-            requests.add(CompletableFuture.supplyAsync(() -> given().spec(jsonSpec)
+            requests.add(supplyAsync(() -> given().spec(jsonSpec)
                     .queryParam("name", "Åkesson")
                     .get(first.datasetUrl)
                     .statusCode()));
@@ -131,8 +133,8 @@ class ConnectionLimitIT extends ConfigurableTestBase {
         CompletableFuture<Response> q2;
         try (SlowDataset ignored = new SlowDataset(ENV, first.datasetId, 30)) {
             // both queries hold a query connection while they sleep
-            q1 = CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(first.datasetUrl));
-            q2 = CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(first.datasetUrl));
+            q1 = supplyAsync(() -> given().spec(jsonSpec).get(first.datasetUrl));
+            q2 = supplyAsync(() -> given().spec(jsonSpec).get(first.datasetUrl));
             awaitSleepers(ENV, first.datasetId, 2);
 
             long start = System.nanoTime();
@@ -167,7 +169,7 @@ class ConnectionLimitIT extends ConfigurableTestBase {
     void longExport_doesNotBlockQueries() throws Exception {
         try (Connection lock = lockDataTable(ENV, first.datasetId, "ACCESS EXCLUSIVE")) {
             // the export holds the only export connection while it waits for the lock (exports have no lock timeout)
-            CompletableFuture<Response> export = CompletableFuture.supplyAsync(() -> given()
+            CompletableFuture<Response> export = supplyAsync(() -> given()
                     .accept("application/json").get(first.datasetUrl + "/export"));
             awaitLockWaiters(ENV, first.datasetId, 1);
 
@@ -204,7 +206,7 @@ class ConnectionLimitIT extends ConfigurableTestBase {
         try (Connection reader = lockDataTable(ENV, first.datasetId, "ACCESS SHARE");
              Connection locker = ENV.openDatabaseConnection()) {
             locker.setAutoCommit(false);
-            CompletableFuture<Void> queuedLock = CompletableFuture.runAsync(() -> {
+            CompletableFuture<Void> queuedLock = runAsync(() -> {
                 try (var stmt = locker.createStatement()) {
                     stmt.execute("LOCK TABLE " + ConnectionLimitTestSupport.dataTable(first.datasetId) + " IN ACCESS EXCLUSIVE MODE");
                 } catch (Exception e) {
@@ -216,7 +218,7 @@ class ConnectionLimitIT extends ConfigurableTestBase {
             // more requests for the first dataset than query connections
             List<CompletableFuture<Response>> blocked = new ArrayList<>();
             for (int i = 0; i < 3; i++) {
-                blocked.add(CompletableFuture.supplyAsync(() -> given().spec(jsonSpec).get(first.datasetUrl)));
+                blocked.add(supplyAsync(() -> given().spec(jsonSpec).get(first.datasetUrl)));
             }
             awaitLockWaiters(ENV, first.datasetId, 3);
 
