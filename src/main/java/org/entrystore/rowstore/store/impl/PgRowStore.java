@@ -17,6 +17,7 @@
 package org.entrystore.rowstore.store.impl;
 
 import jakarta.annotation.PreDestroy;
+import org.entrystore.rowstore.config.StartupRetry;
 import org.entrystore.rowstore.etl.EtlProcessor;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.resources.VersionInfo;
@@ -164,9 +165,23 @@ public class PgRowStore implements RowStore {
 		// like the other startup maintenance below, on the primary database within its query budget
 		this.maintenanceTasks = new MaintenanceTasks(jdbcTemplate);
 
-		resetInterruptedLoads();
-		dropLeftoverShadowTables();
+		// like the migration in DataSourceConfig, the startup maintenance waits for the database if it is not reachable
+		StartupRetry startupRetry = new StartupRetry();
+		runStartupMaintenance(startupRetry, "reset datasets with interrupted loads", this::resetInterruptedLoadsOrThrow);
+		runStartupMaintenance(startupRetry, "drop leftover shadow tables", this::dropLeftoverShadowTablesOrThrow);
 		log.info("Started RowStore {}", versionInfo.getVersion());
+	}
+
+	/**
+	 * Runs a step of the startup maintenance, retrying it while the database is not reachable (ARCH-7.08). Other
+	 * failures are logged, the startup continues.
+	 */
+	private static void runStartupMaintenance(StartupRetry startupRetry, String description, StartupRetry.Task<?> task) {
+		try {
+			startupRetry.call(description, task);
+		} catch (DataAccessException e) {
+			log.error("Unable to {}: {}", description, e.getMessage());
+		}
 	}
 
 	/**
@@ -255,18 +270,27 @@ public class PgRowStore implements RowStore {
 	 */
 	public List<String> resetInterruptedLoads() {
 		try {
-			List<String> ids = jdbcTemplate.queryForList(
-					"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE status = ? RETURNING id::text",
-					String.class, EtlStatus.ERROR, EtlStatus.PROCESSING);
-			if (!ids.isEmpty()) {
-				log.warn("Set status of {} dataset(s) from {} to {} because their loads were interrupted: {}",
-						ids.size(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.toString(EtlStatus.ERROR), ids);
-			}
-			return ids;
+			return resetInterruptedLoadsOrThrow();
 		} catch (DataAccessException e) {
 			log.error("Unable to reset datasets with interrupted loads: {}", e.getMessage());
 			return List.of();
 		}
+	}
+
+	/**
+	 * Like {@link #resetInterruptedLoads()}.
+	 *
+	 * @throws DataAccessException If the database could not be accessed.
+	 */
+	private List<String> resetInterruptedLoadsOrThrow() {
+		List<String> ids = jdbcTemplate.queryForList(
+				"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE status = ? RETURNING id::text",
+				String.class, EtlStatus.ERROR, EtlStatus.PROCESSING);
+		if (!ids.isEmpty()) {
+			log.warn("Set status of {} dataset(s) from {} to {} because their loads were interrupted: {}",
+					ids.size(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.toString(EtlStatus.ERROR), ids);
+		}
+		return ids;
 	}
 
 	/**
@@ -277,19 +301,29 @@ public class PgRowStore implements RowStore {
 	 * @return Returns the names of the dropped tables.
 	 */
 	public List<String> dropLeftoverShadowTables() {
-		List<String> dropped = new ArrayList<>();
 		try {
-			List<String> tables = jdbcTemplate.queryForList(
-					"SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename ~ ?",
-					String.class, "^" + PgDatasets.SHADOW_TABLE_PATTERN + "$");
-			for (String table : tables) {
-				if (table.matches(PgDatasets.SHADOW_TABLE_PATTERN)) {
-					jdbcTemplate.execute("DROP TABLE IF EXISTS " + table);
-					dropped.add(table);
-				}
-			}
+			return dropLeftoverShadowTablesOrThrow();
 		} catch (DataAccessException e) {
 			log.error("Unable to drop leftover shadow tables: {}", e.getMessage());
+			return List.of();
+		}
+	}
+
+	/**
+	 * Like {@link #dropLeftoverShadowTables()}.
+	 *
+	 * @throws DataAccessException If the database could not be accessed.
+	 */
+	private List<String> dropLeftoverShadowTablesOrThrow() {
+		List<String> dropped = new ArrayList<>();
+		List<String> tables = jdbcTemplate.queryForList(
+				"SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename ~ ?",
+				String.class, "^" + PgDatasets.SHADOW_TABLE_PATTERN + "$");
+		for (String table : tables) {
+			if (table.matches(PgDatasets.SHADOW_TABLE_PATTERN)) {
+				jdbcTemplate.execute("DROP TABLE IF EXISTS " + table);
+				dropped.add(table);
+			}
 		}
 		if (!dropped.isEmpty()) {
 			log.warn("Dropped {} leftover shadow table(s): {}", dropped.size(), dropped);

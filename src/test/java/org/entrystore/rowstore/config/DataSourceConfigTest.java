@@ -16,9 +16,11 @@
 
 package org.entrystore.rowstore.config;
 
+import com.zaxxer.hikari.HikariDataSource;
 import org.entrystore.rowstore.store.RowStoreConfig;
 import org.json.JSONObject;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.postgresql.ds.PGSimpleDataSource;
@@ -28,9 +30,9 @@ import javax.sql.DataSource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Unit tests for the unpooled (PGSimpleDataSource) path of {@link DataSourceConfig}. Building a
- * PGSimpleDataSource does not connect, so no database is needed. The HikariCP path connects on
- * construction and is covered by ConnectionPoolIT.
+ * Unit tests for the data sources of {@link DataSourceConfig}. Building a PGSimpleDataSource does not connect, and
+ * neither does building a HikariCP pool (initializationFailTimeout -1, ARCH-7.08), so no database is needed. Pooled
+ * connections are covered by ConnectionPoolIT.
  */
 @DisplayName("DataSourceConfig Tests")
 class DataSourceConfigTest {
@@ -69,6 +71,33 @@ class DataSourceConfigTest {
         assertThat(pgDs.getLoginTimeout()).isEqualTo(8);
         assertThat(pgDs.getReadOnly()).isTrue();
         assertThat(pgDs.getReadOnlyMode()).isEqualTo("always");
+    }
+
+    @Test
+    @DisplayName("TC-DS-002: A pooled data source is created without a reachable database and without leak detection")
+    void pooledQueryDataSource_startsWithoutDatabase_withoutLeakDetection() {
+        JSONObject db = new JSONObject()
+                .put("host", "localhost")
+                .put("port", 1)
+                .put("database", "rowstore")
+                .put("user", "reader")
+                .put("password", "pw")
+                .put("connectionPoolMax", 4);
+        JSONObject json = new JSONObject()
+                .put("baseurl", "http://localhost/")
+                .put("database", new JSONObject(db.toString()).put("connectionPoolMax", 0))
+                .put("queryDatabase", db);
+        RowStoreConfig config = new RowStoreConfig(json);
+
+        DataSource ds = new DataSourceConfig().queryDataSource(config, new PGSimpleDataSource());
+
+        assertThat(ds).isInstanceOf(HikariDataSource.class);
+        try (HikariDataSource pool = (HikariDataSource) ds) {
+            assertThat(pool.getInitializationFailTimeout()).isEqualTo(-1);
+            assertThat(pool.getLeakDetectionThreshold()).isZero();
+            assertThat(pool.getMaximumPoolSize()).isEqualTo(4);
+            assertThat(pool.isReadOnly()).isTrue();
+        }
     }
 
 }

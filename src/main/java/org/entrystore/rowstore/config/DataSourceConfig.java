@@ -41,14 +41,14 @@ public class DataSourceConfig {
 	public DataSource dataSource(RowStoreConfig config) {
 		DataSource ds = createDataSource(config.getDatabase(), "rowstore-primary", false);
 
-		// Run Flyway
+		// Run Flyway; waits for the database if it is not reachable yet, e.g., during a restart of the cluster (ARCH-7.08)
 		Flyway flyway = Flyway.configure()
 				.dataSource(ds)
 				.baselineOnMigrate(true)
 				.baselineVersion("0")
 				.locations("classpath:db/migration")
 				.load();
-		flyway.migrate();
+		new StartupRetry().call("migrate the database schema", flyway::migrate);
 
 		return ds;
 	}
@@ -68,6 +68,7 @@ public class DataSourceConfig {
 	 */
 	private DataSource createDataSource(RowStoreConfig.Database dbConfig, String poolName, boolean readOnly) {
 		if (dbConfig.getConnectionPoolMax() > 0) {
+			warnAboutPooling(dbConfig, readOnly);
 			return createHikariDataSource(dbConfig, poolName, readOnly);
 		}
 		return createSimpleDataSource(dbConfig, poolName, readOnly);
@@ -107,6 +108,22 @@ public class DataSourceConfig {
 		return ds;
 	}
 
+	/**
+	 * Warns that a connection pool is used where 1.x connected without a pool (CFG-4.03): 1.x never pooled the
+	 * connections of database, and those of queryDatabase only if both connectionPoolInit and connectionPoolMax were
+	 * greater than 0. A pool keeps idle connections, which adds up with many instances against one cluster.
+	 */
+	private static void warnAboutPooling(RowStoreConfig.Database dbConfig, boolean queryDatabase) {
+		if (queryDatabase && dbConfig.getConnectionPoolInit() > 0) {
+			return;
+		}
+		log.warn("Connection pooling is enabled for {} (connectionPoolMax {}): up to {} connections per instance are " +
+						"kept open by a pool; {}. Remove connectionPoolMax (or set it to 0) to connect without a pool as in 1.x",
+				queryDatabase ? "queryDatabase" : "database", dbConfig.getConnectionPoolMax(), dbConfig.getConnectionPoolMax(),
+				queryDatabase ? "1.x pooled queryDatabase only if connectionPoolInit was greater than 0 as well" :
+						"1.x never pooled the connections of database");
+	}
+
 	private HikariDataSource createHikariDataSource(RowStoreConfig.Database dbConfig, String poolName, boolean readOnly) {
 		HikariConfig hikariConfig = new HikariConfig();
 		hikariConfig.setPoolName(poolName);
@@ -124,7 +141,10 @@ public class DataSourceConfig {
 		hikariConfig.setMaxLifetime(TimeUnit.MINUTES.toMillis(25));
 		hikariConfig.setIdleTimeout(TimeUnit.SECONDS.toMillis(10));
 		hikariConfig.setKeepaliveTime(TimeUnit.SECONDS.toMillis(120));
-		hikariConfig.setLeakDetectionThreshold(TimeUnit.SECONDS.toMillis(60));
+		// no leak detection: exports and loads legitimately hold a connection for minutes
+		hikariConfig.setLeakDetectionThreshold(0);
+		// the pool must not fail if the database is not reachable at startup; Flyway waits for it (ARCH-7.08)
+		hikariConfig.setInitializationFailTimeout(-1);
 
 		if (dbConfig.getConnectTimeout() > 0) {
 			hikariConfig.setConnectionTimeout(dbConfig.getConnectTimeout() * 1000L);
