@@ -19,29 +19,34 @@ package org.entrystore.rowstore.config;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.NestedExceptionUtils;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * Maps database connectivity failures (e.g., the database is unreachable) that propagate from a controller to
- * 503 Service Unavailable with an empty body. All other exceptions keep their default handling.
+ * Maps database connectivity failures (e.g., the database is unreachable or no connection became available within
+ * the wait timeout) and temporary unavailability (e.g., a lock timeout of a short operation, ARCH-7.03) that
+ * propagate from a controller to 503 Service Unavailable with an empty body. All other exceptions keep their default
+ * handling.
  */
 @RestControllerAdvice
 public class DatabaseExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(DatabaseExceptionHandler.class);
 
-	@ExceptionHandler(DataAccessResourceFailureException.class)
-	public ResponseEntity<Void> handleDatabaseUnavailable(DataAccessResourceFailureException e,
-			HttpServletResponse response) {
+	@ExceptionHandler({DataAccessResourceFailureException.class, TransientDataAccessResourceException.class})
+	public ResponseEntity<Void> handleDatabaseUnavailable(DataAccessException e, HttpServletResponse response) {
 		if (response.isCommitted()) {
 			// the status of a streamed response cannot be changed anymore
 			throw e;
 		}
-		log.error("Database unavailable: {}", e.getMessage());
+		// the message of a DataAccessException does not include its cause
+		log.error("Database unavailable: {} ({})", e.getMessage(), NestedExceptionUtils.getMostSpecificCause(e).getMessage());
 		return new ResponseEntity<>(HttpStatus.SERVICE_UNAVAILABLE);
 	}
 

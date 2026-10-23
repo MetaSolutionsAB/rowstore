@@ -121,6 +121,13 @@ Current limitations relevant to this area.
 | ARCH-6.01 | Why JSONB (schemaless, per-column indexing) |
 | ARCH-6.02 | Why virtual-thread ETL (immediate dispatch, Semaphore concurrency control) |
 | ARCH-6.03 | Why Spring Boot (industry standard, HikariCP, Flyway, Actuator, virtual threads) |
+| ARCH-7.01 | Unpooled by default; connections per instance limited by connection budgets at the data source level |
+| ARCH-7.02 | Budgets: query (maxQueryConnections), export (maxExportConnections), load (maxetlprocesses), per database block |
+| ARCH-7.03 | FIFO wait up to connectionWaitTimeout, then 503; querytimeout and lock timeout bound query connections |
+| ARCH-7.04 | A request or ETL job holds at most one connection at a time |
+| ARCH-7.05 | Aggregated WARN for slow waits and timeouts; usage in /status and health details; health of both databases with short wait |
+| ARCH-7.06 | Sizing formula per instance and database; PgBouncer for many instances (queryLockTimeout 0, server-side lock_timeout) |
+| ARCH-7.07 | Budgets apply on top of an enabled HikariCP pool; pool size warning |
 
 ### DOM — Domain Model
 
@@ -167,6 +174,8 @@ Current limitations relevant to this area.
 | API-3.11 | GET /dataset/{id}/swagger — dynamic OpenAPI spec |
 | API-3.12 | GET /dataset/{id}/html — web GUI |
 | API-3.13 | GET / — 404 fallback |
+| API-3.14 | GET /status — additive `connections` field with budget usage |
+| API-3.15 | GET /status and health — additive `queuedEtlProcesses` field (queued, not started ETL jobs) |
 | API-4.01 | Accept header determines response format |
 | API-4.02 | format param overrides Accept header |
 | API-4.03 | Accept: text/html redirects 303 to /html |
@@ -269,6 +278,10 @@ Current limitations relevant to this area.
 | CFG-4.02 | ssl (boolean, optional) → sslmode require/disable, prefer when not set |
 | CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1) |
 | CFG-4.04 | socketTimeout (0), connectTimeout (5), loginTimeout (5) |
+| CFG-4.05 | maxQueryConnections (int, default 10) |
+| CFG-4.06 | maxExportConnections (int, default 2) |
+| CFG-4.07 | connectionWaitTimeout (int seconds, default querytimeout or 30) |
+| CFG-4.08 | queryLockTimeout (int seconds, default connectionWaitTimeout / 2, 0 disables) |
 | CFG-5.01 | queryDatabase (optional, falls back to database, read-only) |
 | CFG-6.01 | ratelimit.type (slidingwindow/average) |
 | CFG-6.02 | ratelimit.timerange (seconds) |
@@ -333,7 +346,7 @@ Current limitations relevant to this area.
 | DEPL-3.03 | Artifacts: executable JAR + SHA256 + GPG |
 | DEPL-4.01 | PostgreSQL 9.4+ for JSONB |
 | DEPL-4.02 | Schema managed by Flyway (baselineOnMigrate) |
-| DEPL-5.01 | GET /status: service, version, datasets, activeEtlProcesses |
+| DEPL-5.01 | GET /status: service, version, datasets, activeEtlProcesses, queuedEtlProcesses |
 | DEPL-5.02 | GET /status?jvm: memory, processors, heap |
 | DEPL-5.03 | Spring Boot Actuator: /actuator/health, /actuator/metrics, /actuator/info |
 | DEPL-6.01 | Log4j2, console only, dynamic level via config |

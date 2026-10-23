@@ -49,6 +49,8 @@ class StatusIT extends BaseIntegrationTest {
                 .body("datasets", greaterThanOrEqualTo(0))
                 .body("activeEtlProcesses", instanceOf(Integer.class))
                 .body("activeEtlProcesses", greaterThanOrEqualTo(0))
+                .body("queuedEtlProcesses", instanceOf(Integer.class))
+                .body("queuedEtlProcesses", greaterThanOrEqualTo(0))
                 .body("version", instanceOf(String.class))
                 .extract()
                 .response();

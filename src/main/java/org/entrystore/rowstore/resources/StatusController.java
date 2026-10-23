@@ -19,6 +19,9 @@ package org.entrystore.rowstore.resources;
 import org.entrystore.rowstore.resources.model.JvmStatusResponse;
 import org.entrystore.rowstore.resources.model.StatusResponse;
 import org.entrystore.rowstore.store.RowStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,6 +31,8 @@ import java.lang.management.ManagementFactory;
 
 @RestController
 public class StatusController {
+
+	private static final Logger log = LoggerFactory.getLogger(StatusController.class);
 
 	private final RowStore rowStore;
 	private final VersionInfo versionInfo;
@@ -57,10 +62,26 @@ public class StatusController {
 		StatusResponse body = new StatusResponse(
 				"RowStore",
 				versionInfo.getVersion(),
-				rowStore.getDatasets().amount(),
-				rowStore.getEtlProcessor().getActiveEtlProcesses()
+				getDatasetCount(),
+				rowStore.getEtlProcessor().getActiveEtlProcesses(),
+				rowStore.getEtlProcessor().getQueuedEtlProcesses(),
+				rowStore.getConnectionUsage()
 		);
 		return ResponseEntity.ok(body);
+	}
+
+	/**
+	 * @return Returns the number of datasets, or -1 if it could not be read, e.g., because all connections are in use
+	 * (the status is reported anyway, ARCH-7.05).
+	 */
+	private int getDatasetCount() {
+		try {
+			return rowStore.getDatasets().amount();
+		} catch (DataAccessException e) {
+			// waits for connections are logged aggregated by the connection budget
+			log.debug("Unable to count datasets for the status: {}", e.getMessage());
+			return -1;
+		}
 	}
 
 	long getTotalCommittedMemory() {

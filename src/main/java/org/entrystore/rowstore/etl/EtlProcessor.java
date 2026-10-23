@@ -56,6 +56,8 @@ public class EtlProcessor {
 
 	private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
+	private final int maxEtlProcesses;
+
 	private final Semaphore concurrencyLimiter;
 
 	private final AtomicInteger activeProcesses = new AtomicInteger(0);
@@ -71,6 +73,7 @@ public class EtlProcessor {
 		if (maxConcurrent <= 0) {
 			maxConcurrent = 5;
 		}
+		this.maxEtlProcesses = maxConcurrent;
 		this.concurrencyLimiter = new Semaphore(maxConcurrent);
 		log.info("ETL processor initialized with max {} concurrent processes", maxConcurrent);
 	}
@@ -219,7 +222,7 @@ public class EtlProcessor {
 			log.error("Populating dataset {} failed", dataset.getId(), e);
 			// populate() normally sets the status itself, this covers failures outside its status handling
 			try {
-				dataset.setStatus(EtlStatus.ERROR);
+				dataset.setStatusFromEtlJob(EtlStatus.ERROR);
 			} catch (RuntimeException e1) {
 				log.error("Unable to set status of dataset {} to error", dataset.getId(), e1);
 			}
@@ -253,10 +256,27 @@ public class EtlProcessor {
 	}
 
 	/**
+	 * @return Returns the maximum number of jobs that run at the same time.
+	 */
+	public int getMaxEtlProcesses() {
+		return maxEtlProcesses;
+	}
+
+	/**
 	 * @return Returns the number of running jobs. Jobs waiting for their turn are not counted.
 	 */
 	public int getActiveEtlProcesses() {
 		return activeProcesses.get();
+	}
+
+	/**
+	 * @return Returns the number of jobs that are queued but have not started yet, including the next job of a
+	 * dataset while it waits for a permit.
+	 */
+	public int getQueuedEtlProcesses() {
+		synchronized (waitingJobs) {
+			return waitingJobs.values().stream().mapToInt(Deque::size).sum();
+		}
 	}
 
 	private interface Job {

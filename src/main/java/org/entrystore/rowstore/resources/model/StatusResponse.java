@@ -16,4 +16,14 @@
 
 package org.entrystore.rowstore.resources.model;
 
-public record StatusResponse(String service, String version, int datasets, int activeEtlProcesses) {}
+import org.entrystore.rowstore.store.ConnectionUsage;
+
+import java.util.Map;
+
+/**
+ * @param activeEtlProcesses Number of running loads (and other ETL jobs).
+ * @param queuedEtlProcesses Number of loads (and other ETL jobs) that are queued but have not started (API-3.15).
+ * @param connections Usage of the connection budgets per database block and budget (API-3.14).
+ */
+public record StatusResponse(String service, String version, int datasets, int activeEtlProcesses,
+							 int queuedEtlProcesses, Map<String, Map<String, ConnectionUsage>> connections) {}

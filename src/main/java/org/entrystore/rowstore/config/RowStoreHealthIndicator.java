@@ -17,13 +17,22 @@
 package org.entrystore.rowstore.config;
 
 import org.entrystore.rowstore.store.RowStore;
+import org.entrystore.rowstore.store.impl.LimitedDataSource;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
+/**
+ * Checks the primary database and, if configured separately, the query database, one after another (ARCH-7.04).
+ * The checks wait only briefly for a free connection; if all connections are in use, the database is reported as
+ * "BUSY" (it is in use, hence reachable) and the health is UP. Only a connectivity failure results in DOWN.
+ */
 @Component
 public class RowStoreHealthIndicator implements HealthIndicator {
 
@@ -35,19 +44,55 @@ public class RowStoreHealthIndicator implements HealthIndicator {
 
 	@Override
 	public Health health() {
-		try (Connection conn = rowStore.getConnection()) {
-			if (conn.isValid(5)) {
-				return Health.up()
-						.withDetail("datasets", rowStore.getDatasets().amount())
-						.withDetail("activeEtlProcesses", rowStore.getEtlProcessor().getActiveEtlProcesses())
-						.build();
+		Map<String, String> databases = new LinkedHashMap<>();
+		Exception failure = null;
+		boolean separateQueryDatabase = rowStore.getConfig().getQueryDatabase() != rowStore.getConfig().getDatabase();
+		for (boolean queryDatabase : separateQueryDatabase ? new boolean[]{false, true} : new boolean[]{false}) {
+			String state;
+			try {
+				state = check(queryDatabase);
+			} catch (SQLException | DataAccessException e) {
+				state = "DOWN";
+				failure = e;
 			}
-		} catch (SQLException e) {
-			return Health.down()
-					.withException(e)
-					.build();
+			databases.put(queryDatabase ? "queryDatabase" : "database", state);
 		}
-		return Health.down().build();
+		Health.Builder health = databases.containsValue("DOWN") ? Health.down() : Health.up();
+		if (failure != null) {
+			health.withException(failure);
+		} else if (databases.containsValue("UP") && !databases.containsValue("DOWN") && !databases.containsValue("BUSY")) {
+			// read after the checks, a request must not hold more than one connection at a time; not read if all
+			// connections are in use, so that the check does not wait again, or if a database is down
+			health.withDetail("datasets", getDatasetCount());
+		}
+		return health
+				.withDetail("activeEtlProcesses", rowStore.getEtlProcessor().getActiveEtlProcesses())
+				.withDetail("queuedEtlProcesses", rowStore.getEtlProcessor().getQueuedEtlProcesses())
+				.withDetail("databases", databases)
+				.withDetail("connections", rowStore.getConnectionUsage())
+				.build();
+	}
+
+	/**
+	 * @return Returns "UP" if the database is reachable, "BUSY" if all connections are in use, or "DOWN".
+	 */
+	private String check(boolean queryDatabase) throws SQLException {
+		try (Connection conn = rowStore.getProbeConnection(queryDatabase)) {
+			return conn.isValid(5) ? "UP" : "DOWN";
+		} catch (DataAccessException e) {
+			if (LimitedDataSource.isWaitTimeout(e)) {
+				return "BUSY";
+			}
+			throw e;
+		}
+	}
+
+	private int getDatasetCount() {
+		try {
+			return rowStore.getDatasets().amount();
+		} catch (DataAccessException e) {
+			return -1;
+		}
 	}
 
 }
