@@ -102,7 +102,7 @@ All packages are below `org.entrystore.rowstore` in `src/main/java`.
 - `DataSourceConfig` - Creates the primary and the read-only query `DataSource` programmatically from `rowstore.json` (`PGSimpleDataSource` by default, HikariCP when `connectionPoolMax` > 0) and runs Flyway migrations programmatically (Spring's DataSource and Flyway auto-configuration are disabled)
 - `CorsConfig` - CORS filter (`FilterRegistrationBean`) with origins from `cors.allowedorigins`
 - `DatabaseExceptionHandler` - Maps database connectivity failures in controllers to 503 (instead of 404/500)
-- `RowStoreHealthIndicator` - Actuator health check of both databases within the query budgets (UP, BUSY if all connections are in use, DOWN if unreachable), dataset count, active ETL processes; replaces the disabled Actuator `db` indicator
+- `RowStoreHealthIndicator` - Actuator health check of both databases within the query budgets (UP, BUSY if all connections are in use, DOWN if unreachable), dataset count, active and queued ETL processes, connection usage; replaces the disabled Actuator `db` indicator
 - `CustomErrorController` - Error responses for `/error`
 
 **REST Controllers** (`resources/`):
@@ -135,7 +135,8 @@ exhausted budget until the wait timeout. Budget usage is reported by `/status` (
 loads into a shadow table `<dataTable>_new` and swaps it for the data table at the end of the same transaction, so
 the previous data is served during the load and kept if it fails (see ETL-6 in `specs/04-etl-pipeline.md`).
 At startup, `PgRowStore` sets datasets left in PROCESSING to ERROR, drops leftover shadow tables, and starts a
-background cleanup of column names stored before 2.0 with a byte order mark or soft hyphens (ETL-11).
+background cleanup of column names stored before 2.0 with a byte order mark or soft hyphens (ETL-11), unless a
+completed run is recorded in `maintenance_tasks` (ETL-11.07).
 
 **ETL Layer** (`etl/`):
 - `EtlProcessor` - Per-dataset job queues: loads of a dataset run one at a time in submission order on a virtual

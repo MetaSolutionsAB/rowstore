@@ -18,6 +18,7 @@ Covers the JSON configuration file format, all application and database options,
 > - `trustedproxies` is present but not an array of strings, or one of its entries is not an IP address or CIDR range
 > - a value cannot be read as the expected type (e.g. `baseurl` is not a string)
 > - `querymaxlimit` or `maxuploadsize` is not greater than 0
+> - a connection limit of `database` or `queryDatabase` is invalid: `maxQueryConnections`, `maxExportConnections` or `connectionWaitTimeout` is not a number greater than 0, or `queryLockTimeout` is not a number greater than or equal to 0 (CFG-4.05 to CFG-4.08)
 >
 > Unknown keys are ignored.
 

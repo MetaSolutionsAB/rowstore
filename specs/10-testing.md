@@ -23,7 +23,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-3 Test Organization
 
-> **TEST-3.01** The test suite contains **35 `*IT.java` integration test classes** with **238 tests** and **12 `*Test.java` unit test classes** with **175 tests** (as executed by Maven Failsafe and Surefire, including the tests of nested classes). Integration test classes follow the Maven Failsafe `*IT.java` naming convention, unit test classes the Maven Surefire `*Test.java` convention; `mvn test` runs only the unit tests, `mvn verify` runs both.
+> **TEST-3.01** The test suite contains **35 `*IT.java` integration test classes** with **241 tests** and **12 `*Test.java` unit test classes** with **185 tests** (as executed by Maven Failsafe and Surefire, including the tests of nested classes). Integration test classes follow the Maven Failsafe `*IT.java` naming convention, unit test classes the Maven Surefire `*Test.java` convention; `mvn test` runs only the unit tests, `mvn verify` runs both.
 
 > **TEST-3.02** Tests within each class are executed **sequentially** using JUnit 5's `@Order` annotation. This is necessary because many tests depend on prior test state (e.g., a dataset created in test 1 is queried in test 2).
 
@@ -93,7 +93,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-9 Framework-Agnostic Specs
 
-> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **255 test cases** across 12 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
+> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **259 test cases** across 12 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
 
 ## Known Limitations
 
