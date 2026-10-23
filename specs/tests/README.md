@@ -9,14 +9,14 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `01-status.md` | Status endpoint (`/status`) including JVM metrics | 5 |
 | `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 1 |
 | `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases (any Content-Type), storage schema | 24 |
-| `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines, byte order marks | 47 |
+| `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines, byte order marks, empty and duplicate labels | 53 |
 | `05-querying.md` | Query functionality: filters, pagination, regex modes, reserved `_callback` parameter (JSONP test cases retired), query string parsing (unencoded characters, malformed encodings, trimming, tunnel parameters) | 40 |
 | `06-export.md` | JSON/CSV export endpoints | 17 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
 | `08-error-handling.md` | Error codes: 400, 404, 415, 423, 424, path parameters, upload content types, corrupt CSV | 24 |
 | `09-rate-limiting.md` | Rate limiting (429), client address via trusted proxies - requires separate profiles | 11 |
-| `10-configuration.md` | rowstore.json validation and data source settings (unit and integration tests) | 13 |
-| `11-etl-processing.md` | ETL scheduling, shutdown, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 57 |
+| `10-configuration.md` | rowstore.json validation, data source settings and the PostgreSQL version check (unit and integration tests) | 14 |
+| `11-etl-processing.md` | ETL scheduling, shutdown, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 60 |
 | `12-connection-limits.md` | Connection budgets: FIFO waiting, wait timeouts (503), usage in `/status`, one connection per request, lock timeouts, health checks, startup without a reachable database, 503 responses (unit and integration tests) | 35 |
 | `13-deployment.md` | Command line and configuration location checks, access log (unit and integration tests) | 11 |
 | `14-http-compatibility.md` | Content negotiation without 406 and method tunnelling as in 1.x | 9 |
@@ -58,7 +58,7 @@ Tests are organized into profiles based on server configuration:
 | `regex-disabled` | `regexpqueries=disabled` | Regex disabled mode (TC-REGEX-DIS-*) |
 | `regex-simple` | `regexpqueries=simple` | Simple regex mode (TC-REGEX-SIM-*) |
 | `ratelimit` | Rate limiting enabled | Rate limit tests (09-rate-limiting.md) |
-| `legacy-parser` | `legacyparser=true` | CSV tests repeated with the legacy parser (TC-CSV-017 to TC-CSV-022, TC-CSV-030 to TC-CSV-036) |
+| `legacy-parser` | `legacyparser=true` | CSV tests repeated with the legacy parser (TC-CSV-017 to TC-CSV-022, TC-CSV-030 to TC-CSV-036, TC-CSV-044 to TC-CSV-046) |
 | `connection-pool` | `connectionPoolMax=3`, separate `queryDatabase` | HikariCP pools (TC-POOL-*, TC-EXPORT-014) |
 | Connection limits | small `maxQueryConnections`, `maxExportConnections`, `maxetlprocesses` and wait timeouts | Connection budgets (integration test cases of 12-connection-limits.md) |
 | Unit tests | none (no server, no Docker) | `*Test.java` classes, e.g. TC-CFG-*, TC-DS-*, TC-CSV-037 to TC-CSV-040 and the unit test cases of 11-etl-processing.md and 12-connection-limits.md |
@@ -139,20 +139,21 @@ Dataset creation and modification are asynchronous. Tests should:
 |----------|------------|
 | Status | 5 |
 | Datasets List | 1 |
-| Dataset Lifecycle | 22 |
-| CSV Formats | 47 |
-| Querying | 31 |
-| Export | 16 |
+| Dataset Lifecycle | 24 |
+| CSV Formats | 53 |
+| Querying | 40 |
+| Export | 17 |
 | Metadata Endpoints | 11 |
-| Error Handling | 22 |
+| Error Handling | 24 |
 | Rate Limiting | 11 |
-| Configuration | 13 |
-| ETL Processing | 54 |
-| Connection Limits | 28 |
+| Configuration | 14 |
+| ETL Processing | 60 |
+| Connection Limits | 35 |
 | Deployment | 11 |
-| **Total** | **272** |
+| HTTP Compatibility | 9 |
+| **Total** | **315** |
 
-Note: The specifications define 272 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 315 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 

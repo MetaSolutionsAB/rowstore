@@ -123,6 +123,54 @@ final class CsvBomTestCases {
         }
     }
 
+    /**
+     * The index column written by pandas with {@code to_csv(encoding="utf-8-sig")}: the first header cell consists of
+     * the byte order mark only, so its label is empty and its cells are skipped (ETL-4.08).
+     */
+    void bomOnlyFirstLabel_skipsColumnWithoutShifting() {
+        assertSkippedColumn(bytes(BOM + ",a,b\n0,1,2\n1,3,4\n", StandardCharsets.UTF_8));
+    }
+
+    /**
+     * A column with an empty label does not shift the cells of the following columns (ETL-4.08).
+     */
+    void emptyLabels_skipColumnsWithoutShifting() {
+        assertSkippedColumn(bytes(",a,b\n0,1,2\n1,3,4\n", StandardCharsets.UTF_8));
+        // a label consisting of Unicode whitespace only (U+3000) is empty as well
+        assertSkippedColumn(bytes("a,　,b\n1,x,2\n3,y,4\n", StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Of the columns whose labels are equal after normalization, the first one keeps the label and the cells of the
+     * others are skipped, without shifting the following columns (ETL-4.09).
+     */
+    void duplicateLabelsAfterNormalization_firstColumnKept() {
+        for (String header : new String[]{"id,ID,b", "id,id" + SHY + ",b", "id, id,b"}) {
+            TestUtils.DatasetUrls urls = TestUtils.createDatasetAndWait(
+                    bytes(header + "\n1,2,3\n4,5,6\n", StandardCharsets.UTF_8), csvSpec, jsonSpec);
+            try {
+                given().spec(jsonSpec).get(urls.infoUrl).then().body("rowcount", equalTo(2));
+                assertThat(columnNames(urls.infoUrl)).as(header).containsExactlyInAnyOrder("id", "b");
+                assertThat(rows(urls.datasetUrl, "id", "1")).as(header).containsExactly(Map.of("id", "1", "b", "3"));
+                assertThat(rows(urls.datasetUrl, "b", "6")).as(header).containsExactly(Map.of("id", "4", "b", "6"));
+            } finally {
+                TestUtils.deleteDataset(urls.datasetUrl);
+            }
+        }
+    }
+
+    private void assertSkippedColumn(byte[] csv) {
+        TestUtils.DatasetUrls urls = TestUtils.createDatasetAndWait(csv, csvSpec, jsonSpec);
+        try {
+            given().spec(jsonSpec).get(urls.infoUrl).then().body("rowcount", equalTo(2));
+            assertThat(columnNames(urls.infoUrl)).containsExactlyInAnyOrder("a", "b");
+            assertThat(rows(urls.datasetUrl, "a", "1")).containsExactly(Map.of("a", "1", "b", "2"));
+            assertThat(rows(urls.datasetUrl, "b", "4")).containsExactly(Map.of("a", "3", "b", "4"));
+        } finally {
+            TestUtils.deleteDataset(urls.datasetUrl);
+        }
+    }
+
     private void assertCleanDataset(byte[] csv) {
         Response response = TestUtils.createDataset(csv, csvSpec);
         response.then().statusCode(202);

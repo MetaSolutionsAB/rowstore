@@ -2,7 +2,7 @@
 
 This specification suite is the canonical reference for the RowStore system. It documents the **current state** of the software (version 2.0-SNAPSHOT, branch `develop`) and serves all four user personas: data publishers, API consumers, operators/admins, and embedded viewers.
 
-The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (272 test cases across 13 files) are preserved alongside these specs.
+The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (315 test cases across 14 files) are preserved alongside these specs.
 
 ## Reading Paths by Persona
 
@@ -210,6 +210,8 @@ Current limitations relevant to this area.
 | ETL-4.05 | Empty lines: trailing ignored, otherwise the load fails (line number logged), both parsers alike |
 | ETL-4.06 | Leading byte order mark skipped before parsing and separator detection |
 | ETL-4.07 | Labels sanitized: U+FEFF and U+00AD removed anywhere; also used by the append check; affected names change |
+| ETL-4.08 | Columns keep their position; cells of columns with an empty label skipped, no shifting |
+| ETL-4.09 | Duplicate labels after normalization: first column kept, cells of the others skipped, WARN |
 | ETL-5.01 | Batch insert every 200 rows, rollback on error |
 | ETL-6.01 | POST = append (validates column match) |
 | ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate); owner and privileges kept |
@@ -229,12 +231,14 @@ Current limitations relevant to this area.
 | ETL-10.01 | Final status from locally tracked outcome; exceptions logged with stack trace |
 | ETL-10.02 | Final status write retried with backoff (96 s of delays plus connection timeouts) |
 | ETL-11.01 | Background cleanup of column names after startup; affected = first-row key not clean; skipped datasets |
-| ETL-11.02 | Cleaning rule per configured parser, derived from the parsers: unquote only after a leading BOM directly followed by a quote, then normalize; residual ambiguity |
+| ETL-11.02 | Cleaning rule for names with BOM or soft hyphens per configured parser, derived from the parsers: unquote only after a leading BOM directly followed by a quote, remove BOM and soft hyphens, trim like 1.x; residual ambiguity |
 | ETL-11.03 | Rename per dataset as exclusive ETL task, one dataset at a time, one transaction; old indexes dropped last with the swap lock pattern; rewrite cost; stop on connection failures |
-| ETL-11.04 | Append before the cleanup renames the columns to its labels within the append |
-| ETL-11.05 | Empty or colliding cleaned names, also old and new name in any row: dataset skipped with WARN, no change |
+| ETL-11.04 | Append matches labels with normalized cleaned stored names; renames BOM/soft hyphen names, keeps the others |
+| ETL-11.05 | Colliding cleaned names, also old and new name in any row: dataset skipped with WARN, no change |
 | ETL-11.06 | Idempotent; PUT yields clean names; column names of affected datasets change |
 | ETL-11.07 | Completed run recorded in maintenance_tasks, cleanup skipped at later startups |
+| ETL-11.08 | Only BOM and soft hyphens cleaned; whitespace and upper case of stored names kept |
+| ETL-11.09 | Stored names that clean to empty kept; ignored by appends |
 
 ### QUERY — Query Processing
 
@@ -395,7 +399,7 @@ Current limitations relevant to this area.
 | TEST-6.01 | Awaitility polling for async ETL |
 | TEST-7.01 | 12+ CSV test files covering encodings and edge cases |
 | TEST-8.01 | Endpoint × test spec coverage matrix |
-| TEST-9.01 | specs/tests/: 272 test cases, 13 files |
+| TEST-9.01 | specs/tests/: 315 test cases, 14 files |
 
 ### USR — User Stories
 

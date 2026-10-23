@@ -373,6 +373,73 @@ class ColumnNameCleanupIT extends BaseIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("TC-ETL-061: The cleanup only renames names with a byte order mark or soft hyphens; an append keeps the other stored names")
+    void cleanupKeepsWhitespaceAndCase_appendUsesStoredNames() throws Exception {
+        DatasetUrls urls = createDatasetAndWait(bytes(CSV));
+        try {
+            // upper case as stored before 1.0, Unicode whitespace that 1.x did not trim
+            Map<String, String> brokenNames = Map.of(
+                    "kopare_id", BOM + "\"kopare_id\"",
+                    "namn", "Namn",
+                    "ort", "ort　");
+            breakColumnNames(TEST_DATABASE, urls.datasetId, brokenNames);
+
+            assertThat(rowStore().cleanColumnNames()).contains(urls.datasetId);
+
+            assertThat(storedColumnNames(TEST_DATABASE, urls.datasetId)).containsExactlyInAnyOrder("kopare_id", "Namn", "ort　");
+            assertThat(indexNames(TEST_DATABASE, urls.datasetId))
+                    .isEqualTo(expectedIndexNames(urls.datasetId, "kopare_id", "Namn", "ort　"));
+            // nothing left to clean
+            assertThat(rowStore().cleanColumnNames()).doesNotContain(urls.datasetId);
+
+            // the labels namn and ort are stored under the existing names
+            given().spec(csvSpec).body(bytes("kopare_id,namn,ort\n3,Cecilia,Partille\n")).post(urls.datasetUrl).then().statusCode(202);
+            waitForDatasetAvailable(urls.infoUrl);
+            given().spec(jsonSpec).get(urls.infoUrl).then().body("rowcount", equalTo(3));
+            assertThat(storedColumnNames(TEST_DATABASE, urls.datasetId)).containsExactlyInAnyOrder("kopare_id", "Namn", "ort　");
+            assertThat(indexNames(TEST_DATABASE, urls.datasetId))
+                    .isEqualTo(expectedIndexNames(urls.datasetId, "kopare_id", "Namn", "ort　"));
+            assertThat(rows(urls.datasetUrl, "kopare_id", "3"))
+                    .containsExactly(Map.of("kopare_id", "3", "Namn", "Cecilia", "ort　", "Partille"));
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ETL-062: A stored name that cleans to empty is kept by the cleanup and ignored by an append, and a replace drops it")
+    void nameCleanedToEmpty_keptAndIgnoredByAppend() throws Exception {
+        DatasetUrls urls = createDatasetAndWait(bytes("x,a,b\n0,1,2\n1,3,4\n"));
+        try {
+            // as stored by 1.x for the index column of pandas with encoding="utf-8-sig": <BOM>,a<SHY>,b
+            Map<String, String> brokenNames = new LinkedHashMap<>();
+            brokenNames.put("x", BOM);
+            brokenNames.put("a", "a" + SHY);
+            breakColumnNames(TEST_DATABASE, urls.datasetId, brokenNames);
+
+            assertThat(rowStore().cleanColumnNames()).contains(urls.datasetId);
+            assertThat(storedColumnNames(TEST_DATABASE, urls.datasetId)).containsExactlyInAnyOrder(BOM, "a", "b");
+            assertThat(rows(urls.datasetUrl, "a", "1")).containsExactly(Map.of(BOM, "0", "a", "1", "b", "2"));
+
+            // the file of the same client: its first column is skipped, the stored name <BOM> matches no label
+            byte[] pandasCsv = bytes(BOM + ",a,b\n2,5,6\n");
+            given().spec(csvSpec).body(pandasCsv).post(urls.datasetUrl).then().statusCode(202);
+            waitForDatasetAvailable(urls.infoUrl);
+            given().spec(jsonSpec).get(urls.infoUrl).then().body("rowcount", equalTo(3));
+            assertThat(rows(urls.datasetUrl, "a", "5")).containsExactly(Map.of("a", "5", "b", "6"));
+            assertThat(rows(urls.datasetUrl, "a", "1")).containsExactly(Map.of(BOM, "0", "a", "1", "b", "2"));
+
+            given().spec(csvSpec).body(pandasCsv).put(urls.datasetUrl).then().statusCode(202);
+            waitForDatasetAvailable(urls.infoUrl);
+            given().spec(jsonSpec).get(urls.infoUrl).then().body("rowcount", equalTo(1));
+            assertThat(storedColumnNames(TEST_DATABASE, urls.datasetId)).containsExactlyInAnyOrder("a", "b");
+            assertThat(rows(urls.datasetUrl, "b", "6")).containsExactly(Map.of("a", "5", "b", "6"));
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
+    }
+
     private static boolean waitingForLock(Connection conn, String statementStart) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT count(*) > 0 FROM pg_stat_activity WHERE datname = current_database() " +

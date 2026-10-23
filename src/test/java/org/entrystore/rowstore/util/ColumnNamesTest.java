@@ -163,12 +163,20 @@ class ColumnNamesTest {
     }
 
     @ParameterizedTest(name = "[{index}] \"{0}\" -> \"{1}\"")
-    @DisplayName("TC-ETL-043: Stored column names without a byte order mark directly followed by a quote are only normalized")
+    @DisplayName("TC-ETL-043: Stored column names without a byte order mark directly followed by a quote are only cleaned of byte order marks and soft hyphens")
     @CsvSource(delimiter = '|', quoteCharacter = '\'', value = {
             "na<SHY>mn|namn",
             "<SHY>namn|namn",
-            "<EM>namn|namn",
-            "<C1>namn|namn",
+            // trimmed like by 1.x once the soft hyphen is removed
+            "'<SHY> namn'|namn",
+            // names without byte order mark and soft hyphen are not changed (ETL-11.08)
+            "<EM>namn|<EM>namn",
+            "<C1>namn|<C1>namn",
+            "'namn '|'namn '",
+            "Namn|Namn",
+            // Unicode whitespace is not removed, upper case is kept
+            "<EM>na<SHY>mn|<EM>namn",
+            "Na<SHY>mn|Namn",
             // names without byte order mark that look quoted are not unquoted: the header """x""" yields "x"
             "\"x\"|\"x\"",
             "<SHY>\"x\"|\"x\"",
@@ -178,6 +186,9 @@ class ColumnNamesTest {
             "kopare_id|kopare_id",
             "'a b'|a b",
             "''|''",
+            // a name can be cleaned to an empty name (ETL-11.09)
+            "<BOM>|''",
+            "' <SHY>'|''",
     })
     void cleanStoredName_withoutBomQuote(String name, String expected) {
         for (boolean legacyParser : new boolean[]{false, true}) {
@@ -186,7 +197,7 @@ class ColumnNamesTest {
     }
 
     @Test
-    @DisplayName("TC-ETL-040: Renames are determined for unclean names only, and not at all if clean names would collide or be empty")
+    @DisplayName("TC-ETL-040: Renames are determined for unclean names only, not for names that clean to empty, and not at all if clean names would collide")
     void renamesForStoredNames() {
         assertThat(ColumnNames.renamesForStoredNames(List.of("kopare_id", "namn"), false)).isEmpty();
         assertThat(ColumnNames.renamesForStoredNames(List.of(), false)).isEmpty();
@@ -198,32 +209,59 @@ class ColumnNamesTest {
         assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>\"namn\""), "namn"), false)).isNull();
         // collision of two renamed names
         assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>namn"), decode("na<SHY>mn")), false)).isNull();
-        // empty clean name
-        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>\""), "namn"), false)).isNull();
+        // a name that cleans to empty is kept, the other names are cleaned (ETL-11.09)
+        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>\""), "namn"), false)).isEmpty();
+        assertThat(ColumnNames.renamesForStoredNames(List.of(decode("<BOM>"), decode("na<SHY>mn")), false))
+                .containsOnly(entry(decode("na<SHY>mn"), "namn"));
+        // surrounding whitespace, Unicode whitespace and upper case are not cleaned (ETL-11.08)
+        assertThat(ColumnNames.renamesForStoredNames(List.of("namn ", " ort", decode("zon<EM>"), "Kommun"), false)).isEmpty();
     }
 
     @Test
-    @DisplayName("TC-ETL-044: An append renames stored names to the labels they are cleaned to with exactly one candidate")
-    void renamesForLabels() {
+    @DisplayName("TC-ETL-044: An append matches each label with the stored name that is cleaned to it with exactly one candidate")
+    void forAppend() {
         // names equal to the labels need no renames
-        assertThat(ColumnNames.renamesForLabels(List.of("kopare_id", "namn"), Set.of("kopare_id", "namn"))).isEmpty();
+        assertThat(ColumnNames.forAppend(List.of("kopare_id", "namn"), Set.of("kopare_id", "namn")).renames()).isEmpty();
         // the name of either parser is accepted
-        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"kopare_id\""), decode("na<SHY>mn")), Set.of("kopare_id", "namn")))
+        assertThat(ColumnNames.forAppend(List.of(decode("<BOM>\"kopare_id\""), decode("na<SHY>mn")), Set.of("kopare_id", "namn")).renames())
                 .containsOnly(entry(decode("<BOM>\"kopare_id\""), "kopare_id"), entry(decode("na<SHY>mn"), "namn"));
         // <BOM>""x"" is "x" with the default parser and "x"" with the legacy parser
-        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"\"x\"\""), "namn"), Set.of("\"x\"\"", "namn")))
+        assertThat(ColumnNames.forAppend(List.of(decode("<BOM>\"\"x\"\""), "namn"), Set.of("\"x\"\"", "namn")).renames())
                 .containsOnly(entry(decode("<BOM>\"\"x\"\""), "\"x\"\""));
-        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"\"x\"\""), "namn"), Set.of("\"x\"", "namn")))
+        assertThat(ColumnNames.forAppend(List.of(decode("<BOM>\"\"x\"\""), "namn"), Set.of("\"x\"", "namn")).renames())
                 .containsOnly(entry(decode("<BOM>\"\"x\"\""), "\"x\""));
         // both candidates are labels: ambiguous
-        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"\"x\"\"")), Set.of("\"x\"", "\"x\"\""))).isNull();
+        assertThat(ColumnNames.forAppend(List.of(decode("<BOM>\"\"x\"\"")), Set.of("\"x\"", "\"x\"\""))).isNull();
         // no candidate is a label
-        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>\"kopare_id\""), "namn"), Set.of("id", "namn"))).isNull();
+        assertThat(ColumnNames.forAppend(List.of(decode("<BOM>\"kopare_id\""), "namn"), Set.of("id", "namn"))).isNull();
         // different number of names and labels
-        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>kopare_id")), Set.of("kopare_id", "namn"))).isNull();
+        assertThat(ColumnNames.forAppend(List.of(decode("<BOM>kopare_id")), Set.of("kopare_id", "namn"))).isNull();
+        assertThat(ColumnNames.forAppend(List.of("kopare_id", "namn", "ort"), Set.of("kopare_id", "namn"))).isNull();
         // two names renamed to the same label, or renamed to an existing name
-        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>namn"), decode("na<SHY>mn")), Set.of("namn", "ort"))).isNull();
-        assertThat(ColumnNames.renamesForLabels(List.of(decode("<BOM>namn"), "namn"), Set.of("namn", "ort"))).isNull();
+        assertThat(ColumnNames.forAppend(List.of(decode("<BOM>namn"), decode("na<SHY>mn")), Set.of("namn", "ort"))).isNull();
+        assertThat(ColumnNames.forAppend(List.of(decode("<BOM>namn"), "namn"), Set.of("namn", "ort"))).isNull();
+    }
+
+    @Test
+    @DisplayName("TC-ETL-060: An append keeps stored names that the cleanup does not change and ignores stored names that are empty as a label")
+    void forAppend_keepsUncleanedNamesAndIgnoresEmptyNames() {
+        // stored names that only differ from the labels in whitespace or case are kept (ETL-11.08)
+        ColumnNames.AppendNames kept = ColumnNames.forAppend(List.of(decode("zon<EM>"), "namn ", "Kommun"), Set.of("zon", "namn", "kommun"));
+        assertThat(kept.renames()).isEmpty();
+        assertThat(kept.namesByLabel()).containsOnly(entry("zon", decode("zon<EM>")), entry("namn", "namn "), entry("kommun", "Kommun"));
+        // a renamed name gets the clean name, not the label (case and Unicode whitespace kept)
+        ColumnNames.AppendNames renamed = ColumnNames.forAppend(List.of(decode("Na<SHY>mn")), Set.of("namn"));
+        assertThat(renamed.renames()).containsOnly(entry(decode("Na<SHY>mn"), "Namn"));
+        assertThat(renamed.namesByLabel()).containsOnly(entry("namn", "Namn"));
+        // stored names that are empty as a label match no label (ETL-11.09)
+        for (String empty : new String[]{"<BOM>", "<BOM>\"", "<EM>"}) {
+            ColumnNames.AppendNames ignored = ColumnNames.forAppend(List.of(decode(empty), "a", "b"), Set.of("a", "b"));
+            assertThat(ignored).as(empty).isNotNull();
+            assertThat(ignored.renames()).isEmpty();
+            assertThat(ignored.namesByLabel()).containsOnly(entry("a", "a"), entry("b", "b"));
+        }
+        // stored names that normalize to the same label are ambiguous
+        assertThat(ColumnNames.forAppend(List.of("namn", "namn "), Set.of("namn"))).isNull();
     }
 
     @Test

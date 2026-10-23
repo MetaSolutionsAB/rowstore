@@ -49,10 +49,10 @@ public final class ColumnNames {
 	}
 
 	/**
-	 * Returns the name that a column name stored before 2.0 gets if the CSV header it was stored from is loaded now
-	 * with the given parser. Before 2.0, a byte order mark at the beginning of the file and soft hyphens were kept in
-	 * the column names, and the byte order mark in front of the first label changed how the label was parsed, since
-	 * the label did not start with a quote:
+	 * Returns the name that a column name stored before 2.0 gets if the byte order mark and the soft hyphens of the CSV
+	 * header it was stored from had not been there (ETL-11.02). Before 2.0, a byte order mark at the beginning of the
+	 * file and soft hyphens were kept in the column names, and the byte order mark in front of the first label changed
+	 * how the label was parsed, since the label did not start with a quote:
 	 * <ul>
 	 * <li>The default parser (RFC 4180) kept the enclosing quotes but decoded doubled quotes: the header
 	 * {@code <BOM>"kopare_id"} was stored as {@code <BOM>"kopare_id"}, {@code <BOM>"a""""b"} as {@code <BOM>"a""b"}
@@ -67,15 +67,24 @@ public final class ColumnNames {
 	 * label stored by the default parser (e.g., if the legacy parser was configured after loading the dataset), whereas
 	 * the legacy parser stored it only for unlikely headers like {@code ""x""}.
 	 * This only applies if the stored name starts with a byte order mark directly followed by a quote. Otherwise, and
-	 * afterwards, the name is normalized as a label (see {@link #normalize(String)}). Names that merely look quoted
-	 * are not unquoted (the header {@code """x"""} yields the name {@code "x"}), and neither are names with whitespace
-	 * between the byte order mark and the quote (the header {@code <BOM> "x"} yields {@code "x"} with the default
-	 * parser). The cleaned name of a clean name is the name itself. Some stored names are ambiguous between the
-	 * parsers or between raw headers; the result is the name of the most likely header for the given parser.
+	 * afterwards, byte order marks and soft hyphens are removed anywhere in the name, and the name is trimmed like 1.x
+	 * trimmed a label ({@code String.trim()}), since the byte order mark or soft hyphen prevented that. Names that
+	 * merely look quoted are not unquoted (the header {@code """x"""} yields the name {@code "x"}), and neither are
+	 * names with whitespace between the byte order mark and the quote (the header {@code <BOM> "x"} yields {@code "x"}
+	 * with the default parser). Some stored names are ambiguous between the parsers or between raw headers; the result
+	 * is the name of the most likely header for the given parser.
+	 * <p>
+	 * A name without a byte order mark and without soft hyphens is returned as it is, even if a fresh import would
+	 * store it differently (ETL-11.08), e.g., with surrounding whitespace (stored before 1.2), upper case (stored before
+	 * 1.0) or surrounding Unicode whitespace (1.x only trimmed whitespace up to U+0020). The cleaned name of a clean
+	 * name is the name itself. A cleaned name may be empty (e.g., for the stored name {@code <BOM>}).
 	 *
 	 * @param legacyParser Whether the legacy parser is configured.
 	 */
 	public static String cleanStoredName(String name, boolean legacyParser) {
+		if (name.indexOf(BYTE_ORDER_MARK) < 0 && name.indexOf(SOFT_HYPHEN) < 0) {
+			return name;
+		}
 		String result = name;
 		if (name.length() >= 2 && name.charAt(0) == BYTE_ORDER_MARK && name.charAt(1) == '"') {
 			String quoted = name.substring(1);
@@ -91,24 +100,28 @@ public final class ColumnNames {
 				result = "";
 			}
 		}
-		return normalize(result);
+		return removeInvisibleCharacters(result).trim();
 	}
 
 	/**
-	 * Determines the renames needed to clean stored column names, see {@link #cleanStoredName(String, boolean)}.
+	 * Determines the renames needed to clean stored column names, see {@link #cleanStoredName(String, boolean)}. A
+	 * name whose clean name would be empty, or would be empty as a label (see {@link #normalize(String)}), is not
+	 * renamed and is kept as it is (ETL-11.09), since a fresh import would skip the column.
 	 *
 	 * @param names The stored column names of a dataset.
 	 * @param legacyParser Whether the legacy parser is configured.
 	 * @return Returns the renames (stored name to clean name) in iteration order of the names, an empty map if all
-	 * names are clean, or null if the names cannot be cleaned because a clean name would be empty or would occur
-	 * more than once.
+	 * names are clean, or null if the names cannot be cleaned because a clean name would occur more than once.
 	 */
 	public static Map<String, String> renamesForStoredNames(Collection<String> names, boolean legacyParser) {
 		Map<String, String> renames = new LinkedHashMap<>();
 		Set<String> cleanNames = new HashSet<>();
 		for (String name : names) {
 			String clean = cleanStoredName(name, legacyParser);
-			if (clean.isEmpty() || !cleanNames.add(clean)) {
+			if (normalize(clean).isEmpty()) {
+				clean = name;
+			}
+			if (!cleanNames.add(clean)) {
 				return null;
 			}
 			if (!clean.equals(name)) {
@@ -119,41 +132,60 @@ public final class ColumnNames {
 	}
 
 	/**
-	 * Determines the renames that make stored column names equal to the labels of a CSV header, for an append to a
-	 * dataset whose names have not been cleaned yet. A stored name that is not a label is renamed to the label that
-	 * it is cleaned to with one of the parsers (see {@link #cleanStoredName(String, boolean)}), if exactly one such
-	 * label exists.
+	 * The column names that an append to an existing dataset uses for the labels of its CSV header, see
+	 * {@link #forAppend(Collection, Collection)}.
+	 *
+	 * @param renames The stored names to be renamed before the append (stored name to clean name), see
+	 *                {@link #cleanStoredName(String, boolean)}.
+	 * @param namesByLabel The column name to store the values of each label under: the clean stored name.
+	 */
+	public record AppendNames(Map<String, String> renames, Map<String, String> namesByLabel) {
+	}
+
+	/**
+	 * Determines the column names that an append uses for the labels of its CSV header (ETL-11.04). Each label
+	 * matches the stored name whose clean name (see {@link #cleanStoredName(String, boolean)}, with one of the parsers)
+	 * is the label when normalized as a label (see {@link #normalize(String)}); the values are stored under the clean
+	 * name. So stored names with a byte order mark or soft hyphens are renamed by the append, and stored names that
+	 * only differ from the labels in what the cleanup does not change (e.g., surrounding Unicode whitespace) are kept.
+	 * Stored names that are empty as a label (e.g., {@code <BOM>}) match no label and are ignored: the rows of the
+	 * append do not have them, like the rows of a fresh import of the same CSV file.
 	 *
 	 * @param names The stored column names of a dataset.
-	 * @param labels The normalized labels of the CSV header.
-	 * @return Returns the renames (stored name to label), which are empty if the names equal the labels, or null if
-	 * the names cannot be renamed to the labels.
+	 * @param labels The normalized labels of the CSV header, which must not be empty.
+	 * @return Returns the names for the labels, or null if the stored names do not match the labels one to one.
 	 */
-	public static Map<String, String> renamesForLabels(Collection<String> names, Collection<String> labels) {
+	public static AppendNames forAppend(Collection<String> names, Collection<String> labels) {
 		Set<String> labelSet = new HashSet<>(labels);
 		Map<String, String> renames = new LinkedHashMap<>();
-		Set<String> renamedNames = new HashSet<>();
+		Map<String, String> namesByLabel = new LinkedHashMap<>();
 		for (String name : names) {
-			String target = name;
-			if (!labelSet.contains(name)) {
-				Set<String> candidates = new HashSet<>();
-				for (boolean legacyParser : new boolean[]{false, true}) {
-					String clean = cleanStoredName(name, legacyParser);
-					if (labelSet.contains(clean)) {
-						candidates.add(clean);
-					}
+			// label to clean name; the default parser's clean name is preferred if both parsers yield the same label
+			Map<String, String> candidates = new LinkedHashMap<>();
+			boolean emptyLabel = true;
+			for (boolean legacyParser : new boolean[]{false, true}) {
+				String clean = cleanStoredName(name, legacyParser);
+				String label = normalize(clean);
+				emptyLabel &= label.isEmpty();
+				if (labelSet.contains(label)) {
+					candidates.putIfAbsent(label, clean);
 				}
-				if (candidates.size() != 1) {
-					return null;
-				}
-				target = candidates.iterator().next();
-				renames.put(name, target);
 			}
-			if (!renamedNames.add(target)) {
+			if (emptyLabel) {
+				continue;
+			}
+			if (candidates.size() != 1) {
 				return null;
 			}
+			Map.Entry<String, String> match = candidates.entrySet().iterator().next();
+			if (namesByLabel.putIfAbsent(match.getKey(), match.getValue()) != null) {
+				return null;
+			}
+			if (!match.getValue().equals(name)) {
+				renames.put(name, match.getValue());
+			}
 		}
-		return renamedNames.equals(labelSet) ? renames : null;
+		return namesByLabel.keySet().equals(labelSet) ? new AppendNames(renames, namesByLabel) : null;
 	}
 
 	/**

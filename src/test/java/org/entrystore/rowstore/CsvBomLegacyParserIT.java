@@ -82,4 +82,22 @@ class CsvBomLegacyParserIT extends ConfigurableTestBase {
         testCases().bomOnlyFirstLine_isEmptyLine();
     }
 
+    @Test
+    @DisplayName("TC-CSV-044: Legacy parser: a first label consisting of a byte order mark only skips its column without shifting the others")
+    void bomOnlyFirstLabel_skipsColumnWithoutShifting() {
+        testCases().bomOnlyFirstLabel_skipsColumnWithoutShifting();
+    }
+
+    @Test
+    @DisplayName("TC-CSV-045: Legacy parser: columns with an empty label are skipped without shifting the others")
+    void emptyLabels_skipColumnsWithoutShifting() {
+        testCases().emptyLabels_skipColumnsWithoutShifting();
+    }
+
+    @Test
+    @DisplayName("TC-CSV-046: Legacy parser: of labels that are equal after normalization, the first column is kept and the others are skipped")
+    void duplicateLabelsAfterNormalization_firstColumnKept() {
+        testCases().duplicateLabelsAfterNormalization_firstColumnKept();
+    }
+
 }

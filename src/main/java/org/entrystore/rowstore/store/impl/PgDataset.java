@@ -56,12 +56,15 @@ import java.sql.SQLException;
 import java.sql.Savepoint;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -401,7 +404,9 @@ public class PgDataset implements Dataset {
 						withCSVParser(csvParser).
 						build();
 				long lineCount = 0;
-				Set<String> labels = new LinkedHashSet<>();
+				// the column name of each cell position, null for a column whose label is empty (ETL-4.08)
+				String[] columns = new String[0];
+				Set<String> columnNames = new LinkedHashSet<>();
 				// indexes of columns renamed by an append, to be dropped right before the commit
 				List<String> staleIndexes = List.of();
 				String[] line;
@@ -441,15 +446,28 @@ public class PgDataset implements Dataset {
 					if (lineCount == 0) {
 						// We convert all column names to lower case,
 						// otherwise all queries must be case sensitive later
-						for (String s : line) {
-							String l = ColumnNames.normalize(s);
-							if (l.length() > 0) {
-								labels.add(l);
+						columns = new String[line.length];
+						Set<String> labels = new LinkedHashSet<>();
+						// column numbers of each label that occurs more than once, for logging
+						Map<String, List<Integer>> duplicates = new LinkedHashMap<>();
+						for (int i = 0; i < line.length; i++) {
+							String l = ColumnNames.normalize(line[i]);
+							// columns keep their position, so that the cells of the following columns are not shifted
+							if (l.isEmpty()) {
+								log.info("Skipping column {} of the CSV header, its label is empty", i + 1);
+							} else if (!labels.add(l)) {
+								// the first column with the label keeps it, the cells of later ones are skipped (ETL-4.09)
+								int first = Arrays.asList(columns).indexOf(l) + 1;
+								duplicates.computeIfAbsent(l, k -> new ArrayList<>(List.of(first))).add(i + 1);
 							} else {
-								log.debug("Skipping column due to empty label");
+								columns[i] = l;
 							}
 						}
-
+						if (!duplicates.isEmpty()) {
+							log.warn("Labels occur more than once in the CSV header of dataset {}, only the first column of each is loaded: {}",
+									getId(), duplicates.entrySet().stream()
+											.map(e -> "\"" + e.getKey() + "\" in columns " + e.getValue()).toList());
+						}
 						if (append) {
 							// we must compare existing column names with new ones; they are read with the load's
 							// connection, since a load must not hold more than one connection at a time (ARCH-7.04)
@@ -460,30 +478,43 @@ public class PgDataset implements Dataset {
 
 							// if there are no old column names we assume this dataset is newly created
 							if (oldColumnNames.size() > 0 && !oldColumnNames.equals(labels)) {
-								// Column names stored before 2.0 may differ from the labels only because they were not
-								// cleaned; they are renamed now instead of by the cleanup at startup (ETL-11.04)
-								Map<String, String> renames = ColumnNames.renamesForLabels(oldColumnNames, labels);
-								if (renames == null || renames.isEmpty()) {
+								// Column names stored before 2.0 may differ from the labels, e.g., because they have not
+								// been cleaned yet, which the append does instead of the cleanup at startup (ETL-11.04)
+								ColumnNames.AppendNames appendNames = ColumnNames.forAppend(oldColumnNames, labels);
+								if (appendNames == null) {
 									log.error("Column name mismatch: new tabular structure does not equal existing structure");
 									log.error("Rolling back transaction");
 									conn.rollback();
 									return false;
 								}
-								if (hasRenameCollision(conn, renames)) {
-									log.error("Column name mismatch: the column names of the dataset cannot be renamed to the new ones, " +
-											"rows contain both an old and a new name: {}", describeRenames(renames));
-									log.error("Rolling back transaction");
-									conn.rollback();
-									return false;
+								Map<String, String> renames = appendNames.renames();
+								if (!renames.isEmpty()) {
+									if (hasRenameCollision(conn, renames)) {
+										log.error("Column name mismatch: the column names of the dataset cannot be renamed to the new ones, " +
+												"rows contain both an old and a new name: {}", describeRenames(renames));
+										log.error("Rolling back transaction");
+										conn.rollback();
+										return false;
+									}
+									log.info("Renaming columns of dataset {} with the append: {}", getId(), describeRenames(renames));
+									staleIndexes = renameColumns(conn, renames);
 								}
-								log.info("Renaming columns of dataset {} with the append: {}", getId(), describeRenames(renames));
-								staleIndexes = renameColumns(conn, renames);
+								for (int i = 0; i < columns.length; i++) {
+									if (columns[i] != null) {
+										columns[i] = appendNames.namesByLabel().get(columns[i]);
+									}
+								}
+							}
+						}
+						for (String column : columns) {
+							if (column != null) {
+								columnNames.add(column);
 							}
 						}
 					} else {
 						JSONObject jsonLine = null;
 						try {
-							jsonLine = csvLineToJsonObject(line, labels);
+							jsonLine = csvLineToJsonObject(line, columns);
 						} catch (Exception e) {
 							log.error(e.getMessage());
 							log.error("Error occured when processing line {} of CSV: {}", lineCount, line);
@@ -511,7 +542,7 @@ public class PgDataset implements Dataset {
 				stmt.executeBatch();
 
 				if (append) {
-					createIndexes(conn, targetTable, labels, columnSize);
+					createIndexes(conn, targetTable, columnNames, columnSize);
 					// last statements before the commit, since they lock the data table exclusively
 					if (!dropIndexes(conn, staleIndexes)) {
 						log.info("Rolling back transaction");
@@ -519,7 +550,7 @@ public class PgDataset implements Dataset {
 						return false;
 					}
 				} else {
-					List<String> shadowIndexes = createIndexes(conn, targetTable, labels, columnSize);
+					List<String> shadowIndexes = createIndexes(conn, targetTable, columnNames, columnSize);
 					// planner statistics for the new data, so that queries are planned well right after the swap
 					try (Statement analyzeStmt = conn.createStatement()) {
 						executeDdl(analyzeStmt, "ANALYZE " + targetTable);
@@ -664,16 +695,21 @@ public class PgDataset implements Dataset {
 		boolean legacyParser = rowstore.getConfig().isLegacyParserEnabled();
 		try (Connection conn = rowstore.getConnection()) {
 			Set<String> columnNames = readColumnNames(conn);
-			return columnNames != null &&
-					columnNames.stream().anyMatch(c -> !ColumnNames.cleanStoredName(c, legacyParser).equals(c));
+			if (columnNames == null) {
+				return false;
+			}
+			// names that cannot be cleaned because they would collide are reported, so that the cleanup logs them
+			Map<String, String> renames = ColumnNames.renamesForStoredNames(columnNames, legacyParser);
+			return renames == null || !renames.isEmpty();
 		}
 	}
 
 	/**
 	 * Renames the columns whose stored names are not clean (see {@link ColumnNames#cleanStoredName(String, boolean)}),
 	 * e.g., because they were stored before 2.0 with a byte order mark. The rows, the per-column indexes and the column
-	 * names are changed in one transaction; the status is not changed. Nothing is changed if a clean name would be
-	 * empty or collide with another column name (in any row), if the dataset has no data, or if its data table does not
+	 * names are changed in one transaction; the status is not changed. A name whose clean name would be empty is kept
+	 * (see {@link ColumnNames#renamesForStoredNames(java.util.Collection, boolean)}). Nothing is changed if a clean name
+	 * would collide with another column name (in any row), if the dataset has no data, or if its data table does not
 	 * exist. Must not run concurrently with a load of the dataset, see
 	 * {@link org.entrystore.rowstore.etl.EtlProcessor#callExclusively}.
 	 *
@@ -705,7 +741,7 @@ public class PgDataset implements Dataset {
 				}
 				Map<String, String> renames = ColumnNames.renamesForStoredNames(columnNames, rowstore.getConfig().isLegacyParserEnabled());
 				if (renames == null) {
-					log.warn("Not cleaning column names of dataset {}, the cleaned names would be empty or collide: {}", getId(),
+					log.warn("Not cleaning column names of dataset {}, the cleaned names would collide: {}", getId(),
 							columnNames.stream().map(c -> "\"" + ColumnNames.escapeForLog(c) + "\"").toList());
 					conn.rollback();
 					return Map.of();
@@ -1500,24 +1536,26 @@ public class PgDataset implements Dataset {
 	 * Converts a CSV row to a JSON object.
 	 *
 	 * @param line The row consisting of its cells' values.
-	 * @param labels The column labels.
-	 * @return Returns a JSON object consisting of key (labels) - value (line/cell values) pairs.
+	 * @param columns The column name of each cell position of the CSV header, null for a column without label.
+	 * @return Returns a JSON object consisting of key (column name) - value (cell value) pairs.
 	 * @throws JSONException
 	 */
-	private JSONObject csvLineToJsonObject(String[] line, Set<String> labels) throws JSONException {
-		if (line.length > labels.size()) {
+	private JSONObject csvLineToJsonObject(String[] line, String[] columns) throws JSONException {
+		if (line.length > columns.length) {
 			throw new IllegalArgumentException("Amount of values per row must not be higher than amount of labels in first row of CSV file");
+		}
+		if (Arrays.stream(columns).allMatch(Objects::isNull)) {
+			throw new IllegalArgumentException("The first row of the CSV file has no column with a label");
 		}
 
 		JSONObject result = new JSONObject();
-		String[] labelArr = labels.toArray(new String[0]);
 		for (int i = 0; i < line.length; i++) {
-			// we skip empty strings as this would result in empty key names in the JSON result
-			if (labelArr[i].trim().isEmpty()) {
+			// the cells of a column without label are skipped, as this would result in empty key names in the JSON result
+			if (columns[i] == null) {
 				continue;
 			}
-			result.put(labelArr[i], line[i]);
-			putAndRetainLargestValue(labelArr[i], line[i].length());
+			result.put(columns[i], line[i]);
+			putAndRetainLargestValue(columns[i], line[i].length());
 		}
 
 		return result;
