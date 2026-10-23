@@ -51,6 +51,16 @@ class DatasetReplaceIT extends BaseIntegrationTest {
      */
     private static final Duration LONGER_THAN_SWAP_LOCK_TIMEOUT = Duration.ofSeconds(5);
 
+    /**
+     * Longer than the first four attempts to lock the data table with their delays (about 25 seconds).
+     */
+    private static final Duration PAST_SHORT_SWAP_RETRIES = Duration.ofSeconds(28);
+
+    /**
+     * How long queries are sent while a replace keeps retrying to lock the data table.
+     */
+    private static final Duration QUERY_PHASE = Duration.ofSeconds(12);
+
     @Test
     @DisplayName("TC-ETL-019: A replace that fails on a corrupt row late in the file keeps the previous data")
     void replaceWithCorruptRow_keepsPreviousData() {
@@ -192,6 +202,51 @@ class DatasetReplaceIT extends BaseIntegrationTest {
             assertThat(names(urls.datasetUrl)).containsExactly("B1", "B2");
         } finally {
             awaitLoadFinishedAndDelete(urls);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ETL-053: While a replace waits for a long reader, queries of the dataset are blocked for at most one short lock attempt")
+    void replaceBehindLongReader_queriesKeepWorking() throws SQLException, InterruptedException {
+        DatasetUrls urls = createDatasetAndWait(csv("A", 3));
+        DatasetUrls other = createDatasetAndWait(csv("C", 1));
+        String dataTable = dataTable(urls);
+        try (Connection db = openDatabaseConnection(); Connection reader = openDatabaseConnection()) {
+            // holds an ACCESS SHARE lock on the data table like a long streaming export or pg_dump
+            reader.setAutoCommit(false);
+            queryStrings(reader, "SELECT data->>'name' FROM " + dataTable);
+
+            given().spec(csvSpec).body(csv("B", 2)).put(urls.datasetUrl).then().statusCode(202);
+            try {
+                await().atMost(MAX_WAIT).until(() -> waitingBackendPid(db,
+                        "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE"), pid -> pid > 0);
+                // past the first, short delays (1 + 2 + 5 + 5 s plus four attempts of 3 s), when 1.x and earlier 2.0
+                // snapshots queued a single long lock request that blocked all queries of the dataset
+                Thread.sleep(PAST_SHORT_SWAP_RETRIES.toMillis());
+
+                long until = System.nanoTime() + QUERY_PHASE.toNanos();
+                int queries = 0;
+                while (System.nanoTime() < until) {
+                    long start = System.nanoTime();
+                    assertThat(names(urls.datasetUrl)).containsExactly("A1", "A2", "A3");
+                    assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(LONGER_THAN_SWAP_LOCK_TIMEOUT);
+                    assertThat(names(other.datasetUrl)).containsExactly("C1");
+                    queries++;
+                }
+                assertThat(queries).isGreaterThan(1);
+                assertThat(queryStrings(db, "SELECT status FROM datasets WHERE id = '" + urls.datasetId + "'"))
+                        .containsExactly(String.valueOf(ETL_STATUS_PROCESSING));
+            } finally {
+                reader.rollback();
+            }
+
+            // the next attempt follows within the maximum delay between attempts (30 s)
+            await().atMost(Duration.ofSeconds(60)).pollInterval(POLL_INTERVAL)
+                    .until(() -> status(urls.infoUrl) == ETL_STATUS_AVAILABLE);
+            assertThat(names(urls.datasetUrl)).containsExactly("B1", "B2");
+        } finally {
+            awaitLoadFinishedAndDelete(urls);
+            deleteDataset(other.datasetUrl);
         }
     }
 

@@ -64,6 +64,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A PostgreSQL-specific implementation of the Dataset interface.
@@ -103,24 +104,41 @@ public class PgDataset implements Dataset {
 	private long[] statusRetryDelaysMillis = {1000, 5000, 15000, 30000, 45000};
 
 	/**
-	 * Maximum time an attempt to lock the data table for a replace waits, except the last attempt, which waits at most
-	 * {@link #FINAL_SWAP_LOCK_TIMEOUT}, see lockDataTableForReplace().
+	 * Maximum time an attempt to lock the data table for a replace waits, see lockDataTableForReplace(). Queries of the
+	 * data table that queue behind an attempt wait at most this long, which is less than the lock timeout of requests
+	 * (queryLockTimeout), so that they neither fail nor hold their connections for long (ETL-6.04).
 	 */
 	static final String SWAP_LOCK_TIMEOUT = "3s";
 
 	/**
-	 * Maximum time the last attempt to lock the data table waits, e.g., for a backup or a long export. If it expires,
-	 * the operation that needs the lock fails, e.g., a replace keeps the previous data (ETL-6.04).
+	 * Maximum time the attempts to lock the data table are retried, e.g., while a backup or a long export reads it. If
+	 * the lock was not acquired by then, the operation that needs it fails, e.g., a replace keeps the previous data
+	 * (ETL-6.04).
 	 */
-	static final String FINAL_SWAP_LOCK_TIMEOUT = "30min";
+	static final long SWAP_LOCK_WAIT_LIMIT_MILLIS = TimeUnit.MINUTES.toMillis(30);
 
-	private String finalSwapLockTimeout = FINAL_SWAP_LOCK_TIMEOUT;
+	private long swapLockWaitLimitMillis = SWAP_LOCK_WAIT_LIMIT_MILLIS;
 
 	/**
-	 * Delays between the attempts to lock the data table for a replace: four short attempts and a last, long one.
-	 * The delays are short because the load's transaction is idle meanwhile and holds its connection and ETL permit.
+	 * Delays between the first attempts to lock the data table for a replace. Further attempts follow after the last
+	 * of these delays, doubled per attempt up to {@link #MAX_SWAP_RETRY_DELAY_MILLIS}. The delays are short because the
+	 * load's transaction is idle meanwhile and holds its connection and ETL permit.
 	 */
 	private long[] swapRetryDelaysMillis = {1000, 2000, 5000, 5000};
+
+	/**
+	 * Maximum delay between two attempts to lock the data table.
+	 */
+	static final long MAX_SWAP_RETRY_DELAY_MILLIS = 30000;
+
+	private long maxSwapRetryDelayMillis = MAX_SWAP_RETRY_DELAY_MILLIS;
+
+	/**
+	 * Minimum time between two log messages with the sessions holding the data table while the lock is retried.
+	 */
+	static final long LOCK_HOLDERS_LOG_INTERVAL_MILLIS = TimeUnit.MINUTES.toMillis(5);
+
+	private long lockHoldersLogIntervalMillis = LOCK_HOLDERS_LOG_INTERVAL_MILLIS;
 
 	/**
 	 * SQL state of a lock that could not be acquired within lock_timeout.
@@ -795,7 +813,7 @@ public class PgDataset implements Dataset {
 	 * Dropping an index locks the data table exclusively until the end of the transaction, which is acquired like for
 	 * a replace, see {@link #lockDataTableForReplace(Connection)}.
 	 *
-	 * @return Returns false if the data table could not be locked (timeout of the last attempt, or interrupted).
+	 * @return Returns false if the data table could not be locked (not acquired within the wait limit, or interrupted).
 	 */
 	private boolean dropIndexes(Connection conn, List<String> indexes) throws SQLException {
 		if (indexes.isEmpty()) {
@@ -862,7 +880,7 @@ public class PgDataset implements Dataset {
 	 * relying on anything attached to a data table.
 	 *
 	 * @param shadowIndexes The names of the indexes created for the shadow table.
-	 * @return Returns false if the data table could not be locked (timeout of the last attempt, or interrupted), see {@link #lockDataTableForReplace(Connection)}.
+	 * @return Returns false if the data table could not be locked (not acquired within the wait limit, or interrupted), see {@link #lockDataTableForReplace(Connection)}.
 	 */
 	private boolean replaceDataTable(Connection conn, String shadowTable, List<String> shadowIndexes) throws SQLException {
 		long before = System.currentTimeMillis();
@@ -924,19 +942,20 @@ public class PgDataset implements Dataset {
 	/**
 	 * Locks the data table exclusively for replacing it, within the load's transaction. The lock has to wait for
 	 * readers of the data table, e.g., a long streaming export, and while it waits, it blocks new queries of the
-	 * data table. Therefore the first attempts wait at most {@link #SWAP_LOCK_TIMEOUT} each and are retried after a
-	 * delay, so that queries are not blocked for longer than that at a time. The last attempt waits at most
-	 * {@link #FINAL_SWAP_LOCK_TIMEOUT}, so that a replace succeeds even if the data table is read for a long time
-	 * (e.g., by an export); meanwhile new queries of the data table wait as well. If the data table is held for longer
-	 * (e.g., by a backup or a session left idle in a transaction), the caller gives up instead of blocking the dataset
-	 * indefinitely. The sessions holding the data table are logged before the last attempt and when giving up.
+	 * data table. Therefore every attempt waits at most {@link #SWAP_LOCK_TIMEOUT}, and a timed out attempt is retried
+	 * after a delay (short at first, then growing up to {@link #MAX_SWAP_RETRY_DELAY_MILLIS}), so that queries are never
+	 * blocked for longer than one attempt at a time, also while a reader holds the data table for a long time. If the
+	 * lock could not be acquired within {@link #SWAP_LOCK_WAIT_LIMIT_MILLIS} (e.g., behind a backup or a session left
+	 * idle in a transaction), the caller gives up instead of blocking the dataset indefinitely. The sessions holding
+	 * the data table are logged once the first, short delays are used up, then at most every
+	 * {@link #LOCK_HOLDERS_LOG_INTERVAL_MILLIS}, and when giving up.
 	 *
 	 * After the lock has been acquired, the attempt's lock_timeout stays in force until the end of the transaction.
 	 * This is harmless, since the remaining statements only touch the locked data table, objects that depend on it,
 	 * and the shadow table, which was created in the same transaction.
 	 *
-	 * @return Returns true if the lock was acquired, false if the last attempt timed out or if interrupted while
-	 * waiting for the next attempt; the transaction can then only be rolled back.
+	 * @return Returns true if the lock was acquired, false if it could not be acquired within the wait limit or if
+	 * interrupted while waiting for the next attempt; the transaction can then only be rolled back.
 	 * @throws SQLException If locking failed for another reason than a lock timeout.
 	 */
 	boolean lockDataTableForReplace(Connection conn) throws SQLException {
@@ -956,16 +975,18 @@ public class PgDataset implements Dataset {
 		try (Statement stmt = conn.createStatement()) {
 			executeDdl(stmt, "SET LOCAL idle_in_transaction_session_timeout = 0");
 		}
+		long start = System.nanoTime();
+		long lastHoldersLog = 0;
+		boolean holdersLogged = false;
 		for (int attempt = 0; ; attempt++) {
-			boolean lastAttempt = attempt >= swapRetryDelaysMillis.length;
-			if (lastAttempt) {
-				logLockHolders(conn, "Waiting up to " + finalSwapLockTimeout + " to " + purpose + ", data table " +
-						dataTable + " of dataset " + getId() + " is held by");
-			}
 			Savepoint savepoint = conn.setSavepoint();
 			try (Statement stmt = conn.createStatement()) {
-				executeDdl(stmt, "SET LOCAL lock_timeout = '" + (lastAttempt ? finalSwapLockTimeout : SWAP_LOCK_TIMEOUT) + "'");
+				executeDdl(stmt, "SET LOCAL lock_timeout = '" + SWAP_LOCK_TIMEOUT + "'");
 				executeDdl(stmt, "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
+				if (attempt > 0) {
+					log.info("Locked data table {} of dataset {} to {} after {} attempts in {} s", dataTable, getId(),
+							purpose, attempt + 1, TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - start));
+				}
 				return true;
 			} catch (SQLException e) {
 				if (!LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
@@ -973,17 +994,32 @@ public class PgDataset implements Dataset {
 				}
 				// also reverts SET LOCAL
 				conn.rollback(savepoint);
-				if (lastAttempt) {
-					log.error("Unable to lock data table {} of dataset {} within {} to {}, giving up", dataTable, getId(),
-							finalSwapLockTimeout, purpose);
-					logLockHolders(conn, "Data table " + dataTable + " of dataset " + getId() + " is held by");
-					return false;
-				}
 			}
-			long delay = swapRetryDelaysMillis[attempt];
-			log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to {} in {} ms{}",
-					dataTable, getId(), purpose, delay,
-					attempt == swapRetryDelaysMillis.length - 1 ? " with a lock timeout of " + finalSwapLockTimeout : "");
+			long now = System.nanoTime();
+			long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(now - start);
+			long delay = swapRetryDelay(attempt);
+			if (elapsedMillis + delay >= swapLockWaitLimitMillis) {
+				log.error("Unable to lock data table {} of dataset {} within {} s to {} ({} attempts), giving up", dataTable,
+						getId(), TimeUnit.MILLISECONDS.toSeconds(swapLockWaitLimitMillis), purpose, attempt + 1);
+				logLockHolders(conn, "Data table " + dataTable + " of dataset " + getId() + " is held by");
+				return false;
+			}
+			if (attempt < swapRetryDelaysMillis.length) {
+				log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to {} in {} ms",
+						dataTable, getId(), purpose, delay);
+			} else {
+				log.debug("Data table {} of dataset {} is still in use, retrying to {} in {} ms (attempt {})",
+						dataTable, getId(), purpose, delay, attempt + 1);
+			}
+			// once the short delays are used up, the holders are logged, then at most once per interval
+			if (attempt >= swapRetryDelaysMillis.length - 1 &&
+					(!holdersLogged || TimeUnit.NANOSECONDS.toMillis(now - lastHoldersLog) >= lockHoldersLogIntervalMillis)) {
+				logLockHolders(conn, "Retrying for up to " + TimeUnit.MILLISECONDS.toSeconds(swapLockWaitLimitMillis - elapsedMillis) +
+						" s (" + (attempt + 1) + " attempts so far, at most " + SWAP_LOCK_TIMEOUT + " each) to " + purpose +
+						", data table " + dataTable + " of dataset " + getId() + " is held by");
+				holdersLogged = true;
+				lastHoldersLog = now;
+			}
 			try {
 				Thread.sleep(delay);
 			} catch (InterruptedException e) {
@@ -992,6 +1028,21 @@ public class PgDataset implements Dataset {
 				return false;
 			}
 		}
+	}
+
+	/**
+	 * @return Returns the delay after the given (0-based) attempt to lock the data table: the configured delays first,
+	 * then the last of them doubled per further attempt, at most {@link #maxSwapRetryDelayMillis}.
+	 */
+	long swapRetryDelay(int attempt) {
+		if (attempt < swapRetryDelaysMillis.length) {
+			return swapRetryDelaysMillis[attempt];
+		}
+		long delay = swapRetryDelaysMillis.length > 0 ? swapRetryDelaysMillis[swapRetryDelaysMillis.length - 1] : 1000;
+		for (int i = swapRetryDelaysMillis.length; i <= attempt && delay < maxSwapRetryDelayMillis; i++) {
+			delay *= 2;
+		}
+		return Math.max(1, Math.min(delay, maxSwapRetryDelayMillis));
 	}
 
 	/**
@@ -1034,10 +1085,13 @@ public class PgDataset implements Dataset {
 	}
 
 	/**
-	 * Sets the lock timeout of the last attempt to lock the data table (a PostgreSQL interval). Intended for tests.
+	 * Sets the maximum time the attempts to lock the data table are retried, the maximum delay between two attempts,
+	 * and the minimum time between two log messages with the lock holders. Intended for tests.
 	 */
-	void setFinalSwapLockTimeout(String timeout) {
-		this.finalSwapLockTimeout = timeout;
+	void setSwapLockWaitLimit(long waitLimitMillis, long maxRetryDelayMillis, long holdersLogIntervalMillis) {
+		this.swapLockWaitLimitMillis = waitLimitMillis;
+		this.maxSwapRetryDelayMillis = maxRetryDelayMillis;
+		this.lockHoldersLogIntervalMillis = holdersLogIntervalMillis;
 	}
 
 	private static void executeDdl(Statement stmt, String sql) throws SQLException {
