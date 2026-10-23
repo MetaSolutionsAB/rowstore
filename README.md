@@ -117,7 +117,9 @@ In order for RowStore to be able to properly process CSV files, some conventions
 
 The API consists of a status resource and resources for handling datasets.
 
-With a few exceptions, all resources respond with JSON. CSV uploads must be sent with `Content-Type: text/csv`, alias updates with `Content-Type: application/json`.
+With a few exceptions, all resources respond with JSON, whatever the `Accept` header (no HTTP 406). CSV uploads are sent with `Content-Type: text/csv` or without Content-Type (other types get HTTP 415); alias updates are read as a JSON array whatever their Content-Type.
+
+As in 1.x, clients that cannot set headers or methods can tunnel them: the query parameter `media` replaces the `Accept` header (a file extension such as `json`, `csv`, `html` or a media type, e.g. `/dataset/{id}/export?media=csv`), and the query parameter `method` or the header `X-HTTP-Method-Override` replaces the method of a `POST` request (e.g. `POST /dataset/{id}?method=PUT` replaces the data). Other methods are never tunnelled.
 
 ### /datasets
 
@@ -145,7 +147,9 @@ The query engine tries to optimize queries by detecting whether a query value co
 
 Queries are subject to an eventually configured query timeout, see configuration section. If a query exceeds the configured timeout the running request to the database is interrupted and HTTP status 503 is returned. Requests for a dataset (`/dataset/{id}` and its sub-resources) also get HTTP 503 if the database cannot be reached, if no database connection becomes available within `connectionWaitTimeout`, or if the dataset is locked (e.g. by a replace waiting for a long export) for longer than `queryLockTimeout` (see [Database connections](#database-connections)).
 
-The parameter `_callback` (JSONP in 1.x) is accepted and ignored: responses are always plain JSON.
+The parameter `_callback` (JSONP in 1.x) is accepted and ignored: responses are always plain JSON. The parameters `media`, `charset`, `encoding` and `language` are no filters either (see above), unless the dataset has a column of that name.
+
+As in 1.x, parameter names and values are trimmed (`name=Bo%20` matches `Bo`), and regular expression characters such as `^`, `|`, `[`, `{` and `\` may be sent unencoded. Non-ASCII characters must be percent-encoded. A query string with a malformed percent-encoding (e.g. `name=100%`) is rejected with HTTP 400. Regular expressions are not restricted; their run time is limited by `querytimeout`.
 
 ### /dataset/{id}/info
 
@@ -187,7 +191,7 @@ Aliases may only contain alpha-numeric characters (including Unicode) and may be
 
 ### Further dataset resources
 
-- `GET http://{base-url}/dataset/{id}/export` - Exports all rows as JSON (`Accept: application/json`) or CSV (`Accept: text/csv`). If the export cannot start, HTTP 500 is returned (503 if no export connection becomes available in time). A failure after streaming has started aborts the connection, so an incomplete export is recognizable as an incomplete transfer.
+- `GET http://{base-url}/dataset/{id}/export` - Exports all rows as JSON (`Accept: application/json`, the default) or CSV (`Accept: text/csv` or another text type, or `?media=csv`). If the export cannot start, HTTP 500 is returned (503 if no export connection becomes available in time). A failure after streaming has started aborts the connection, so an incomplete export is recognizable as an incomplete transfer.
 - `GET http://{base-url}/dataset/{id}/swagger` - OpenAPI description of the dataset's query interface.
 - `GET http://{base-url}/dataset/{id}/html` - Web interface for browsing the dataset.
 
@@ -429,6 +433,8 @@ The reverse proxy MUST:
 - authenticate all requests with methods other than `GET` and `HEAD`;
 - deny public access to `/actuator` and `/actuator/**`, `/swagger-ui.html` and `/swagger-ui/**`, `/v3/api-docs` and `/v3/api-docs/**` (including `/v3/api-docs.yaml`), and `/status?jvm` (any `/status` request with a `jvm` parameter; plain `/status` is public). In RowStore 2.0 these are served on the application port (8282), so blocking them at the proxy is the only protection. RowStore rejects request paths containing `;` with 400 (path parameters would otherwise bypass such path rules, e.g. `/v3;x/api-docs`); the proxy should reject them as well, as defence in depth;
 - set `X-Forwarded-For` (append the client address or replace the header with it) and, if `trustedproxies` is configured, be listed there (see [Configuration](#properties)), so that the per-client rate limit applies to the real client and cannot be influenced by clients.
+
+A `POST` request can be tunnelled to `PUT` or `DELETE` with the query parameter `method` or the header `X-HTTP-Method-Override` (see [REST API](#rest-api)). Since the proxy authenticates `POST` like `PUT` and `DELETE`, this does not open the private API. A proxy that authorizes methods differently (e.g. allows `POST` to more users than `DELETE`) must reject or strip the `method` parameter and the `X-HTTP-Method-Override` header of `POST` requests. `GET` and `HEAD` requests are never tunnelled.
 
 CORS: by default all origins are allowed (`*`). This is acceptable only under the contract above: the read API is public anyway, and RowStore never sends `Access-Control-Allow-Credentials`, so web pages of other origins cannot use a browser's proxy credentials to read responses of the private API. To allow only known web applications to call RowStore from browsers, list their origins in `rowstore.json`, e.g. `"cors": { "allowedorigins": ["https://app.example.com"] }`. CORS is handled before the rate limit, so rate-limited responses (429) carry CORS headers, and preflight requests (`OPTIONS`) are answered without counting towards the rate limit.
 

@@ -62,6 +62,20 @@ RowStore 2.0 is a rewrite of the application layer on Spring Boot. The REST API 
 
 [ROWS-148](https://metasolutions.atlassian.net/browse/ROWS-148) Unbounded concurrent database connections per instance with virtual threads (cap connections without idle pooling)
 
+[ROWS-151](https://metasolutions.atlassian.net/browse/ROWS-151) Unencoded regex characters (^ | [ ] { } \ " < >) in the query string are rejected by Tomcat with 400
+
+[ROWS-152](https://metasolutions.atlassian.net/browse/ROWS-152) A query filter with a malformed percent-encoding is silently dropped, so the response contains rows that do not match
+
+[ROWS-153](https://metasolutions.atlassian.net/browse/ROWS-153) isSafeRegex rejects common regular expressions and literal values longer than 200 characters with 400
+
+[ROWS-155](https://metasolutions.atlassian.net/browse/ROWS-155) JSON endpoints return 406 for Accept headers that 1.x answered with JSON (e.g. application/ld+json, text/plain)
+
+[ROWS-156](https://metasolutions.atlassian.net/browse/ROWS-156) Uploads without Content-Type and alias updates with a non-JSON Content-Type are rejected with 415
+
+[ROWS-157](https://metasolutions.atlassian.net/browse/ROWS-157) Query parameter names and values are no longer trimmed (trailing space or '+' returns no results)
+
+[ROWS-158](https://metasolutions.atlassian.net/browse/ROWS-158) Restlet tunnel parameters are ignored silently: export?media=csv returns JSON, POST ?method=PUT appends instead of replacing
+
 [ROWS-159](https://metasolutions.atlassian.net/browse/ROWS-159) A replace or column-name cleanup waiting up to 30 min for the table lock can exhaust the instance's query connections (503 for all datasets)
 
 [ROWS-160](https://metasolutions.atlassian.net/browse/ROWS-160) RowStore does not start if the database is unreachable at startup (1.x started and recovered)
@@ -99,6 +113,9 @@ Changes visible to operators and clients when upgrading from 1.7:
 - **Export:** CSV exports have one cell per header column, in header order. Rows with duplicate values keep all their cells (1.7 dropped repeated values and shifted the following columns to the left), and rows with fewer cells than the header get empty cells (1.7 silently dropped such rows and could end the export early). If the rows of a dataset, or for CSV its column names, cannot be read, the export returns HTTP 500 instead of 200 with an empty or partial body. A database failure after streaming has started aborts the connection, so clients see an incomplete transfer instead of a body that looks complete (1.7 always ended a JSON export with `]`). Like 1.7, exports have no overall time limit.
 - **Per-client rate limit:** the client address is the last `X-Forwarded-For` entry, which the reverse proxy appends or sets; entries further left are ignored, so clients can no longer choose their rate limit key (1.7 used the whole header as written by the client). This works without configuration for a proxy on any address, since RowStore must only be reachable through it. `trustedproxies` (new) restricts `X-Forwarded-For` to listed proxies, e.g. for several proxies in a chain, and `[]` ignores it.
 - **Path parameters:** request paths containing `;` are rejected with HTTP 400.
+- **Query strings:** as in 1.7, regex characters such as `^`, `|`, `[`, `{` and `\` may be sent unencoded, and parameter names and values are trimmed (`?name=Bo%20` matches `Bo`). Non-ASCII characters must be percent-encoded (browsers do this); unencoded, they are rejected with HTTP 400. A query string with a malformed percent-encoding (e.g. `?name=100%` or `%zz`) is rejected with HTTP 400 (1.7 returned no rows or HTTP 500).
+- **Content negotiation:** as in 1.7, requests are never answered with HTTP 406: JSON resources return JSON for any `Accept` header, and `/dataset/{id}` and the export fall back to the representation of the same top-level type (e.g. `text/plain` redirects to the HTML view or exports CSV). One difference: `GET /dataset/{id}` with HTML and JSON accepted with the same quality (e.g. `Accept: text/html, application/json`) redirects to the HTML view (1.7 returned JSON); send `Accept: application/json` or use `/dataset/{id}/json` to get JSON.
+- **Tunnelling:** as in 1.7, the query parameter `media` sets the requested format (e.g. `/export?media=csv`), and the method of a POST request can be replaced with the query parameter `method` or the header `X-HTTP-Method-Override` (e.g. `POST /dataset/{id}?method=PUT` replaces the data). Unlike 1.7, the method of GET, HEAD, PUT and DELETE requests is never replaced (1.7 honoured `X-HTTP-Method-Override` on any request, so a `GET` could become a `DELETE` past a proxy that authenticates only non-GET requests), and an unsupported tunnelled method (e.g. `PATCH`) is rejected with HTTP 400. A proxy that authorizes POST for more users than PUT or DELETE must strip `method` and `X-HTTP-Method-Override` (see the README). The parameters `media`, `charset`, `encoding` and `language` are ignored as filters, unless the dataset has a column of that name, which they now filter (1.7 dropped such filters and returned all rows).
 
 ## 1.7 (2025-07-01)
 

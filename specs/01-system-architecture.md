@@ -61,10 +61,12 @@ Covers the system from a structural and architectural perspective. For detailed 
 >   → AccessLogFilter (one log line per request after its completion, DEPL-6.02)
 >     → PathParameterFilter (400 for ";" in the request path, SEC-4.11)
 >       → CorsFilter (CORS headers, preflight requests)
->         → TrustedProxyFilter (client address from X-Forwarded-For if the peer is a trusted proxy, by default any peer)
->           → RateLimitFilter (optional, if configured)
->             → DispatcherServlet
->               → Controller handler method
+>         → ParameterParsingFilter (400 for a query string that cannot be decoded, QUERY-9.04)
+>           → TrustedProxyFilter (client address from X-Forwarded-For if the peer is a trusted proxy, by default any peer)
+>             → TunnelFilter (media parameter replaces Accept, method tunnel of POST requests, API-4.05, API-4.06)
+>               → RateLimitFilter (optional, if configured)
+>                 → DispatcherServlet
+>                   → Controller handler method
 > ```
 > The `RateLimitFilter` is only active when rate limiting is enabled (timerange > 0 AND (global > 0 OR dataset > 0)). `CorsFilter` runs before it, so `429` responses carry CORS headers. There is no authentication filter; authentication is done by the reverse proxy ([SEC-9](07-security.md#sec-9-reverse-proxy-contract)).
 
@@ -153,3 +155,4 @@ Covers the system from a structural and architectural perspective. For detailed 
 | 2026-10-21 | ARCH-5.01: TrustedProxyFilter trusts the connecting peer by default |
 | 2026-10-23 | ARCH-7.03: a replace blocks requests for the dataset for at most one short lock attempt (ETL-6.04, ROWS-159); ARCH-7.07: warning when 2.0 pools where 1.x did not, no leak detection; ARCH-7.08: waiting for the database at startup (ROWS-160); ARCH-7.09: Retry-After and logging of 503 responses (ROWS-167) |
 | 2026-10-23 | ARCH-5.01: AccessLogFilter first (ROWS-166) |
+| 2026-10-23 | ARCH-5.01: ParameterParsingFilter and TunnelFilter added (ROWS-152, ROWS-158) |

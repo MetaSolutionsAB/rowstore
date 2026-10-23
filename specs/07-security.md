@@ -32,7 +32,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-4.03** **Query parameters**: Validated against the dataset's column names. Unrecognized parameters (not matching a column name or special parameter) return **400 Bad Request**.
 
-> **SEC-4.04** **CSV Content-Type**: Upload endpoints enforce `text/csv` content type. Non-CSV content types return **415 Unsupported Media Type**.
+> **SEC-4.04** **CSV Content-Type**: Upload endpoints accept the content type `text/csv` (case-insensitive, any parameters) or no Content-Type header, as in 1.x. Other content types return **415 Unsupported Media Type**.
 
 > **SEC-4.05** **Empty query values**: Filter parameters with empty values (e.g., `?column=`) return **400 Bad Request**.
 
@@ -40,7 +40,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-4.07** **Data table name validation**: Data table names are validated against the regex pattern `data_[a-f0-9]{32}` before use in any SQL operation. This prevents SQL injection through malicious table names stored in the database.
 
-> **SEC-4.08** **ReDoS protection**: Regex filter values are validated by `DatasetUtil.isSafeRegex()` before being passed to PostgreSQL. Patterns exceeding a maximum length or matching known dangerous patterns are rejected with **400 Bad Request**.
+> **SEC-4.08** [REMOVED] (2026-10-23) **ReDoS protection**: regex filter values were validated by `DatasetUtil.isSafeRegex()`, which rejected patterns longer than 200 characters or matching supposedly dangerous constructs with 400. The check rejected common regular expressions (e.g. `^(B|C)(o|e)*`) and, in full mode, long literal values detected as regex (e.g. URLs) that 1.x accepted, while PostgreSQL's regex engine is not susceptible to catastrophic backtracking. The run time of queries is limited by `querytimeout`, see [QUERY-4.05](05-querying.md#query-4-regex-modes) (ROWS-153).
 
 > **SEC-4.09** **Upload size limit**: CSV uploads are limited to `maxuploadsize` bytes (default 100 MB, configurable). Uploads exceeding this limit are rejected.
 
@@ -95,6 +95,8 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-9.04** The reverse proxy is the only component that sets `X-Forwarded-For` towards RowStore: it appends the client address or replaces the header with it. If `trustedproxies` is set, the proxy's address must be listed ([CFG-3.11](06-configuration.md#cfg-3-application-options), [SEC-5.05](#sec-5-rate-limiting)), otherwise the per-client-IP rate limit is keyed on the proxy address.
 
+> **SEC-9.05** POST requests can be tunnelled to another method with the query parameter `method` or the header `X-HTTP-Method-Override` ([API-4.06](03-api.md#api-4-content-negotiation)), e.g. `POST /dataset/{id}?method=DELETE` deletes the dataset. Since the proxy authenticates POST like every method other than GET and HEAD (SEC-9.02), this does not open the private API. A proxy that authorizes methods differently (e.g. allows POST to more users than DELETE) must reject or strip the `method` parameter and the `X-HTTP-Method-Override` header of POST requests. GET and HEAD requests are never tunnelled.
+
 ## Known Limitations
 
 - No application-level authentication or authorization; the reverse proxy is responsible (SEC-9)
@@ -108,7 +110,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 - [Configuration](06-configuration.md#cfg-6-rate-limit-configuration) — Rate limit configuration options
 - [Glossary](12-glossary.md#glo-1-terms) — Rate Limit (Average), Rate Limit (Sliding Window), CORS
 - [README Security section](../README.md#security) — Reverse proxy requirements and nginx example
-- Source: `PathParameterFilter.java`, `RateLimitFilter.java`, `TrustedProxyFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
+- Source: `PathParameterFilter.java`, `ParameterParsingFilter.java`, `TunnelFilter.java`, `RateLimitFilter.java`, `TrustedProxyFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
 
 ## Change Log
 
@@ -121,3 +123,4 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 | 2026-10-20 | Added SEC-4.11 (path parameters rejected); SEC-9.03 refers to it |
 | 2026-10-20 | SEC-6.01: CORS headers also on 429 responses |
 | 2026-10-21 | SEC-5.06: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); SEC-5.05 and SEC-9.04 accordingly |
+| 2026-10-23 | SEC-4.04: uploads without Content-Type accepted (ROWS-156); SEC-4.08 removed (ROWS-153); added SEC-9.05 (method tunnel, ROWS-158) |

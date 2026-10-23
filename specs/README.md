@@ -181,6 +181,9 @@ Current limitations relevant to this area.
 | API-4.01 | Accept header determines response format |
 | API-4.02 | format param overrides Accept header |
 | API-4.03 | Accept: text/html redirects 303 to /html |
+| API-4.04 | No 406: single-representation resources ignore Accept, fallback by top-level type as in 1.x |
+| API-4.05 | media query parameter replaces the Accept header (Restlet tunnel) |
+| API-4.06 | method parameter / X-HTTP-Method-Override tunnel the method of POST requests only |
 | API-5.01 | Response envelope: results, limit, offset, resultCount, queryTime, prev, next |
 | API-6.01 | Success: 200, 202, 204 |
 | API-6.02 | Client errors: 400, 404, 415 |
@@ -240,15 +243,18 @@ Current limitations relevant to this area.
 | QUERY-1.01 | Column filters via query params with regex and pagination |
 | QUERY-2.01 | Case-insensitive column name matching |
 | QUERY-2.02 | Unrecognized params → 400 |
+| QUERY-2.03 | Names and values trimmed, empty names skipped, last value of repeated params (as in 1.x) |
 | QUERY-3.01 | _limit: default 100, max from querymaxlimit |
 | QUERY-3.02 | _offset: default 0, negatives corrected to 0 |
 | QUERY-3.03 | [REMOVED] _callback: JSONP function name — JSONP removed |
 | QUERY-3.04 | format: response format override |
 | QUERY-3.05 | _callback: reserved, accepted and ignored (no JSONP wrapping) |
+| QUERY-3.06 | media, charset, encoding, language: tunnel params, not filters unless a column has the name |
 | QUERY-4.01 | disabled: exact match only (=) |
 | QUERY-4.02 | simple: ^-prefixed values become regex (~) |
 | QUERY-4.03 | full: heuristic detection OR ~ prefix forces regex |
 | QUERY-4.04 | Heuristic chars: ^ $ ( \| [ * + { ? / |
+| QUERY-4.05 | Regexes not validated, run time limited by querytimeout; invalid regex → 400 |
 | QUERY-5.01 | Prepared statements: data->>? = ? or data->>? ~ ? |
 | QUERY-6.01 | count(*) OVER() window function for total count |
 | QUERY-6.02 | Prev/next URLs with original query params |
@@ -256,6 +262,8 @@ Current limitations relevant to this area.
 | QUERY-8.01 | getQueryConnection() routes to queryDatabase if configured |
 | QUERY-9.01 | Empty filter values → 400 |
 | QUERY-9.02 | Non-numeric _limit/_offset → 400 |
+| QUERY-9.03 | Unencoded ^ \| [ ] { } \ " < > ` accepted in query strings |
+| QUERY-9.04 | Malformed percent-encoding in the query string → 400 |
 
 ### CFG — Configuration
 
@@ -309,11 +317,11 @@ Current limitations relevant to this area.
 | SEC-4.01 | Dataset IDs: UUID validation |
 | SEC-4.02 | Aliases: alphanumeric only → 400 |
 | SEC-4.03 | Query params: validated against column names → 400 |
-| SEC-4.04 | CSV Content-Type enforced → 415 |
+| SEC-4.04 | CSV Content-Type (or none) required, others → 415 |
 | SEC-4.05 | Empty query values → 400 |
 | SEC-4.06 | _limit/_offset integer validation → 400 |
 | SEC-4.07 | Data table name validation: regex `data_[a-f0-9]{32}` |
-| SEC-4.08 | ReDoS protection: isSafeRegex() validates length and pattern complexity |
+| SEC-4.08 | [REMOVED] ReDoS protection by isSafeRegex() — rejected valid regexes, querytimeout limits queries |
 | SEC-4.09 | Upload size limit: maxuploadsize (default 100 MB) |
 | SEC-4.10 | Alias row locking: SELECT FOR UPDATE prevents concurrent modification |
 | SEC-4.11 | Path parameters (";" in the request path) rejected with 400 |
@@ -330,6 +338,7 @@ Current limitations relevant to this area.
 | SEC-9.02 | Proxy authenticates all non-GET/HEAD requests |
 | SEC-9.03 | Proxy blocks /actuator/**, /swagger-ui*, /v3/api-docs*, /status?jvm (and `;` paths, defence in depth) |
 | SEC-9.04 | Proxy is the only X-Forwarded-For source (and listed in trustedproxies if set) |
+| SEC-9.05 | Method tunnel on POST: proxies authorizing methods differently must strip it |
 
 ### DEPL — Deployment
 

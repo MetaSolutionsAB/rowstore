@@ -18,6 +18,8 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-2.02** Unrecognized query parameters (those not matching any column name or special parameter) cause a **400 Bad Request** response.
 
+> **QUERY-2.03** Query parameters are parsed as in 1.x: names and values are trimmed (leading and trailing characters up to U+0020, e.g. spaces sent as `%20` or `+`), parameters whose name is empty after trimming are skipped, and of a repeated parameter the last value is used. Consequently, `?Name=Bo%20` matches `Bo`, and values with leading or trailing spaces cannot be matched exactly.
+
 ## QUERY-3 Special Parameters
 
 > **QUERY-3.01** `_limit` — Maximum number of rows to return. Default: **100**. Maximum: configured via `querymaxlimit` (default 100). Zero, negative and values above `querymaxlimit` are treated as the default. Non-numeric values return 400.
@@ -29,6 +31,8 @@ Covers the read path from query parameter parsing through SQL execution to respo
 > **QUERY-3.04** `format` — Response format override. Takes precedence over the `Accept` header for content negotiation.
 
 > **QUERY-3.05** `_callback` — Reserved parameter kept for compatibility with 1.x clients. It is accepted and ignored: it is not treated as a column filter and the response is plain JSON (JSONP wrapping was removed in 2.0, see [QUERY-3.03](#query-3-special-parameters)). Like other non-pagination parameters, it is carried over to the `prev`/`next` URLs ([QUERY-6.02](#query-6-pagination)).
+
+> **QUERY-3.06** `media`, `charset`, `encoding` and `language` — Parameters of the TunnelService of Restlet in 1.x, which consumed them for content negotiation ([API-4.05](03-api.md#api-4-content-negotiation)). They are not column filters and not carried over to the `prev`/`next` URLs, unless the dataset has a column of that name, in which case they filter like any column (in 1.x, such a filter was dropped silently and all rows were returned).
 
 ## QUERY-4 Regex Modes
 
@@ -43,6 +47,8 @@ Covers the read path from query parameter parsing through SQL execution to respo
 > Values that don't trigger either mechanism use exact match as an optimization.
 
 > **QUERY-4.04** The heuristic detection checks for the presence of these characters: `` ^ $ ( | [ * + { ? / ``. This is implemented in `DatasetUtil.isRegExpString()`.
+
+> **QUERY-4.05** Regular expressions are passed to PostgreSQL without further validation, as in 1.x; their length and structure are not restricted (see [SEC-4.08](07-security.md#sec-4-input-validation), removed). PostgreSQL's regex engine does not backtrack catastrophically like backtracking engines; the run time of a query is limited by `querytimeout` ([QUERY-7.01](#query-7-query-timeout)). An invalid regular expression returns **400 Bad Request**.
 
 ## QUERY-5 SQL Construction
 
@@ -79,6 +85,10 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-9.02** Non-numeric `_limit` or `_offset` values return **400 Bad Request**.
 
+> **QUERY-9.03** The characters `` ^ | [ ] { } \ " < > ` `` are accepted unencoded in the query string, as in 1.x (Jetty), since browsers and tools such as curl send them unencoded, e.g. in `?name=^Ber` (`server.tomcat.relaxed-query-chars`). Non-ASCII characters must be percent-encoded (as browsers do); Tomcat rejects them unencoded with 400.
+
+> **QUERY-9.04** A query string that cannot be decoded, e.g. because of a malformed percent-encoding such as `?column=100%` or `?column=%zz`, returns **400 Bad Request** (`ParameterParsingFilter`). Tomcat skips such parameters, so the filter would otherwise be dropped silently and non-matching rows returned. In 1.x, such queries returned 0 rows or 500.
+
 ## Known Limitations
 
 - No support for `_sort` parameter (present in code as a TODO, parameter is recognized but not implemented)
@@ -93,7 +103,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 - [Domain Model](02-domain-model.md#dom-5-index-strategy) — Data table schema and indexes
 - [Configuration](06-configuration.md#cfg-3-application-options) — `regexpqueries`, `querytimeout`, `querymaxlimit`
 - [Glossary](12-glossary.md#glo-1-terms) — Query, Regex Mode, Pagination
-- Source: `DatasetController.java`, `PgDataset.java` (query method), `DatasetUtil.java`
+- Source: `DatasetController.java`, `PgDataset.java` (query method), `DatasetUtil.java`, `ParameterParsingFilter.java`, `TunnelFilter.java`
 
 ## Change Log
 
@@ -103,3 +113,4 @@ Covers the read path from query parameter parsing through SQL execution to respo
 | 2026-02-09 | Updated for Spring Boot migration: JSONP _callback removed, source references updated |
 | 2026-10-20 | QUERY-3.01: values above `querymaxlimit` fall back to the default |
 | 2026-10-21 | Added QUERY-3.05: `_callback` accepted and ignored instead of rejected with 400 (ROWS-147) |
+| 2026-10-23 | Added QUERY-2.03 (trimming, ROWS-157), QUERY-3.06 (tunnel parameters, ROWS-158), QUERY-4.05 (no regex validation, ROWS-153), QUERY-9.03 (unencoded characters, ROWS-151), QUERY-9.04 (malformed encodings, ROWS-152) |

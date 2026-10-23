@@ -32,13 +32,13 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.02** `GET /datasets` — Returns a JSON array of all dataset UUIDs. Status 200.
 
-> **API-3.03** `POST /datasets` — Creates a new dataset from an uploaded CSV file. Content-Type must be `text/csv`. Returns 202 Accepted with a JSON body containing `id`, `url`, `status`, and `info` URL. Sets `Location` header to the new dataset URL.
+> **API-3.03** `POST /datasets` — Creates a new dataset from an uploaded CSV file. Content-Type must be `text/csv` (case-insensitive, any parameters) or absent, as in 1.x; other content types return 415. Returns 202 Accepted with a JSON body containing `id`, `url`, `status`, and `info` URL. Sets `Location` header to the new dataset URL.
 
 > **API-3.04** `GET /dataset/{id}` and `GET /dataset/{id}/json` — Queries a dataset with column-name query parameters as filters. Returns a JSON response envelope with `results`, `limit`, `offset`, `resultCount`, `queryTime`, `prev`, and `next`. The `{id}` can be a UUID or an alias. See [05-querying.md](05-querying.md) for filter details.
 
-> **API-3.05** `POST /dataset/{id}` — Appends CSV data to an existing dataset. Column structure must match. Returns 202 Accepted.
+> **API-3.05** `POST /dataset/{id}` — Appends CSV data to an existing dataset. Column structure must match. Content-Type as for API-3.03. Returns 202 Accepted.
 
-> **API-3.06** `PUT /dataset/{id}` — Replaces all data in an existing dataset with new CSV data. The previous data is served until the new data has been loaded successfully and is kept if the load fails (see ETL-6.02, ETL-6.03). Returns 202 Accepted.
+> **API-3.06** `PUT /dataset/{id}` — Replaces all data in an existing dataset with new CSV data. The previous data is served until the new data has been loaded successfully and is kept if the load fails (see ETL-6.02, ETL-6.03). Content-Type as for API-3.03. Returns 202 Accepted.
 
 > **API-3.07** `DELETE /dataset/{id}` — Deletes a dataset, its data table, and all aliases. Only permitted when status is AVAILABLE (3) or ERROR (4). Returns **204 No Content** on success, 423 Locked if dataset is still processing.
 
@@ -51,10 +51,12 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 > - **DELETE**: Removes all aliases
 >
 > Aliases must be alphanumeric only. Invalid aliases return 400.
+>
+> The body of PUT and POST is a JSON array of aliases, read regardless of the Content-Type, as in 1.x (e.g., `fetch()` sends `text/plain` and jQuery `application/x-www-form-urlencoded` by default). A body that is not a JSON array returns 400.
 
-> **API-3.10** `GET /dataset/{id}/export` — Exports the full dataset. Content negotiation determines format:
-> - `Accept: application/json` → JSON array, streamed, flushed every 10,000 rows
-> - `Accept: text/csv` → CSV file, streamed, flushed every 10,000 rows
+> **API-3.10** `GET /dataset/{id}/export` — Exports the full dataset. Content negotiation determines format (API-4.04, API-4.05, e.g. `?media=csv`):
+> - `Accept: application/json` → JSON array, streamed, flushed every 10,000 rows (the default, e.g. without Accept header or with `*/*`)
+> - `Accept: text/csv` → CSV file, streamed, flushed every 10,000 rows (also for other text types, e.g. `text/plain` or `text/html`, as in 1.x)
 >
 > Sets `Content-Disposition` header with filename. Returns 404 if not found, 424 if status is CREATED.
 >
@@ -69,7 +71,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.11** `GET /dataset/{id}/swagger` — Returns a dynamically generated OpenAPI specification for the dataset, with query parameters derived from column names and server configuration.
 
-> **API-3.12** `GET /dataset/{id}/html` — Returns the web GUI for browsing the dataset. Supports `?embed` parameter for minimal iframe-friendly rendering. See [09-ui-ux.md](09-ui-ux.md).
+> **API-3.12** `GET /dataset/{id}/html` — Returns the web GUI for browsing the dataset. Supports `?embed` parameter for minimal iframe-friendly rendering. Always served as `text/html;charset=UTF-8`, regardless of the `Accept` header. See [09-ui-ux.md](09-ui-ux.md).
 
 > **API-3.13** `GET /` — Returns 404 (no root resource).
 
@@ -80,6 +82,12 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 > **API-4.02** The `format` query parameter overrides the `Accept` header when present.
 
 > **API-4.03** `GET /dataset/{id}` with `Accept: text/html` responds with a **303 See Other** redirect to `/dataset/{id}/html`.
+
+> **API-4.04** Requests are never answered with 406 Not Acceptable, as in 1.x. Resources with one representation respond with it regardless of the `Accept` header: the JSON resources (`/status`, `/datasets`, `/dataset/{id}/json`, `/info`, `/aliases`, `/swagger`) with `application/json` (e.g., also for `Accept: application/ld+json`, `text/plain` or `text/html`) and `/dataset/{id}/html` with `text/html`. For resources with two representations (`/dataset/{id}`: HTML redirect and JSON; `/dataset/{id}/export`: JSON and CSV), the representation with the highest quality in the `Accept` header is selected (the quality of a representation is that of the most specific media range including it; on equal quality the more specific match, then the first representation listed here). If the `Accept` header accepts neither, the first representation with the same top-level type as an accepted media type is selected (e.g., `text/plain` selects the HTML redirect or the CSV export, `application/xml` JSON), otherwise the first one. Without `Accept` header, the first one is selected.
+
+> **API-4.05** The query parameter `media` replaces the `Accept` header, as the TunnelService of Restlet did in 1.x, e.g., `/dataset/{id}/export?media=csv` for download links. Its value is a file extension (`json`, `csv`, `html`, `htm`, `txt`, `xml`) or a media type (e.g., `text/csv`); other values are ignored. Together with `charset`, `encoding` and `language`, which were consumed by the TunnelService as well, it is not a column filter, see [QUERY-3.06](05-querying.md#query-3-special-parameters).
+
+> **API-4.06** The method of a POST request can be replaced with the query parameter `method` or the header `X-HTTP-Method-Override` (the header takes precedence), as the TunnelService of Restlet did in 1.x, e.g., `POST /dataset/{id}?method=PUT` replaces the data. Accepted values (case-insensitive) are `GET`, `HEAD`, `POST`, `PUT`, `DELETE` and `OPTIONS`; other values return 400, so that the request is not processed as a POST. The parameter is read from the query string only, not from a form body. Unlike in 1.x, the method of other requests is never replaced, since the reverse proxy authenticates all requests other than `GET` and `HEAD` ([SEC-9.05](07-security.md#sec-9-reverse-proxy-contract)).
 
 ## API-5 Response Envelope
 
@@ -165,3 +173,4 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-10-20 | API-3.06: a replace keeps serving the previous data until it succeeds and keeps it if it fails |
 | 2026-10-21 | API-3.14: connection budget usage in `/status`; API-6.05: connection wait timeouts yield 503 |
 | 2026-10-21 | API-3.15: `queuedEtlProcesses` in `/status` and health |
+| 2026-10-23 | API-3.03, API-3.05, API-3.06: uploads without Content-Type are accepted; API-3.09: alias bodies are read regardless of the Content-Type; API-3.10, API-3.12, API-4.04: no 406, fallback negotiation as in 1.x; API-4.05, API-4.06: `media` and method tunnel (ROWS-155, ROWS-156, ROWS-158) |

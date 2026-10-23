@@ -8,17 +8,18 @@ This folder contains test specifications for the RowStore REST API. These specif
 |------|-------------|------------|
 | `01-status.md` | Status endpoint (`/status`) including JVM metrics | 5 |
 | `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 1 |
-| `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases, storage schema | 22 |
+| `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases (any Content-Type), storage schema | 24 |
 | `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines, byte order marks | 47 |
-| `05-querying.md` | Query functionality: filters, pagination, regex modes, reserved `_callback` parameter (JSONP test cases retired) | 31 |
-| `06-export.md` | JSON/CSV export endpoints | 16 |
+| `05-querying.md` | Query functionality: filters, pagination, regex modes, reserved `_callback` parameter (JSONP test cases retired), query string parsing (unencoded characters, malformed encodings, trimming, tunnel parameters) | 40 |
+| `06-export.md` | JSON/CSV export endpoints | 17 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
-| `08-error-handling.md` | Error codes: 400, 404, 423, 424, path parameters, corrupt CSV | 22 |
+| `08-error-handling.md` | Error codes: 400, 404, 415, 423, 424, path parameters, upload content types, corrupt CSV | 24 |
 | `09-rate-limiting.md` | Rate limiting (429), client address via trusted proxies - requires separate profiles | 11 |
 | `10-configuration.md` | rowstore.json validation and data source settings (unit and integration tests) | 13 |
 | `11-etl-processing.md` | ETL scheduling, shutdown, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 57 |
 | `12-connection-limits.md` | Connection budgets: FIFO waiting, wait timeouts (503), usage in `/status`, one connection per request, lock timeouts, health checks, startup without a reachable database, 503 responses (unit and integration tests) | 35 |
 | `13-deployment.md` | Command line and configuration location checks, access log (unit and integration tests) | 11 |
+| `14-http-compatibility.md` | Content negotiation without 406 and method tunnelling as in 1.x | 9 |
 
 Test counts are the number of test case IDs per file; a heading that covers a range (e.g. `TC-CSV-017 to TC-CSV-022`) counts each ID, and test cases marked `[REMOVED]` are not counted.
 

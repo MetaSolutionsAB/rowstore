@@ -197,6 +197,25 @@ Note: UUID-like aliases might be rejected to prevent confusion with actual datas
 3. `GET /dataset/{id}?Name=a;b` returns `200` (`;` in the query string is not a path parameter)
 4. `GET /dataset/{id}%3Bx` returns `404` (encoded `;` is not a delimiter, the ID does not exist)
 
+### TC-ERROR-019: Uploads without Content-Type are read as CSV
+
+Spec: API-3.03, SEC-4.04
+
+**Steps** (requests without Content-Type header, CSV `name,n` / `a,1` / `b,2`):
+1. `POST /datasets` → `202` with `Location`; once available, `rowcount` is 2
+2. `POST /dataset/{id}` → `202`; once available, `rowcount` is 4
+3. `PUT /dataset/{id}` → `202`; once available, `rowcount` is 2
+4. `POST /datasets` without Content-Type and without body → `400`
+
+### TC-ERROR-020: Uploads with another Content-Type than text/csv are rejected with 415
+
+Spec: SEC-4.04
+
+**Requests:** `POST /datasets` with a CSV body and Content-Type `text/plain`, `application/octet-stream` or `application/json`
+
+**Expected Response:**
+- Status: `415`
+
 ## Corrupt CSV Error Handling
 
 These tests are in `DatasetCorruptIT.java`.
