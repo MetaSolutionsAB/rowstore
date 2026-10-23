@@ -22,6 +22,8 @@ Covers the JSON configuration file format, all application and database options,
 >
 > Unknown keys are ignored.
 
+> **CFG-1.03** If no configuration is found, if it cannot be read (e.g., the file does not exist), or if it is invalid (CFG-1.02), RowStore logs one error message naming the problem, without a stack trace (`RowStoreConfigFailureAnalyzer`), and exits with code 1.
+
 ## CFG-2 Resolution Order
 
 > **CFG-2.01** The configuration file is resolved in this order:
@@ -29,7 +31,7 @@ Covers the JSON configuration file format, all application and database options,
 > 2. `ROWSTORE_CONFIG_URI` environment variable
 > 3. `rowstore.json` from the classpath (fallback)
 
-> **CFG-2.02** The URI supports these schemes: `file://`, `http://`, `https://`. Relative file paths are resolved against the working directory.
+> **CFG-2.02** The location is a URI with the scheme `file://`, `http://` or `https://`, or a file path (e.g. `/etc/rowstore/rowstore.json`, `conf/rowstore.json`). Relative file paths are resolved against the working directory.
 
 ## CFG-3 Application Options
 
@@ -59,6 +61,8 @@ Covers the JSON configuration file format, all application and database options,
 > **CFG-3.10** `cors.allowedorigins` (JSON array, default `["*"]`) — List of allowed origins for CORS. When set to `["*"]`, all origins are permitted. See [SEC-6.01](07-security.md#sec-6-cors).
 
 > **CFG-3.11** `trustedproxies` (JSON array of strings) — IP addresses (`"192.0.2.10"`, `"::1"`) and CIDR ranges (`"10.0.0.0/8"`, `"fd00::/8"`) of reverse proxies whose `X-Forwarded-For` header is trusted for determining the client address (per-client-IP rate limit). Only IP literals are accepted, no host names. When absent (default), the connecting peer is trusted as the reverse proxy, since RowStore must only be reachable through it ([SEC-9.01](07-security.md#sec-9-reverse-proxy-contract)), and the last `X-Forwarded-For` entry is the client address. A list is needed if requests pass through more than one proxy whose addresses are not resolved before RowStore (e.g. a load balancer in front of nginx without nginx's real IP module), or to accept `X-Forwarded-For` only from known proxies. An empty array `[]` trusts nobody: `X-Forwarded-For` is always ignored. See [SEC-5.05](07-security.md#sec-5-rate-limiting) and [SEC-5.06](07-security.md#sec-5-rate-limiting).
+
+> **CFG-3.12** `accesslog` (boolean, default `true`) — Logs one line per request at INFO level in the format of 1.x (DEPL-6.02). `false` turns the access log off.
 
 ## CFG-4 Database Configuration
 
@@ -127,11 +131,13 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-7.04** [REMOVED] `--connector-params` — Jetty connector parameters. Jetty has been replaced by embedded Tomcat.
 
+> **CFG-7.05** RowStore only takes arguments of the form `--name=value` (or `--name`). Any other argument prevents the startup with a message on standard error and exit code 1, so that options of 1.x are not ignored silently: `-c`/`--config`, `-p`/`--port`, `-l`/`--log-level`, `--connector-params` and `-h`/`--help` name their replacement (`--rowstore.config.uri`, `--server.port`, `loglevel`, `maxQueryConnections`), other arguments (e.g. a bare port or URI) the expected form.
+
 ## CFG-8 Environment Variables
 
 > **CFG-8.01** `ROWSTORE_CONFIG_URI` — Configuration file URI. Used when no `--rowstore.config.uri` property is provided.
 
-> **CFG-8.02** [REMOVED] `ROWSTORE_CONNECTOR_PARAMS` — Jetty connector parameters. Jetty has been replaced by embedded Tomcat.
+> **CFG-8.02** [REMOVED] `ROWSTORE_CONNECTOR_PARAMS` — Jetty connector parameters. Jetty has been replaced by embedded Tomcat. If the variable is set, a WARN is logged at startup that it is ignored.
 
 ## CFG-9 Annotated Example
 
@@ -197,7 +203,7 @@ Covers the JSON configuration file format, all application and database options,
 - [Security](07-security.md#sec-5-rate-limiting) — Rate limit behavior, trusted proxies
 - [Deployment](08-deployment.md#depl-1-spring-boot-standalone) — CLI usage and deployment
 - [Glossary](12-glossary.md#glo-1-terms) — Read Replica, Rate Limit, CORS
-- Source: `RowStoreConfig.java`, `RowStoreConfigLoader.java`, `TrustedProxyFilter.java`
+- Source: `RowStoreConfig.java`, `RowStoreConfigLoader.java`, `RowStoreConfigFailureAnalyzer.java`, `RowStoreApplication.java`, `TrustedProxyFilter.java`
 
 ## Change Log
 
@@ -215,3 +221,4 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-10-21 | CFG-4.02: sslmode prefer when `ssl` is not set (as in 1.7); CFG-3.09: no unlimited upload size |
 | 2026-10-21 | CFG-3.11: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); CFG-6.03 accordingly |
 | 2026-10-23 | CFG-4.03: warning when pooling where 1.x did not (ROWS-167) |
+| 2026-10-23 | Added CFG-1.03 (configuration failures without stack trace), CFG-3.12 (`accesslog`), CFG-7.05 (unsupported arguments); CFG-2.02: file paths; CFG-8.02: warning if set (ROWS-161, ROWS-166) |

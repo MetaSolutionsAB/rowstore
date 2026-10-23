@@ -16,8 +16,9 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `08-error-handling.md` | Error codes: 400, 404, 423, 424, path parameters, corrupt CSV | 22 |
 | `09-rate-limiting.md` | Rate limiting (429), client address via trusted proxies - requires separate profiles | 11 |
 | `10-configuration.md` | rowstore.json validation and data source settings (unit and integration tests) | 13 |
-| `11-etl-processing.md` | ETL scheduling, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 55 |
+| `11-etl-processing.md` | ETL scheduling, shutdown, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 57 |
 | `12-connection-limits.md` | Connection budgets: FIFO waiting, wait timeouts (503), usage in `/status`, one connection per request, lock timeouts, health checks, startup without a reachable database, 503 responses (unit and integration tests) | 35 |
+| `13-deployment.md` | Command line and configuration location checks, access log (unit and integration tests) | 11 |
 
 Test counts are the number of test case IDs per file; a heading that covers a range (e.g. `TC-CSV-017 to TC-CSV-022`) counts each ID, and test cases marked `[REMOVED]` are not counted.
 
@@ -145,11 +146,12 @@ Dataset creation and modification are asynchronous. Tests should:
 | Error Handling | 22 |
 | Rate Limiting | 11 |
 | Configuration | 13 |
-| ETL Processing | 52 |
+| ETL Processing | 54 |
 | Connection Limits | 28 |
-| **Total** | **259** |
+| Deployment | 11 |
+| **Total** | **272** |
 
-Note: The specifications define 259 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 272 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 

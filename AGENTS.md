@@ -32,10 +32,12 @@ Docker image (the `Dockerfile` copies `target/rowstore-*.jar`, so build the JAR 
 ```bash
 mvn -Dmaven.test.skip=true install
 docker build -t rowstore .
-docker run -p 8282:8282 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json rowstore
+docker run -p 8282:8282 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json --stop-timeout 70 rowstore
 ```
 
-The image reads its configuration from `/srv/rowstore/rowstore.json` by default.
+The image reads its configuration from `/srv/rowstore/rowstore.json` (env `ROWSTORE_CONFIG_URI`), runs as the
+non-root user `rowstore` (UID 10001), honours `JAVA_OPTS` and passes `docker run` arguments to RowStore (DEPL-2.04).
+`main` rejects arguments that are not of the form `--name=value` (CFG-7.05), so 1.x options do not pass silently.
 
 Release versions are set with `./set-version.sh <version>`, which updates `pom.xml`, `VERSION.txt` and
 `src/main/resources/VERSION.txt` (served by `/status`).
@@ -98,7 +100,7 @@ All packages are below `org.entrystore.rowstore` in `src/main/java`.
 - `RowStoreApplication` - Spring Boot entry point (`@SpringBootApplication`)
 
 **Configuration** (`config/`):
-- `RowStoreConfigLoader` - Bridges `rowstore.json` into Spring: loads the file and exposes it as a `RowStoreConfig` bean (not `application.properties`)
+- `RowStoreConfigLoader` - Bridges `rowstore.json` into Spring: loads the file and exposes it as a `RowStoreConfig` bean (not `application.properties`); configuration failures are `RowStoreConfigException`s, reported without stack trace by `RowStoreConfigFailureAnalyzer` (CFG-1.03)
 - `DataSourceConfig` - Creates the primary and the read-only query `DataSource` programmatically from `rowstore.json` (`PGSimpleDataSource` by default, HikariCP when `connectionPoolMax` > 0) and runs Flyway migrations programmatically (Spring's DataSource and Flyway auto-configuration are disabled); at startup, `StartupRetry` waits for a database that is not reachable yet (ARCH-7.08)
 - `CorsConfig` - CORS filter (`FilterRegistrationBean`) with origins from `cors.allowedorigins`
 - `DatabaseExceptionHandler` - Maps database connectivity failures in controllers to 503 with `Retry-After` (instead of 404/500)
@@ -134,7 +136,7 @@ exhausted budget until the wait timeout. Budget usage is reported by `/status` (
 `PgDataset.populate()` loads a CSV in a single transaction. An append inserts into the data table; a replace (PUT)
 loads into a shadow table `<dataTable>_new` and swaps it for the data table at the end of the same transaction, so
 the previous data is served during the load and kept if it fails (see ETL-6 in `specs/04-etl-pipeline.md`).
-At startup, `PgRowStore` sets datasets left in PROCESSING to ERROR, drops leftover shadow tables, and starts a
+At startup, `PgRowStore` sets datasets left in PROCESSING or ACCEPTED_DATA to ERROR (ETL-8.06), drops leftover shadow tables, and starts a
 background cleanup of column names stored before 2.0 with a byte order mark or soft hyphens (ETL-11), unless a
 completed run is recorded in `maintenance_tasks` (ETL-11.07).
 
@@ -146,10 +148,11 @@ completed run is recorded in `maintenance_tasks` (ETL-11.07).
 - `EtlStatus` - Status constants (CREATED=0, ACCEPTED_DATA=1, PROCESSING=2, AVAILABLE=3, ERROR=4)
 
 **Filters** (`filters/`), in this order (CORS is registered in `CorsConfig`):
-1. `PathParameterFilter` - Rejects request paths containing `;` (path parameters) with 400
-2. `CorsFilter` - CORS headers, also on responses of the filters below (e.g. 429)
-3. `TrustedProxyFilter` - Takes the client address from `X-Forwarded-For`: by default the last entry, written by the connecting peer (the reverse proxy); with `trustedproxies`, only for listed peers, walked from the right
-4. `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
+1. `AccessLogFilter` - Access log in the 1.x format after the response is complete, also for async responses (DEPL-6.02); resolves the client address through `TrustedProxyFilter`, so that requests rejected by the filters below are logged with it
+2. `PathParameterFilter` - Rejects request paths containing `;` (path parameters) with 400
+3. `CorsFilter` - CORS headers, also on responses of the filters below (e.g. 429)
+4. `TrustedProxyFilter` - Takes the client address from `X-Forwarded-For`: by default the last entry, written by the connecting peer (the reverse proxy); with `trustedproxies`, only for listed peers, walked from the right
+5. `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
 
 **Utilities** (`util/`):
 - `DatasetUtil` - Dataset URL building, charset detection, byte order mark skipping, regex heuristics and safety checks
@@ -192,7 +195,7 @@ Behaviour that is easy to break or to rely on by mistake:
   column privileges, membership in publications that list the table. Views on a data table make every replace fail.
   Do not keep state on a data table; use the registry tables (`datasets`, `aliases`, Flyway migrations).
 - **One RowStore instance per database.** ETL queues are in memory, a dataset in PROCESSING without a load in this
-  instance is taken over, and startup resets PROCESSING to ERROR (ETL-8.05, ETL-8.06). Code must not assume
+  instance is taken over, and startup resets PROCESSING and ACCEPTED_DATA to ERROR (ETL-8.05, ETL-8.06). Code must not assume
   coordination between instances (ROWS-149).
 - **The final status of a load must not depend on reading the database.** `populate()` tracks the outcome locally and
   writes AVAILABLE or ERROR with retries (ETL-10.01), because the database may be unreachable when a load fails.

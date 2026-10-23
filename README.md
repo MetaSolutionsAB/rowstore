@@ -63,23 +63,33 @@ java -jar rowstore-<version>.jar --rowstore.config.uri=file:///path/to/rowstore.
 
 The configuration file (see [Configuration](#configuration)) is looked up in this order:
 
-1. the `--rowstore.config.uri=<URI>` argument (`file://`, `http://` or `https://` URI),
-2. the environment variable `ROWSTORE_CONFIG_URI` (same format), e.g. `ROWSTORE_CONFIG_URI=file:///etc/rowstore/rowstore.json java -jar rowstore-<version>.jar`,
+1. the `--rowstore.config.uri=<location>` argument: a `file://`, `http://` or `https://` URI, or a file path (relative paths are resolved against the working directory),
+2. the environment variable `ROWSTORE_CONFIG_URI` (same format), e.g. `ROWSTORE_CONFIG_URI=/etc/rowstore/rowstore.json java -jar rowstore-<version>.jar`,
 3. a file `rowstore.json` on the classpath.
 
-If no configuration is found or it is invalid, RowStore does not start. RowStore listens on port 8282; use `--server.port=<port>` to change it (other Spring Boot properties can be passed the same way). At startup, RowStore creates or migrates its tables with Flyway; an existing 1.x database is adopted as it is. When upgrading from 1.x, read the upgrade notes of version 2.0 in `CHANGELOG.md`.
+If no configuration is found, or if it cannot be read or is invalid, RowStore logs one error message naming the problem and does not start (exit code 1). RowStore listens on port 8282; use `--server.port=<port>` to change it (other Spring Boot properties can be passed the same way). RowStore only takes arguments of the form `--name=value`; any other argument, including the options of 1.x (`-c`/`--config`, `-p`/`--port`, `-l`/`--log-level`, `--connector-params`), prevents the startup with a message that names the replacement. The environment variable `ROWSTORE_CONNECTOR_PARAMS` of 1.x is ignored with a warning. At startup, RowStore creates or migrates its tables with Flyway; an existing 1.x database is adopted as it is. When upgrading from 1.x, read the upgrade notes of version 2.0 in `CHANGELOG.md`.
 
-A database must be used by only one RowStore instance at a time. Uploads are queued in memory and loaded one after another per dataset, a dataset that is in status PROCESSING (2) without a load in this instance is taken over, and at startup datasets left in PROCESSING by an interrupted load are set to ERROR (4). A second instance on the same database, including an old and a new instance that overlap during a deployment, could therefore load the same dataset concurrently or reset the loads of the other instance. Stop the old instance before starting the new one. Several instances can share a PostgreSQL cluster if each has its own database. Support for several instances per database is planned ([ROWS-149](https://metasolutions.atlassian.net/browse/ROWS-149)).
+A database must be used by only one RowStore instance at a time. Uploads are queued in memory and loaded one after another per dataset, a dataset that is in status PROCESSING (2) without a load in this instance is taken over, and at startup datasets left in PROCESSING by an interrupted load or in ACCEPTED_DATA (1) by an upload that was still queued when RowStore stopped are set to ERROR (4). A second instance on the same database, including an old and a new instance that overlap during a deployment, could therefore load the same dataset concurrently or reset the loads of the other instance. Stop the old instance before starting the new one. Several instances can share a PostgreSQL cluster if each has its own database. Support for several instances per database is planned ([ROWS-149](https://metasolutions.atlassian.net/browse/ROWS-149)).
 
 Besides the REST API, the same port serves the Spring Boot Actuator endpoints (`/actuator/health`, `/actuator/info`, `/actuator/metrics`), the OpenAPI documentation (`/v3/api-docs`, `/swagger-ui.html`) and JVM details (`/status?jvm`). They are meant for operators only and must be blocked by the reverse proxy, see [Security](#security). `/actuator/health` checks the database and, if configured, the query database: a database is reported as `UP`, as `BUSY` if all its connections are in use (it is reachable, so the health stays UP), or as `DOWN` if it cannot be reached, which makes the health DOWN.
 
+RowStore logs one line per request (access log, logger `org.entrystore.rowstore.LogService`) in the format of 1.x, after the response is complete: `<client address> "<method> <path> <query>" <status> <response bytes> <request bytes> <scheme>://<host> <user agent> <referrer>`, e.g. `203.0.113.7 "GET /dataset/1b4f… name=Bo" 200 1234 0 https://rowstore.example.com curl/8.5.0 `. The client address is resolved from `X-Forwarded-For` like for rate limiting (`trustedproxies`), missing values are empty. Set `"accesslog": false` to turn it off.
+
+#### Shutdown
+
+On SIGTERM (e.g. `docker stop`), RowStore stops accepting requests and lets running requests finish for up to 30 seconds. It then discards the uploads that are still queued and logs their datasets (they have to be uploaded again; their status is set to 4 at the next startup) and lets running loads finish for up to another 30 seconds. A load that is still running after that is rolled back and its dataset set to 4 at the next startup. Allow at least 70 seconds for the shutdown (e.g. `docker stop -t 70`, `stop_grace_period: 70s` in Docker Compose, `terminationGracePeriodSeconds: 70` in Kubernetes); the default of Docker (10 seconds) kills RowStore while requests and loads are still running.
+
 ### Docker
 
-The Docker image `metasolutions/rowstore:<version>` (Docker Hub) is built from the `Dockerfile` in this repository and reads its configuration from `/srv/rowstore/rowstore.json`:
+The Docker image `metasolutions/rowstore:<version>` (Docker Hub) is built from the `Dockerfile` in this repository and reads its configuration from `/srv/rowstore/rowstore.json` (environment variable `ROWSTORE_CONFIG_URI`):
 
 ```
-docker run -p 8282:8282 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json metasolutions/rowstore:<version>
+docker run -p 8282:8282 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json --stop-timeout 70 metasolutions/rowstore:<version>
 ```
+
+- Arguments after the image name are passed to RowStore, e.g. `--server.port=9000`; the configuration is still read from `/srv/rowstore/rowstore.json`.
+- JVM options are passed with the environment variable `JAVA_OPTS`, e.g. `-e JAVA_OPTS="-Xmx2g -Duser.timezone=Europe/Stockholm"`. By default, the maximum heap is 75% of the container's memory limit (`-XX:MaxRAMPercentage=75`); options in `JAVA_OPTS` take precedence.
+- RowStore runs as the unprivileged user `rowstore` (UID and GID 10001). The mounted configuration must be readable for it; uploads are buffered in `/tmp` of the container.
 
 To build the image yourself, build the JAR first (the `Dockerfile` copies `target/rowstore-*.jar`):
 
@@ -210,6 +220,7 @@ Unknown keys are ignored (e.g. `exportpagesize`, which was never used and has be
 - `querytimeout` (Integer) - Query timeout in seconds for dataset queries and for the reads of requests that precede them (e.g. dataset and alias lookups, column names, row counts); a timeout results in HTTP 503. By default (or if the value is 0 or less) no query timeout is active, unless configured directly in the database.
 - `querymaxlimit` (Integer) - The maximum allowed value of the `_limit` URL parameter when querying a dataset. Must be greater than 0. Default: 100.
 - `loglevel` (String) - Log level of RowStore's log output (console): a Log4j level name such as `DEBUG`, `INFO`, `WARN` or `ERROR` (case-insensitive); unknown values mean `INFO`. Default: `INFO`.
+- `accesslog` (Boolean) - Log one line per request at INFO level, see [Running](#running). Default: `true`.
 - `cors` - Configures CORS.
   - `allowedorigins` (Array of Strings) - Origins that may call RowStore from browsers, e.g. `["https://app.example.com"]`. Default (also if the array is empty): `["*"]` (all origins), see [Security](#security).
 - `database` (required) - Configures the database connection. By default, no connection pool is used (connections are opened and closed per operation with `PGSimpleDataSource`). Set `connectionPoolMax` to a positive integer to enable HikariCP connection pooling.
