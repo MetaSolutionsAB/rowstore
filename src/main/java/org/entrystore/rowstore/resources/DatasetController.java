@@ -37,7 +37,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.File;
@@ -45,6 +44,7 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -74,15 +74,29 @@ public class DatasetController {
 	}
 
 	@GetMapping(value = "/dataset/{id}/json", produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<?> representJsonExplicit(@PathVariable("id") String id,
-			@RequestParam Map<String, String> allParams) {
-		return doQuery(id, allParams);
+	public ResponseEntity<?> representJsonExplicit(@PathVariable("id") String id, HttpServletRequest request) {
+		return doQuery(id, queryParameters(request));
 	}
 
 	@GetMapping(value = "/dataset/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<?> representJson(@PathVariable("id") String id,
-			@RequestParam Map<String, String> allParams) {
-		return doQuery(id, allParams);
+	public ResponseEntity<?> representJson(@PathVariable("id") String id, HttpServletRequest request) {
+		return doQuery(id, queryParameters(request));
+	}
+
+	/**
+	 * Returns the query parameters as in 1.x (QUERY-2.03): names and values are trimmed, parameters whose name is
+	 * empty after trimming are skipped, and of a repeated parameter the last value is used.
+	 */
+	static Map<String, String> queryParameters(HttpServletRequest request) {
+		Map<String, String> parameters = new LinkedHashMap<>();
+		for (Map.Entry<String, String[]> entry : request.getParameterMap().entrySet()) {
+			String key = entry.getKey().trim();
+			String[] values = entry.getValue();
+			if (!key.isEmpty() && values != null && values.length > 0) {
+				parameters.put(key, values[values.length - 1].trim());
+			}
+		}
+		return parameters;
 	}
 
 	private ResponseEntity<?> doQuery(String id, Map<String, String> parameters) {

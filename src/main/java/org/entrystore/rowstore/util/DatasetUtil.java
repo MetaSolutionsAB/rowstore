@@ -39,7 +39,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /**
  * @author Hannes Ebner
@@ -131,18 +130,6 @@ public class DatasetUtil {
 	public static boolean isRegExpString(String s) {
 		char[] indicators = {'^', '$', '(', '|', '[', '*', '+', '{', '?', '/'};
 		return StringUtils.indexOfAny(s, indicators) > -1;
-	}
-
-	private static final int MAX_REGEX_LENGTH = 200;
-	private static final Pattern CATASTROPHIC_BACKTRACK = Pattern.compile(
-			"\\(.+[+*]\\)\\s*[+*]" +  // (a+)+ or (a*)* patterns
-			"|\\(.+\\|.+\\)\\s*[+*]"   // (a|a)+ alternation with quantifier
-	);
-
-	public static boolean isSafeRegex(String pattern) {
-		return pattern != null
-				&& pattern.length() <= MAX_REGEX_LENGTH
-				&& !CATASTROPHIC_BACKTRACK.matcher(pattern).find();
 	}
 
 	public static boolean isUUID(String string) {

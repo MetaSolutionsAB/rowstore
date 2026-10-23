@@ -17,11 +17,16 @@
 package org.entrystore.rowstore;
 
 import io.restassured.http.ContentType;
+import io.restassured.path.json.JsonPath;
 import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
+import java.net.Socket;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -29,7 +34,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -259,6 +266,74 @@ public final class TestUtils {
                 return rs.getInt(1);
             }
         }
+    }
+
+    /**
+     * Sends a request with the request line exactly as given, e.g., with characters in the query string that HTTP
+     * clients would encode or reject (REST Assured and java.net.URI encode or refuse "^", "|", "[" or "%zz").
+     * Uses HTTP/1.0, so that the response is not chunked and ends when the connection is closed.
+     *
+     * @param baseUrl The base URL of the server, e.g., "http://localhost:8282/".
+     * @param pathAndQuery The raw path and query string, e.g., "/dataset/x?Name=^M".
+     * @param headers Header lines, e.g., "Content-Type: text/csv".
+     * @param body The request body, or null.
+     */
+    public static RawResponse rawRequest(String baseUrl, String method, String pathAndQuery, List<String> headers,
+                                         byte[] body) {
+        URI base = URI.create(baseUrl);
+        int port = base.getPort() > 0 ? base.getPort() : 80;
+        try (Socket socket = new Socket(base.getHost(), port)) {
+            socket.setSoTimeout(30000);
+            StringBuilder head = new StringBuilder();
+            head.append(method).append(' ').append(pathAndQuery).append(" HTTP/1.0\r\n");
+            head.append("Host: ").append(base.getHost()).append(':').append(port).append("\r\n");
+            for (String header : headers) {
+                head.append(header).append("\r\n");
+            }
+            if (body != null) {
+                head.append("Content-Length: ").append(body.length).append("\r\n");
+            }
+            head.append("\r\n");
+            OutputStream out = socket.getOutputStream();
+            out.write(head.toString().getBytes(StandardCharsets.ISO_8859_1));
+            if (body != null) {
+                out.write(body);
+            }
+            out.flush();
+
+            byte[] response = socket.getInputStream().readAllBytes();
+            String text = new String(response, StandardCharsets.UTF_8);
+            int headerEnd = text.indexOf("\r\n\r\n");
+            String[] lines = text.substring(0, headerEnd).split("\r\n");
+            int status = Integer.parseInt(lines[0].split(" ")[1]);
+            Map<String, String> responseHeaders = new LinkedHashMap<>();
+            for (int i = 1; i < lines.length; i++) {
+                int colon = lines[i].indexOf(':');
+                responseHeaders.put(lines[i].substring(0, colon).trim().toLowerCase(), lines[i].substring(colon + 1).trim());
+            }
+            return new RawResponse(status, responseHeaders, text.substring(headerEnd + 4));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    public static RawResponse rawGet(String baseUrl, String pathAndQuery, String... headers) {
+        return rawRequest(baseUrl, "GET", pathAndQuery, List.of(headers), null);
+    }
+
+    /**
+     * A response of {@link #rawRequest(String, String, String, List, byte[])}, with header names in lower case.
+     */
+    public record RawResponse(int status, Map<String, String> headers, String body) {
+
+        public String header(String name) {
+            return headers.get(name.toLowerCase());
+        }
+
+        public JsonPath json() {
+            return new JsonPath(body);
+        }
+
     }
 
     /**

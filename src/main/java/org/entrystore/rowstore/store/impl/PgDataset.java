@@ -1181,11 +1181,7 @@ public class PgDataset implements Dataset {
 				}
 
 				if (useRegex) {
-					String regexValue = values[i].startsWith("~") ? values[i].substring(1) : values[i];
-					if (!DatasetUtil.isSafeRegex(regexValue)) {
-						log.debug("Rejected unsafe regex pattern: length={}", regexValue.length());
-						return new QueryResult.Error("400");
-					}
+					// the run time of a regular expression is limited by querytimeout (QUERY-4.05)
 					queryTemplate.append("data->>? ~ ?");
 				} else {
 					queryTemplate.append("data->>? = ?");
