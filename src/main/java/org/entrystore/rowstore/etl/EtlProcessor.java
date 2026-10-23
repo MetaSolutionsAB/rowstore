@@ -68,6 +68,11 @@ public class EtlProcessor {
 	 */
 	private final Map<String, Deque<Job>> waitingJobs = new HashMap<>();
 
+	/**
+	 * Set by {@link #shutdown()}, after which no jobs are accepted. Guarded by {@link #waitingJobs}.
+	 */
+	private boolean shutDown;
+
 	public EtlProcessor(RowStore rowstore) {
 		int maxConcurrent = rowstore.getConfig().getMaxEtlProcesses();
 		if (maxConcurrent <= 0) {
@@ -121,6 +126,10 @@ public class EtlProcessor {
 		List<Job> discarded = new ArrayList<>();
 		boolean startWorker;
 		synchronized (waitingJobs) {
+			if (shutDown) {
+				job.discard("the ETL processor is shut down");
+				throw new RejectedExecutionException("The ETL processor is shut down");
+			}
 			Deque<Job> queue = waitingJobs.get(datasetId);
 			startWorker = queue == null;
 			if (startWorker) {
@@ -241,8 +250,35 @@ public class EtlProcessor {
 		}
 	}
 
+	/**
+	 * Shuts the ETL processor down (DEPL-7.01): jobs that have not started yet are discarded (temp files deleted,
+	 * logged at WARN level with their datasets), so that no new loads start; running jobs get 30 seconds to finish and
+	 * are interrupted afterwards. A load that is interrupted is rolled back. The datasets of discarded and interrupted
+	 * loads keep their status (ACCEPTED_DATA or PROCESSING) until the next startup sets it to ERROR (ETL-8.06).
+	 */
 	public void shutdown() {
 		log.info("Shutting down ETL processor");
+		Map<String, List<Job>> discarded = new HashMap<>();
+		synchronized (waitingJobs) {
+			shutDown = true;
+			// the entries stay, their workers remove them when they find their queue empty
+			waitingJobs.forEach((datasetId, queue) -> {
+				if (!queue.isEmpty()) {
+					discarded.put(datasetId, new ArrayList<>(queue));
+					queue.clear();
+				}
+			});
+		}
+		discarded.values().forEach(jobs -> jobs.forEach(j -> j.discard("RowStore is shutting down")));
+		List<String> datasetsWithLoads = discarded.entrySet().stream()
+				.filter(e -> e.getValue().stream().anyMatch(j -> j instanceof LoadJob))
+				.map(Map.Entry::getKey)
+				.sorted()
+				.toList();
+		if (!datasetsWithLoads.isEmpty()) {
+			log.warn("Discarded the queued uploads of {} dataset(s) at shutdown, they have to be uploaded again: {}",
+					datasetsWithLoads.size(), datasetsWithLoads);
+		}
 		executor.shutdown();
 		try {
 			if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {

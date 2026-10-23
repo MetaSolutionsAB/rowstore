@@ -20,6 +20,7 @@ import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Configurator;
 import org.apache.logging.log4j.core.config.Property;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.Datasets;
@@ -48,6 +49,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -359,6 +361,67 @@ class EtlProcessorTest {
         await().atMost(TIMEOUT).until(discarded::isDone);
         assertThat(discarded).isCancelled();
         assertThat(started).containsExactly("a1", "task");
+    }
+
+    @Test
+    @DisplayName("TC-ETL-070: Shutdown discards queued loads and logs their datasets, running loads finish")
+    void shutdown_discardsQueuedLoadsAndLetsRunningLoadsFinish() throws Exception {
+        appender = new CapturingAppender();
+        appender.start();
+        logger().addAppender(appender);
+        Level previousLevel = logger().getLevel();
+        Configurator.setLevel(logger().getName(), Level.WARN);
+        try {
+            assertShutdownDiscardsQueuedLoads();
+        } finally {
+            Configurator.setLevel(logger().getName(), previousLevel);
+        }
+    }
+
+    private void assertShutdownDiscardsQueuedLoads() throws Exception {
+
+        processor = new EtlProcessor(rowStore(1));
+        FakeDataset a = new FakeDataset("a");
+        FakeDataset b = new FakeDataset("b");
+        Load a1 = blockingLoad(a, "a1", true);
+        Load a2 = load(a, "a2", true);
+        Load b1 = load(b, "b1", true);
+        submit(a1);
+        awaitStarted(a1);
+        // a2 waits behind a1, b1 waits for the only permit
+        submit(a2);
+        submit(b1);
+        CompletableFuture<Void> task = processor.runExclusively(a, () -> started.add("task"));
+
+        Thread shutdown = Thread.ofVirtual().start(processor::shutdown);
+        await().atMost(TIMEOUT).until(() -> !a2.file.exists() && !b1.file.exists());
+        assertThat(task).isCancelled();
+        a1.release.countDown();
+        shutdown.join(TIMEOUT.toMillis());
+
+        assertThat(shutdown.isAlive()).isFalse();
+        assertThat(started).containsExactly("a1");
+        assertThat(a.statuses).containsExactly(EtlStatus.PROCESSING, EtlStatus.AVAILABLE);
+        assertThat(b.statuses).isEmpty();
+        assertThat(appender.events)
+                .filteredOn(e -> e.getLevel() == Level.WARN)
+                .extracting(e -> e.getMessage().getFormattedMessage())
+                .anySatisfy(m -> assertThat(m).contains("Discarded the queued uploads of 2 dataset(s)").contains("[a, b]"));
+    }
+
+    @Test
+    @DisplayName("TC-ETL-071: Loads submitted after shutdown are rejected and their files deleted")
+    void submitAfterShutdown_isRejected() throws Exception {
+        processor = new EtlProcessor(rowStore(1));
+        FakeDataset a = new FakeDataset("a");
+        Load a1 = load(a, "a1", true);
+        processor.shutdown();
+
+        assertThatThrownBy(() -> submit(a1)).isInstanceOf(RejectedExecutionException.class);
+        assertThatThrownBy(() -> processor.runExclusively(a, () -> started.add("task")))
+                .isInstanceOf(RejectedExecutionException.class);
+        assertThat(a1.file).doesNotExist();
+        assertThat(started).isEmpty();
     }
 
     private Load load(FakeDataset dataset, String name, boolean append) throws IOException {

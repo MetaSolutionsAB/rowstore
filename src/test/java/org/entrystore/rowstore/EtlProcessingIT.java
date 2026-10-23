@@ -150,22 +150,24 @@ class EtlProcessingIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("TC-ETL-014: Datasets left in processing are reset to error at startup")
-    void startupReset_setsProcessingDatasetsToError() throws SQLException {
+    @DisplayName("TC-ETL-014: Datasets left in processing or accepted data are reset to error at startup")
+    void startupReset_setsProcessingAndAcceptedDatasetsToError() throws SQLException {
         DatasetUrls processing = createDatasetAndWait(csv("A", 1));
         DatasetUrls accepted = createDatasetAndWait(csv("B", 1));
         try {
             setStatus(processing.datasetId, ETL_STATUS_PROCESSING);
             setStatus(accepted.datasetId, ETL_STATUS_ACCEPTED_DATA);
 
-            // invoked by PgRowStore's constructor at startup. It resets all datasets in PROCESSING of the shared
-            // test database, which relies on test classes not running concurrently; a dataset of another test that
-            // is being loaded would still end up with its correct final status, which is written unconditionally.
+            // invoked by PgRowStore's constructor at startup. It resets all datasets in PROCESSING and ACCEPTED_DATA
+            // of the shared test database, which relies on test classes not running concurrently; a dataset of another
+            // test that is being loaded would still end up with its correct final status, which is written
+            // unconditionally.
             List<String> reset = RowStoreTestEnvironment.getInstance().getBean(PgRowStore.class).resetInterruptedLoads();
 
-            assertThat(reset).contains(processing.datasetId).doesNotContain(accepted.datasetId);
+            // the queued upload of a dataset in ACCEPTED_DATA was lost when RowStore stopped (ETL-8.06)
+            assertThat(reset).contains(processing.datasetId, accepted.datasetId);
             assertThat(status(processing.infoUrl)).isEqualTo(ETL_STATUS_ERROR);
-            assertThat(status(accepted.infoUrl)).isEqualTo(ETL_STATUS_ACCEPTED_DATA);
+            assertThat(status(accepted.infoUrl)).isEqualTo(ETL_STATUS_ERROR);
         } finally {
             setStatus(processing.datasetId, ETL_STATUS_AVAILABLE);
             setStatus(accepted.datasetId, ETL_STATUS_AVAILABLE);

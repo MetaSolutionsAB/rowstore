@@ -167,7 +167,7 @@ public class PgRowStore implements RowStore {
 
 		// like the migration in DataSourceConfig, the startup maintenance waits for the database if it is not reachable
 		StartupRetry startupRetry = new StartupRetry();
-		runStartupMaintenance(startupRetry, "reset datasets with interrupted loads", this::resetInterruptedLoadsOrThrow);
+		runStartupMaintenance(startupRetry, "reset datasets with interrupted loads or lost uploads", this::resetInterruptedLoadsOrThrow);
 		runStartupMaintenance(startupRetry, "drop leftover shadow tables", this::dropLeftoverShadowTablesOrThrow);
 		log.info("Started RowStore {}", versionInfo.getVersion());
 	}
@@ -262,9 +262,10 @@ public class PgRowStore implements RowStore {
 	}
 
 	/**
-	 * Sets the status of all datasets in PROCESSING to ERROR. Called at startup: since a database must not be used
-	 * by more than one RowStore instance, such datasets were left behind by loads that were interrupted, e.g., by a
-	 * crash. Datasets in ACCEPTED_DATA are left untouched.
+	 * Sets the status of all datasets in PROCESSING or ACCEPTED_DATA to ERROR (ETL-8.06). Called at startup: since a
+	 * database must not be used by more than one RowStore instance and the queue of uploads is kept in memory, such
+	 * datasets were left behind by loads that were interrupted (e.g., by a crash) or by uploads that were still queued
+	 * when RowStore stopped and are lost. The previous data of the datasets is still served.
 	 *
 	 * @return Returns the IDs of the datasets that were reset.
 	 */
@@ -272,7 +273,7 @@ public class PgRowStore implements RowStore {
 		try {
 			return resetInterruptedLoadsOrThrow();
 		} catch (DataAccessException e) {
-			log.error("Unable to reset datasets with interrupted loads: {}", e.getMessage());
+			log.error("Unable to reset datasets with interrupted loads or lost uploads: {}", e.getMessage());
 			return List.of();
 		}
 	}
@@ -283,12 +284,25 @@ public class PgRowStore implements RowStore {
 	 * @throws DataAccessException If the database could not be accessed.
 	 */
 	private List<String> resetInterruptedLoadsOrThrow() {
+		List<String> ids = new ArrayList<>();
+		ids.addAll(resetStatus(EtlStatus.PROCESSING, "their loads were interrupted"));
+		ids.addAll(resetStatus(EtlStatus.ACCEPTED_DATA, "their queued uploads were lost when RowStore stopped"));
+		return ids;
+	}
+
+	/**
+	 * Sets the status of all datasets in the given status to ERROR.
+	 *
+	 * @return Returns the IDs of the datasets that were reset.
+	 * @throws DataAccessException If the database could not be accessed.
+	 */
+	private List<String> resetStatus(int status, String reason) {
 		List<String> ids = jdbcTemplate.queryForList(
 				"UPDATE " + PgDatasets.DATASETS_TABLE_NAME + " SET status = ? WHERE status = ? RETURNING id::text",
-				String.class, EtlStatus.ERROR, EtlStatus.PROCESSING);
+				String.class, EtlStatus.ERROR, status);
 		if (!ids.isEmpty()) {
-			log.warn("Set status of {} dataset(s) from {} to {} because their loads were interrupted: {}",
-					ids.size(), EtlStatus.toString(EtlStatus.PROCESSING), EtlStatus.toString(EtlStatus.ERROR), ids);
+			log.warn("Set status of {} dataset(s) from {} to {} because {}: {}", ids.size(),
+					EtlStatus.toString(status), EtlStatus.toString(EtlStatus.ERROR), reason, ids);
 		}
 		return ids;
 	}
