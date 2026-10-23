@@ -79,7 +79,14 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 >     "version": "2.0-SNAPSHOT",
 >     "datasets": 42,
 >     "activeEtlProcesses": 2,
->     "queuedEtlProcesses": 0
+>     "queuedEtlProcesses": 0,
+>     "connections": {
+>         "database": {
+>             "query": {"inUse": 1, "max": 10, "waiting": 0},
+>             "export": {"inUse": 0, "max": 2, "waiting": 0},
+>             "load": {"inUse": 0, "max": 5, "waiting": 0}
+>         }
+>     }
 > }
 > ```
 

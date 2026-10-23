@@ -1,5 +1,87 @@
 # ROWSTORE CHANGELOG
 
+## 2.0 (unreleased)
+
+RowStore 2.0 is a rewrite of the application layer on Spring Boot. The REST API (paths, parameters, JSON responses) and the `rowstore.json` format stay compatible with 1.x, except for the changes listed in the upgrade notes below.
+
+- Migration from Restlet to Spring Boot 3.5 with embedded Tomcat; a single Maven module builds an executable JAR, which replaces the WAR file and the standalone Jetty distribution
+- Java 25 with virtual threads for request handling and ETL processing
+- JSONP removed (`_callback` is accepted and ignored), replaced by CORS with configurable origins (`cors.allowedorigins`)
+- Database schema of the administrative tables managed by Flyway; existing 1.x databases are adopted at the first start
+- HikariCP connection pooling (replacing `PGPoolingDataSource`) when `connectionPoolMax` > 0, for `database` and `queryDatabase`; no connection pool by default
+- Connection budgets limit the database connections per instance (`maxQueryConnections`, `maxExportConnections`, `connectionWaitTimeout`, `queryLockTimeout`); their usage is reported by `/status`
+- New option `maxuploadsize` limits the size of CSV uploads (default 100 MB, HTTP 413 above)
+- Spring Boot Actuator endpoints (`/actuator/health`, `/actuator/info`, `/actuator/metrics`) and OpenAPI documentation (`/v3/api-docs`, `/swagger-ui.html`)
+- Unit tests and Testcontainers-based integration tests replace the JavaScript test suite
+
+### Improvement
+
+[ROWS-91](https://metasolutions.atlassian.net/browse/ROWS-91) Remove UTF-8 BOM etc. from column names
+
+[ROWS-112](https://metasolutions.atlassian.net/browse/ROWS-112) Use BIGSERIAL for rownr in new and shadow data tables
+
+### Task
+
+[ROWS-104](https://metasolutions.atlassian.net/browse/ROWS-104) Remove the ApiKeyFilter stub and document the reverse-proxy security contract
+
+[ROWS-107](https://metasolutions.atlassian.net/browse/ROWS-107) Documentation truth pass for 2.0: README, CLAUDE.md and CHANGELOG
+
+### Bug
+
+[ROWS-101](https://metasolutions.atlassian.net/browse/ROWS-101) Export corrupts rows with duplicate cell values, fails on sparse rows, and leaks a connection on DB error
+
+[ROWS-102](https://metasolutions.atlassian.net/browse/ROWS-102) Fail fast on invalid or incomplete rowstore.json instead of silently degrading
+
+[ROWS-103](https://metasolutions.atlassian.net/browse/ROWS-103) Client-supplied X-Forwarded-For bypasses per-client-IP rate limiting
+
+[ROWS-105](https://metasolutions.atlassian.net/browse/ROWS-105) populate() swallows in-flight exceptions with a return inside finally
+
+[ROWS-106](https://metasolutions.atlassian.net/browse/ROWS-106) set-version.sh writes VERSION.txt to the removed webapp module path
+
+[ROWS-114](https://metasolutions.atlassian.net/browse/ROWS-114) PUT replace is not atomic: dataset is empty during re-import and data is lost if the import fails
+
+[ROWS-138](https://metasolutions.atlassian.net/browse/ROWS-138) An empty line in a CSV silently drops every row after it, and the load reports success
+
+[ROWS-139](https://metasolutions.atlassian.net/browse/ROWS-139) Swagger endpoint returns invalid JSON or fails when a column name contains a backslash, double quote or dollar sign
+
+[ROWS-140](https://metasolutions.atlassian.net/browse/ROWS-140) A DB outage during a load leaves a dataset stuck in PROCESSING, and the endless wait for it blocks every other upload
+
+[ROWS-141](https://metasolutions.atlassian.net/browse/ROWS-141) Datasource settings from 1.7 and develop lost in the Spring migration (SSL mode, driver timeouts with HikariCP, read-only query connections)
+
+[ROWS-144](https://metasolutions.atlassian.net/browse/ROWS-144) Path parameters (';') bypass proxy path rules and the per-dataset rate limit
+
+[ROWS-145](https://metasolutions.atlassian.net/browse/ROWS-145) Rate-limited responses (429) carry no CORS headers, so browsers cannot read Retry-After
+
+[ROWS-147](https://metasolutions.atlassian.net/browse/ROWS-147) Query with the 1.x reserved parameter _callback returns 400 instead of being ignored
+
+[ROWS-148](https://metasolutions.atlassian.net/browse/ROWS-148) Unbounded concurrent database connections per instance with virtual threads (cap connections without idle pooling)
+
+### Upgrade notes
+
+Changes visible to operators and clients when upgrading from 1.7:
+
+- **Deployment:** RowStore is started with `java -jar rowstore-<version>.jar --rowstore.config.uri=file:///path/to/rowstore.json` (or the environment variable `ROWSTORE_CONFIG_URI`); the port is set with `--server.port=<port>` (default 8282). The WAR file, the standalone start script `bin/rowstore <config> [port]` and the options `-l/--log-level` and `--connector-params` (`ROWSTORE_CONNECTOR_PARAMS`) are gone. The Docker image reads `/srv/rowstore/rowstore.json`. Java 25 is required.
+- **One instance per database:** a database must be used by only one RowStore instance at a time, also during deployments: stop the old instance before starting the new one. 1.7 roughly coordinated the loads of several instances on one database by polling the dataset status. 2.0 queues loads in memory per instance, takes over datasets in PROCESSING without waiting and resets PROCESSING to ERROR at startup, so a second instance on the same database could load a dataset concurrently or reset the loads of the other instance. Several instances can share a PostgreSQL cluster if each has its own database. Support for several instances per database is planned for 3.0 ([ROWS-149](https://metasolutions.atlassian.net/browse/ROWS-149)).
+- **Reverse proxy required:** there is no application-level authentication (the `ApiKeyFilter` stub was removed). The reverse proxy must authenticate all requests other than `GET`/`HEAD` and block `/actuator/**`, `/swagger-ui*`, `/v3/api-docs*` and `/status?jvm`, which are served on the application port until a separate management port is introduced in 2.1 ([ROWS-108](https://metasolutions.atlassian.net/browse/ROWS-108)). See the Security section of the README.
+- **JSONP removed:** the `_callback` parameter is accepted and ignored; responses are always plain JSON and never wrapped in a callback. Browser clients of other origins use CORS (`cors.allowedorigins`, default all origins).
+- **Delete:** `DELETE /dataset/{id}` returns 204 No Content instead of 200 OK.
+- **Fail-fast configuration:** configurations that 1.x tolerated now prevent the startup, with an error naming the offending key: missing `baseurl`, `database` or `database.host`/`database`/`user`/`password` (also in `queryDatabase`, if present), these keys with a non-string value, `database`/`queryDatabase`/`ratelimit`/`cors` that are not JSON objects, `cors.allowedorigins` or `trustedproxies` that are not arrays of strings, `trustedproxies` entries that are not IP addresses or CIDR ranges, `querymaxlimit` or `maxuploadsize` not greater than 0, and the new connection limits with invalid values (see below). `exportpagesize` was never used and is ignored.
+- **Database connection:** `"ssl": false` now disables SSL explicitly (`sslmode=disable`; 1.7 used the driver default `prefer`), so a server that requires SSL refuses the connection. Without an `ssl` key, the driver default `prefer` still applies, as in 1.7.
+- **Upload size:** CSV uploads larger than `maxuploadsize` (default 100 MB) are rejected with HTTP 413; 1.7 had no limit. There is no setting for unlimited uploads, so set `maxuploadsize` to a large enough value if larger files are uploaded.
+- **Connection pooling:** in 1.7, `database` was never pooled, and `queryDatabase` only if both `connectionPoolInit` and `connectionPoolMax` were greater than 0. In 2.0, `database` and `queryDatabase` each use a HikariCP pool as soon as their `connectionPoolMax` is greater than 0 (`connectionPoolInit` is optional). To keep the 1.7 behaviour of `database` (no pool, no idle connections), remove `connectionPoolMax` or set it to 0 or less. Without `connectionPoolMax`, no pool is used, which is recommended for deployments with many instances against one PostgreSQL cluster.
+- **Connection budgets:** requests run on virtual threads and are no longer limited by the thread pool of the servlet container; instead, 2.0 limits the database connections of an instance per database: `maxQueryConnections` (default 10) for short operations of requests, `maxExportConnections` (default 2) for streamed exports and `maxetlprocesses` (default 5) for loads, i.e. at most 17 connections per instance and database with the defaults (e.g. 1360 for 80 instances against one cluster). A request that finds no free connection waits up to `connectionWaitTimeout` (default `querytimeout` if set, otherwise 30 seconds) and then gets HTTP 503. Check the sum over all instances against `max_connections` of the cluster and lower the limits, or use PgBouncer (see the README). Values that are not numbers greater than 0 (`queryLockTimeout`: not greater than or equal to 0) prevent the startup.
+- **Lock timeout of requests:** short operations of requests run with a PostgreSQL `lock_timeout` of `queryLockTimeout` (default half of `connectionWaitTimeout`). A request for a dataset that is blocked behind a long exclusive lock (e.g. a replace waiting for a long export or `pg_dump`) gets HTTP 503 after that time instead of waiting without limit as in 1.7; requests for other datasets are not affected. With PgBouncer in transaction pooling mode, set `queryLockTimeout` to 0 and configure the lock timeout on the server side (see the README).
+- **Query timeout:** `querytimeout` now also limits the reads of requests that precede a query (dataset and alias lookups, column names, row counts), which also answer HTTP 503 when cancelled.
+- **Monitoring:** the Actuator `db` health indicator is disabled and replaced by RowStore's own indicator, which checks the database and the query database within the connection budgets and reports `BUSY` (health UP) if all connections are in use and DOWN only if a database is unreachable. `/status` has the additional fields `connections` with the usage of the budgets and `queuedEtlProcesses`; its other fields are unchanged (`datasets` is -1 if no connection became available in time).
+- **Column names of existing datasets:** column names that 1.x stored with a byte order mark or soft hyphens (e.g. `\ufeff"kopare_id"` instead of `kopare_id`) are renamed automatically in the background after the first start, one dataset at a time, to the names a fresh import of the same CSV file yields. A dataset is skipped with a WARN and left unchanged if a cleaned name would be empty or collide with another column name, or if a row contains both an old and its cleaned name. An append that arrives first renames the columns itself. Queries keep working during the rename (only its end takes the same exclusive lock as a replace: brief, unless a long export or backup holds the table, in which case the rename waits like a replace); afterwards, queries, `/info`, Swagger and exports use the cleaned names, and queries by the old names stop working. Configurations that stored the old names (e.g. in EntryScape) must be updated; each rename is logged at INFO level with the old and the new names. The rename rewrites all rows of an affected dataset including its indexes, so until autovacuum has run, the database needs about twice the dataset's size and the write-ahead log grows accordingly (a read replica may lag behind). While a dataset is renamed, it occupies one of the `maxetlprocesses` slots and uploads to that dataset wait; with many affected datasets, the cleanup after the first start of 2.0 can take a long time. Only affected datasets are rewritten. Once a run has checked all datasets without failures, it is recorded in the new table `maintenance_tasks`, and later starts skip the check; deleting its row (`column-name-cleanup`) makes it run again, e.g. after restoring data tables of 1.x. New uploads always yield cleaned names.
+- **Empty lines in CSV files:** an empty line between rows (or directly after the header) now fails the load (status 4, "Error"); 1.7 silently dropped all following rows (default parser) or loaded an empty row (legacy parser). Trailing empty lines are ignored, whitespace-only lines are rows, and an empty value in a single-column CSV must be quoted (`""`). As in 1.7, a failed upload's status is overwritten by the next successful upload of the same dataset, so clients that upload a dataset as several files must check the status after each upload.
+- **Replace (PUT):** the previous data is served until the replace is complete and is kept if the replace fails (status 4 with the previous data). The database needs disk space for the old and the new data during a replace. Like 1.x, the replace waits for long-running readers of the dataset's table (e.g. an export or `pg_dump`), and new queries of the dataset wait behind it; unlike 1.x, it waits at most about 30 minutes and then fails (status 4 with the previous data), and the sessions holding the table are logged. A replace drops the old table and only carries over its owner and table privileges: objects added to data tables outside of RowStore (manually created indexes, triggers, comments, storage parameters, column privileges, publication membership) are lost with the first replace, and views on a data table make every replace of the dataset fail. If a replace fails after it has discarded the dataset's waiting uploads (see "Upload order"), the dataset keeps the data from before those uploads.
+- **Upload order:** uploads to the same dataset are processed one after another in the order of arrival; a replace discards the dataset's uploads that are still waiting. `activeEtlProcesses` in `/status` counts only running loads; the new field `queuedEtlProcesses` counts the loads that are waiting. Datasets left in status 2 ("Processing") by a crash are set to 4 ("Error") at startup.
+- **Database outages:** requests for a dataset (`/dataset/{id}` and its sub-resources, including aliases) that cannot reach the database get HTTP 503 instead of 404; other database errors while looking up a dataset give HTTP 500 instead of 404. An export that gets no export connection within `connectionWaitTimeout` gets HTTP 503 before streaming.
+- **Export:** CSV exports have one cell per header column, in header order. Rows with duplicate values keep all their cells (1.7 dropped repeated values and shifted the following columns to the left), and rows with fewer cells than the header get empty cells (1.7 silently dropped such rows and could end the export early). If the rows of a dataset, or for CSV its column names, cannot be read, the export returns HTTP 500 instead of 200 with an empty or partial body. A database failure after streaming has started aborts the connection, so clients see an incomplete transfer instead of a body that looks complete (1.7 always ended a JSON export with `]`). Like 1.7, exports have no overall time limit.
+- **Per-client rate limit:** the client address is the last `X-Forwarded-For` entry, which the reverse proxy appends or sets; entries further left are ignored, so clients can no longer choose their rate limit key (1.7 used the whole header as written by the client). This works without configuration for a proxy on any address, since RowStore must only be reachable through it. `trustedproxies` (new) restricts `X-Forwarded-For` to listed proxies, e.g. for several proxies in a chain, and `[]` ignores it.
+- **Path parameters:** request paths containing `;` are rejected with HTTP 400.
+
 ## 1.7 (2025-07-01)
 
 ### Improvement

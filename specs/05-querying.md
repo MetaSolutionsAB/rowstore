@@ -20,7 +20,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 ## QUERY-3 Special Parameters
 
-> **QUERY-3.01** `_limit` — Maximum number of rows to return. Default: **100**. Maximum: configured via `querymaxlimit` (default 100). Zero and negative values are treated as the default. Non-numeric values return 400.
+> **QUERY-3.01** `_limit` — Maximum number of rows to return. Default: **100**. Maximum: configured via `querymaxlimit` (default 100). Zero, negative and values above `querymaxlimit` are treated as the default. Non-numeric values return 400.
 
 > **QUERY-3.02** `_offset` — Number of rows to skip. Default: **0**. Negative values are corrected to 0. Non-numeric values return 400.
 
@@ -101,4 +101,5 @@ Covers the read path from query parameter parsing through SQL execution to respo
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: JSONP _callback removed, source references updated |
+| 2026-10-20 | QUERY-3.01: values above `querymaxlimit` fall back to the default |
 | 2026-10-21 | Added QUERY-3.05: `_callback` accepted and ignored instead of rejected with 400 (ROWS-147) |

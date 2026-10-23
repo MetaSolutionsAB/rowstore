@@ -1,0 +1,28 @@
+# PostgreSQL for trying out and developing RowStore, see "Quickstart" in README.md.
+# Matches rowstore.example.json. Not intended for production use.
+#
+#   docker compose up -d        # start PostgreSQL
+#   docker compose down         # stop it, keeping the data in the volume
+#   docker compose down -v      # stop it and delete the data
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: rowstore
+      POSTGRES_USER: rowstore
+      POSTGRES_PASSWORD: rowstore
+    ports:
+      # Port 15432 on the host avoids conflicts with a locally installed PostgreSQL;
+      # only reachable from this machine
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - rowstore-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rowstore -d rowstore"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  rowstore-pgdata:

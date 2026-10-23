@@ -32,7 +32,7 @@ Covers the system from a structural and architectural perspective. For detailed 
 > - **Java 25** — Runtime and language level
 > - **Spring Boot 3.5.10** — Application framework with embedded Tomcat
 > - **PostgreSQL** — Data storage (JSONB)
-> - **HikariCP** — JDBC connection pooling
+> - **HikariCP** — Optional JDBC connection pooling, used only when `connectionPoolMax` > 0 ([CFG-4.03](06-configuration.md#cfg-4-database-configuration)); by default, connections are opened per operation with the driver's `PGSimpleDataSource`
 > - **Flyway** — Database schema migration
 
 > **ARCH-3.02** Key libraries:
@@ -77,7 +77,7 @@ Covers the system from a structural and architectural perspective. For detailed 
 
 > **ARCH-6.02** **Virtual-thread ETL with Semaphore**: CSV processing happens asynchronously via virtual threads with a `Semaphore` for concurrency limiting (`maxetlprocesses`, default 5). Tasks are dispatched immediately (no polling delay), and the Semaphore blocks virtual threads cheaply until a permit is available.
 
-> **ARCH-6.03** **Spring Boot framework**: RowStore uses Spring Boot as its application framework, providing embedded Tomcat, HikariCP connection pooling, Flyway schema migration, Actuator health/metrics endpoints, virtual thread support, and a large ecosystem of tooling and documentation.
+> **ARCH-6.03** **Spring Boot framework**: RowStore uses Spring Boot as its application framework, providing embedded Tomcat, optional HikariCP connection pooling (RowStore uses `PGSimpleDataSource` without a pool by default), Flyway schema migration, Actuator health/metrics endpoints, virtual thread support, and a large ecosystem of tooling and documentation.
 
 ## ARCH-7 Database Connection Limits
 
@@ -141,7 +141,8 @@ Covers the system from a structural and architectural perspective. For detailed 
 | 2026-02-09 | Updated for Spring Boot 3.5.10 migration (Java 25, Tomcat, HikariCP, Flyway, virtual threads) |
 | 2026-10-20 | ARCH-5.01: ApiKeyFilter removed, TrustedProxyFilter added, actual filter order documented |
 | 2026-10-20 | ARCH-5.01: PathParameterFilter added; CorsFilter moved before RateLimitFilter |
-| 2026-10-21 | ARCH-5.01: TrustedProxyFilter trusts the connecting peer by default |
+| 2026-10-20 | ARCH-3.01, ARCH-6.03: HikariCP is optional, `PGSimpleDataSource` without pool by default |
 | 2026-10-21 | ARCH-7: connection budgets per instance (query, export, load), one connection per request at a time, sizing |
 | 2026-10-21 | ARCH-7.02: status writes of ETL jobs use the load budget; ARCH-7.03: querytimeout and lock timeout bound query connections; ARCH-7.05: health checks of both databases with a short wait |
 | 2026-10-21 | ARCH-7.03, ARCH-7.06: configurable lock timeout of query connections (queryLockTimeout), configuration for PgBouncer transaction pooling |
+| 2026-10-21 | ARCH-5.01: TrustedProxyFilter trusts the connecting peer by default |

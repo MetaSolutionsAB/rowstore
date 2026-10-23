@@ -18,6 +18,7 @@ Covers the JSON configuration file format, all application and database options,
 > - `trustedproxies` is present but not an array of strings, or one of its entries is not an IP address or CIDR range
 > - a value cannot be read as the expected type (e.g. `baseurl` is not a string)
 > - `querymaxlimit` or `maxuploadsize` is not greater than 0
+> - a connection limit of `database` or `queryDatabase` is invalid: `maxQueryConnections`, `maxExportConnections` or `connectionWaitTimeout` is not a number greater than 0, or `queryLockTimeout` is not a number greater than or equal to 0 (CFG-4.05 to CFG-4.08)
 >
 > Unknown keys are ignored.
 
@@ -49,7 +50,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-3.06** `querytimeout` (int, default `-1`) — Query timeout in seconds. When > 0, applied via `setQueryTimeout()` on the JDBC statement of a query and on the statements that short operations execute through the JdbcTemplates of the query budget, e.g., dataset lookups, column names and row counts (ARCH-7.03). Timed-out queries return 503. See [QUERY-7.01](05-querying.md#query-7-query-timeout).
 
-> **CFG-3.07** `querymaxlimit` (int, default `100`) — Maximum value allowed for the `_limit` query parameter. Client-requested limits exceeding this value are capped. Must be greater than 0. See [QUERY-3.01](05-querying.md#query-3-special-parameters).
+> **CFG-3.07** `querymaxlimit` (int, default `100`) — Maximum value allowed for the `_limit` query parameter. Client-requested limits exceeding this value are not used; the default limit of 100 applies instead (QUERY-3.01). Must be greater than 0. See [QUERY-3.01](05-querying.md#query-3-special-parameters).
 
 > **CFG-3.08** [REMOVED] `exportpagesize` — Was never used by the export implementation. The key is ignored if present.
 
@@ -75,8 +76,8 @@ Covers the JSON configuration file format, all application and database options,
 > **CFG-4.02** `ssl` (boolean, optional) — SSL for the PostgreSQL connection, with and without connection pool. `true` sets the driver's `sslmode=require`, `false` sets `sslmode=disable`. When `ssl` is not set, the pgjdbc default `sslmode=prefer` applies (SSL if the server offers it), as in RowStore 1.7.
 
 > **CFG-4.03** Connection pool settings (HikariCP):
-> - `connectionPoolInit` (int, default `-1`) — Minimum idle connections (`minimumIdle`). `-1` uses HikariCP defaults.
-> - `connectionPoolMax` (int, default `-1`) — Maximum pool size (`maximumPoolSize`). `-1` uses HikariCP defaults.
+> - `connectionPoolMax` (int, default `-1`) — Maximum pool size (`maximumPoolSize`). A HikariCP pool is used only if the value is greater than 0; otherwise (the default) no pool is used and connections are opened per operation with `PGSimpleDataSource`.
+> - `connectionPoolInit` (int, default `-1`) — Minimum idle connections (`minimumIdle`), only effective with a pool. Values <= 0 mean `0`.
 
 > **CFG-4.04** Timeout settings (all in seconds):
 > - `socketTimeout` (int, default `0`) — Socket read timeout. `0` means no timeout.
@@ -97,7 +98,7 @@ Covers the JSON configuration file format, all application and database options,
 
 ## CFG-5 Read Replica Configuration
 
-> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`, including its own connection limits (CFG-4.05 to CFG-4.08) for the queries and exports it serves. When not configured, all queries use the primary `database` connection. Connections to `queryDatabase` are read-only also in auto-commit mode (driver `readOnlyMode=always`), with and without connection pool. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing). Replica queries of a dataset may be cancelled when a replace of the dataset is replayed, see [ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace). If `queryDatabase` uses a separate database user, it should be granted read access with `ALTER DEFAULT PRIVILEGES` (for tables created by the RowStore user), since every new dataset creates a new data table; privileges granted on an existing data table are kept by replaces (ETL-6.02).
+> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`, including its own connection limits (CFG-4.05 to CFG-4.08) for the queries and exports it serves. When not configured, all queries use the primary `database` connection. Connections to `queryDatabase` are read-only also in auto-commit mode (driver `readOnlyMode=always`), with and without connection pool. The driver sets this as session state (`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`), which PgBouncer cannot track, so behind PgBouncer `queryDatabase` must use its own database user, never the user of `database` (ARCH-7.06). See [QUERY-8.01](05-querying.md#query-8-read-replica-routing). Replica queries of a dataset may be cancelled when a replace of the dataset is replayed, see [ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace). If `queryDatabase` uses a separate database user, it should be granted read access with `ALTER DEFAULT PRIVILEGES` (for tables created by the RowStore user), since every new dataset creates a new data table; privileges granted on an existing data table are kept by replaces (ETL-6.02).
 
 ## CFG-6 Rate Limit Configuration
 
@@ -202,11 +203,12 @@ Covers the JSON configuration file format, all application and database options,
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |
+| 2026-10-20 | CFG-5.01: replica queries may be cancelled by replayed replaces |
 | 2026-10-20 | Added CFG-1.02 (fail fast on invalid config), CFG-3.08 removed (exportpagesize unused); CFG-4.02, CFG-4.04, CFG-5.01 clarified for driver settings with HikariCP |
 | 2026-10-20 | Added CFG-3.11 (`trustedproxies`); CFG-1.02 and CFG-6.03 updated: `X-Forwarded-For` only from trusted proxies |
-| 2026-10-21 | CFG-4.02: sslmode prefer when `ssl` is not set (as in 1.7); CFG-3.09: no unlimited upload size |
-| 2026-10-21 | CFG-3.11: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); CFG-6.03 accordingly |
-| 2026-10-20 | CFG-5.01: replica queries may be cancelled by replayed replaces |
+| 2026-10-20 | CFG-4.03: no pool unless `connectionPoolMax` > 0; CFG-3.07: limits above `querymaxlimit` fall back to the default |
 | 2026-10-21 | CFG-4.05 to CFG-4.07: connection limits per database block |
 | 2026-10-21 | CFG-3.06: querytimeout applies to all statements of short operations; CFG-4.07: lock timeout of query connections |
 | 2026-10-21 | CFG-4.08: queryLockTimeout; CFG-3.06: querytimeout applies to the JdbcTemplate statements of short operations |
+| 2026-10-21 | CFG-4.02: sslmode prefer when `ssl` is not set (as in 1.7); CFG-3.09: no unlimited upload size |
+| 2026-10-21 | CFG-3.11: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); CFG-6.03 accordingly |
