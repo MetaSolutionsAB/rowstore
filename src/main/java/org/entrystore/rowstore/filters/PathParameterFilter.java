@@ -33,10 +33,11 @@ import java.io.IOException;
  * Rejects requests with path parameters (";" in the path) with 400. RowStore does not use them, but Tomcat and Spring
  * ignore them when routing, so e.g. "/v3;x/api-docs" would bypass path rules of a reverse proxy and
  * "/dataset/{id};1" would get its own per-dataset rate limit bucket. Encoded semicolons ("%3B") are not delimiters
- * and are not affected. Runs first, so that it also covers Actuator and springdoc endpoints.
+ * and are not affected. Runs first after {@link AccessLogFilter}, so that it also covers Actuator and springdoc
+ * endpoints.
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class PathParameterFilter implements Filter {
 
 	@Override

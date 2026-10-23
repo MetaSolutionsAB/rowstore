@@ -44,6 +44,8 @@ public class RowStoreConfig {
 
 	private boolean legacyParserEnabled;
 
+	private boolean accessLogEnabled;
+
 	private int rateLimitTimeRange = -1;
 
 	private int rateLimitRequestsGlobal = -1;
@@ -100,6 +102,9 @@ public class RowStoreConfig {
 
 		// Parser
 		legacyParserEnabled = config.optBoolean("legacyparser", false);
+
+		// Access log (one line per request, as in 1.x)
+		accessLogEnabled = config.optBoolean("accesslog", true);
 
 		// Database
 		database = new Database(requiredObject(config, "database"), "database");
@@ -259,6 +264,8 @@ public class RowStoreConfig {
 	}
 
 	public boolean isLegacyParserEnabled() { return legacyParserEnabled; }
+
+	public boolean isAccessLogEnabled() { return accessLogEnabled; }
 
 	public String getBaseURL() {
 		return baseURL;
