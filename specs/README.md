@@ -2,7 +2,7 @@
 
 This specification suite is the canonical reference for the RowStore system. It documents the **current state** of the software (version 2.0-SNAPSHOT, branch `develop`) and serves all four user personas: data publishers, API consumers, operators/admins, and embedded viewers.
 
-The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (315 test cases across 14 files) are preserved alongside these specs.
+The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (314 test cases across 14 files) are preserved alongside these specs.
 
 ## Reading Paths by Persona
 
@@ -179,7 +179,7 @@ Current limitations relevant to this area.
 | API-3.14 | GET /status — additive `connections` field with budget usage |
 | API-3.15 | GET /status and health — additive `queuedEtlProcesses` field (queued, not started ETL jobs) |
 | API-4.01 | Accept header determines response format |
-| API-4.02 | format param overrides Accept header |
+| API-4.02 | [REMOVED] format param overrides Accept header — never implemented |
 | API-4.03 | Accept: text/html redirects 303 to /html |
 | API-4.04 | No 406: single-representation resources ignore Accept, fallback by top-level type as in 1.x |
 | API-4.05 | media query parameter replaces the Accept header (Restlet tunnel) |
@@ -251,7 +251,7 @@ Current limitations relevant to this area.
 | QUERY-3.01 | _limit: default 100, max from querymaxlimit |
 | QUERY-3.02 | _offset: default 0, negatives corrected to 0 |
 | QUERY-3.03 | [REMOVED] _callback: JSONP function name — JSONP removed |
-| QUERY-3.04 | format: response format override |
+| QUERY-3.04 | [REMOVED] format: response format override — never implemented |
 | QUERY-3.05 | _callback: reserved, accepted and ignored (no JSONP wrapping) |
 | QUERY-3.06 | media, charset, encoding, language: tunnel params, not filters unless a column has the name |
 | QUERY-4.01 | disabled: exact match only (=) |
@@ -336,6 +336,7 @@ Current limitations relevant to this area.
 | SEC-5.05 | Client address: X-Forwarded-For only from trusted proxies; last entry by default, walked right to left with a list |
 | SEC-5.06 | Trusted proxy default: the connecting peer, last X-Forwarded-For entry; empty array trusts nobody |
 | SEC-6.01 | CORS: configurable allowed origins via cors.allowedorigins |
+| SEC-6.02 | 403 for origins that are not listed; public origin must be listed behind TLS proxies |
 | SEC-7.01 | [REMOVED] JSONP via _callback param — replaced by CORS |
 | SEC-8.01 | Temp files: deleteOnExit + explicit deletion |
 | SEC-9.01 | Always behind a reverse proxy, never directly reachable |
@@ -353,6 +354,7 @@ Current limitations relevant to this area.
 | DEPL-1.03 | Spring Boot standard properties (--server.port, etc.) |
 | DEPL-1.04 | [REMOVED] HTTP/2 and useForwardedForHeader — Jetty-specific |
 | DEPL-1.05 | Reverse proxy required, contract in SEC-9 |
+| DEPL-1.06 | Context path of former WAR deployments, templates read from the JAR |
 | DEPL-2.01 | Docker image: metasolutions/rowstore |
 | DEPL-2.02 | Dockerfile in the RowStore repository |
 | DEPL-2.03 | Docker tags: version, major.minor, develop |
@@ -361,6 +363,8 @@ Current limitations relevant to this area.
 | DEPL-3.03 | Artifacts: executable JAR + SHA256 + GPG |
 | DEPL-4.01 | PostgreSQL 9.6+, checked at startup |
 | DEPL-4.02 | Schema managed by Flyway (baselineOnMigrate) |
+| DEPL-4.03 | Database user needs CREATE on its schema |
+| DEPL-4.04 | Rollback to 1.7 and upgrading again |
 | DEPL-5.01 | GET /status: service, version, datasets, activeEtlProcesses, queuedEtlProcesses |
 | DEPL-5.02 | GET /status?jvm: memory, processors, heap |
 | DEPL-5.03 | Spring Boot Actuator: /actuator/health, /actuator/metrics, /actuator/info |
@@ -399,7 +403,7 @@ Current limitations relevant to this area.
 | TEST-6.01 | Awaitility polling for async ETL |
 | TEST-7.01 | 12+ CSV test files covering encodings and edge cases |
 | TEST-8.01 | Endpoint × test spec coverage matrix |
-| TEST-9.01 | specs/tests/: 315 test cases, 14 files |
+| TEST-9.01 | specs/tests/: 314 test cases, 14 files |
 
 ### USR — User Stories
 

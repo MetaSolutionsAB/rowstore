@@ -144,7 +144,9 @@ Tests for query functionality including filters, pagination, and regex modes. Th
 - `prev` link present
 - `next` absent when offset+limit >= resultCount
 
-### TC-QUERY-014: Format parameter
+### TC-QUERY-014: [REMOVED] Format parameter
+
+Retired: the `format` parameter was never implemented (API-4.02, QUERY-3.04 removed).
 
 **Request:**
 - Method: `GET`

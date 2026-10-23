@@ -33,6 +33,8 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 
 > **DEPL-1.05** RowStore must be deployed behind a reverse proxy that fulfills the contract in [SEC-9](07-security.md#sec-9-reverse-proxy-contract): authentication of non-GET/HEAD requests, blocking of `/actuator/**`, Swagger UI, OpenAPI description and `/status?jvm`, and setting `X-Forwarded-For`. The [README Security section](../README.md#security) contains a minimal nginx example.
 
+> **DEPL-1.06** A 1.x WAR deployed under a context path is replaced by `--server.servlet.context-path=<path>` (e.g. `/rowstore`); response URLs are built from `baseurl` ([CFG-3.01](06-configuration.md#cfg-3-application-options)) as before. Templates (`webgui_*.html`, `swagger.json_template`) are read from the JAR and cannot be overridden by files on the classpath as with the `etc/` directory of the 1.x distribution.
+
 ## DEPL-2 Docker
 
 > **DEPL-2.01** Official Docker image: `metasolutions/rowstore:<version>` on Docker Hub.
@@ -71,6 +73,10 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > **DEPL-4.01** PostgreSQL 9.6 or later is required (JSONB since 9.4; replaces and the cleanup of column names use `idle_in_transaction_session_timeout` and `to_regclass(text)`, available since 9.6). At startup, RowStore checks `server_version_num` of the primary database and does not start with an older version (the error names the required and the found version); like the other startup maintenance, the check waits for an unreachable database (ARCH-7.08), and if the version cannot be determined for another reason, an error is logged and the startup continues. Recommended: PostgreSQL 16 (used in CI/CD tests). The integration tests can be run against another version with `-Drowstore.test.postgresImage=postgres:9.6-alpine`; for 2.0, the integration tests of CSV parsing, replaces, the cleanup of column names, queries and exports were run against PostgreSQL 9.6 (ROWS-165).
 
 > **DEPL-4.02** Schema is managed by **Flyway** with `baselineOnMigrate=true`. On first startup against an existing database, Flyway adopts the current schema. New migrations are applied automatically. The initial migration (`V1__initial_schema.sql`) creates the `datasets` and `aliases` tables.
+
+> **DEPL-4.03** The database user needs the `CREATE` privilege on its schema: Flyway creates `flyway_schema_history` and the migrations create `maintenance_tasks` at the first start, datasets get their own data tables, and every replace creates a shadow table (ETL-6.02). Without it, the migration fails and RowStore does not start.
+
+> **DEPL-4.04** Rollback to 1.7: 1.7 runs on a database that 2.0 has used and ignores `flyway_schema_history` and `maintenance_tasks`. Column names renamed by the cleanup (ETL-11) stay renamed, data tables recreated by a replace keep `rownr BIGSERIAL`, and 1.7 stores byte order marks and soft hyphens in the column names of new uploads again. Before upgrading to 2.0 again, the row `column-name-cleanup` must be deleted from `maintenance_tasks` (ETL-11.07), so that the cleanup checks the datasets loaded by 1.7. Leftover shadow tables are dropped at the next start of 2.0, not by 1.7.
 
 ## DEPL-5 Monitoring
 
@@ -165,3 +171,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 | 2026-10-23 | DEPL-5.04: waiting for the database at startup, Retry-After (ROWS-160, ROWS-167) |
 | 2026-10-23 | DEPL-1.02: arguments checked (CFG-7.05); added DEPL-2.04 (image user, `JAVA_OPTS`, heap, config location), DEPL-6.02 (access log), DEPL-7.02 (stop timeout); DEPL-7.01: queued jobs discarded at shutdown (ROWS-161, ROWS-162, ROWS-163, ROWS-166) |
 | 2026-10-23 | DEPL-4.01: PostgreSQL 9.6+ (was 9.4+), checked at startup (ROWS-165) |
+| 2026-10-23 | Added DEPL-1.06 (context path, templates), DEPL-4.03 (CREATE privilege), DEPL-4.04 (rollback to 1.7) (ROWS-168) |

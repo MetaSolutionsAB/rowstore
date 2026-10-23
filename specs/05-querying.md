@@ -28,7 +28,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-3.03** [REMOVED] `_callback` — JSONP function name. JSONP support has been removed; use CORS for cross-origin access.
 
-> **QUERY-3.04** `format` — Response format override. Takes precedence over the `Accept` header for content negotiation.
+> **QUERY-3.04** [REMOVED] `format` — Response format override — never implemented, neither in 1.x nor in 2.0; see [API-4.02](03-api.md#api-4-content-negotiation).
 
 > **QUERY-3.05** `_callback` — Reserved parameter kept for compatibility with 1.x clients. It is accepted and ignored: it is not treated as a column filter and the response is plain JSON (JSONP wrapping was removed in 2.0, see [QUERY-3.03](#query-3-special-parameters)). Like other non-pagination parameters, it is carried over to the `prev`/`next` URLs ([QUERY-6.02](#query-6-pagination)).
 
@@ -114,3 +114,4 @@ Covers the read path from query parameter parsing through SQL execution to respo
 | 2026-10-20 | QUERY-3.01: values above `querymaxlimit` fall back to the default |
 | 2026-10-21 | Added QUERY-3.05: `_callback` accepted and ignored instead of rejected with 400 (ROWS-147) |
 | 2026-10-23 | Added QUERY-2.03 (trimming, ROWS-157), QUERY-3.06 (tunnel parameters, ROWS-158), QUERY-4.05 (no regex validation, ROWS-153), QUERY-9.03 (unencoded characters, ROWS-151), QUERY-9.04 (malformed encodings, ROWS-152) |
+| 2026-10-23 | QUERY-3.04 removed, the `format` parameter was never implemented (ROWS-168) |

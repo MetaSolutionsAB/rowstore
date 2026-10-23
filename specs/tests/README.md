@@ -10,7 +10,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 1 |
 | `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases (any Content-Type), storage schema | 24 |
 | `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines, byte order marks, empty and duplicate labels | 53 |
-| `05-querying.md` | Query functionality: filters, pagination, regex modes, reserved `_callback` parameter (JSONP test cases retired), query string parsing (unencoded characters, malformed encodings, trimming, tunnel parameters) | 40 |
+| `05-querying.md` | Query functionality: filters, pagination, regex modes, reserved `_callback` parameter (JSONP test cases retired), query string parsing (unencoded characters, malformed encodings, trimming, tunnel parameters) | 39 |
 | `06-export.md` | JSON/CSV export endpoints | 17 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
 | `08-error-handling.md` | Error codes: 400, 404, 415, 423, 424, path parameters, upload content types, corrupt CSV | 24 |
@@ -141,7 +141,7 @@ Dataset creation and modification are asynchronous. Tests should:
 | Datasets List | 1 |
 | Dataset Lifecycle | 24 |
 | CSV Formats | 53 |
-| Querying | 40 |
+| Querying | 39 |
 | Export | 17 |
 | Metadata Endpoints | 11 |
 | Error Handling | 24 |
@@ -151,9 +151,9 @@ Dataset creation and modification are asynchronous. Tests should:
 | Connection Limits | 35 |
 | Deployment | 11 |
 | HTTP Compatibility | 9 |
-| **Total** | **315** |
+| **Total** | **314** |
 
-Note: The specifications define 315 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 314 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 
