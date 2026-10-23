@@ -91,7 +91,7 @@ class DatabaseUnavailableAtStartupIT {
     void startupWithUnreachableDatabase_waitsAndStarts() throws Exception {
         String externalUrl = System.getProperty("rowstore.baseUrl");
         Assumptions.assumeTrue(externalUrl == null || externalUrl.isEmpty(), "Needs its own RowStore instance");
-        postgres = new PostgreSQLContainer<>("postgres:16-alpine")
+        postgres = new PostgreSQLContainer<>(TestUtils.postgresImage())
                 .withDatabaseName("rowstorestartup")
                 .withUsername("test")
                 .withPassword("test");

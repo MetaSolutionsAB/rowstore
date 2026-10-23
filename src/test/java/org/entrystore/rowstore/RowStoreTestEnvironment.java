@@ -215,7 +215,7 @@ public class RowStoreTestEnvironment {
     private void startPostgres() {
         log.info("Starting PostgreSQL container...");
 
-        postgresContainer = new PostgreSQLContainer<>("postgres:16-alpine")
+        postgresContainer = new PostgreSQLContainer<>(TestUtils.postgresImage())
                 .withDatabaseName("rowstoretest")
                 .withUsername("rowstoretest")
                 .withPassword("rowstoretestpw");

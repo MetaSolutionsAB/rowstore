@@ -442,7 +442,7 @@ class DatasetReplaceIT extends BaseIntegrationTest {
     private static int waitingBackendPid(Connection conn, String statementStart) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT pid FROM pg_stat_activity WHERE datname = current_database() " +
-                        "AND wait_event_type = 'Lock' AND starts_with(query, ?)")) {
+                        "AND wait_event_type = 'Lock' AND position(?::text in query) = 1")) {
             ps.setString(1, statementStart);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : 0;

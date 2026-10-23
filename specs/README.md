@@ -355,7 +355,7 @@ Current limitations relevant to this area.
 | DEPL-3.01 | Pipeline: build → test → deploy + Docker Hub |
 | DEPL-3.02 | Branch strategy: master, develop, other |
 | DEPL-3.03 | Artifacts: executable JAR + SHA256 + GPG |
-| DEPL-4.01 | PostgreSQL 9.4+ for JSONB |
+| DEPL-4.01 | PostgreSQL 9.6+, checked at startup |
 | DEPL-4.02 | Schema managed by Flyway (baselineOnMigrate) |
 | DEPL-5.01 | GET /status: service, version, datasets, activeEtlProcesses, queuedEtlProcesses |
 | DEPL-5.02 | GET /status?jvm: memory, processors, heap |

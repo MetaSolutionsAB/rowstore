@@ -67,6 +67,8 @@ The configuration file (see [Configuration](#configuration)) is looked up in thi
 2. the environment variable `ROWSTORE_CONFIG_URI` (same format), e.g. `ROWSTORE_CONFIG_URI=/etc/rowstore/rowstore.json java -jar rowstore-<version>.jar`,
 3. a file `rowstore.json` on the classpath.
 
+RowStore requires PostgreSQL 9.6 or later (16 is recommended and used by the tests); it does not start if the database runs an older version.
+
 If no configuration is found, or if it cannot be read or is invalid, RowStore logs one error message naming the problem and does not start (exit code 1). RowStore listens on port 8282; use `--server.port=<port>` to change it (other Spring Boot properties can be passed the same way). RowStore only takes arguments of the form `--name=value`; any other argument, including the options of 1.x (`-c`/`--config`, `-p`/`--port`, `-l`/`--log-level`, `--connector-params`), prevents the startup with a message that names the replacement. The environment variable `ROWSTORE_CONNECTOR_PARAMS` of 1.x is ignored with a warning. At startup, RowStore creates or migrates its tables with Flyway; an existing 1.x database is adopted as it is. When upgrading from 1.x, read the upgrade notes of version 2.0 in `CHANGELOG.md`.
 
 A database must be used by only one RowStore instance at a time. Uploads are queued in memory and loaded one after another per dataset, a dataset that is in status PROCESSING (2) without a load in this instance is taken over, and at startup datasets left in PROCESSING by an interrupted load or in ACCEPTED_DATA (1) by an upload that was still queued when RowStore stopped are set to ERROR (4). A second instance on the same database, including an old and a new instance that overlap during a deployment, could therefore load the same dataset concurrently or reset the loads of the other instance. Stop the old instance before starting the new one. Several instances can share a PostgreSQL cluster if each has its own database. Support for several instances per database is planned ([ROWS-149](https://metasolutions.atlassian.net/browse/ROWS-149)).
@@ -405,6 +407,8 @@ mvn verify
 mvn verify -Dit.test=StatusIT
 mvn verify -Dit.test=StatusIT#getStatus_returnsValidStructure
 ```
+
+The tests use PostgreSQL 16; another image can be set with `-Drowstore.test.postgresImage`, e.g. `-Drowstore.test.postgresImage=postgres:9.6-alpine` for the oldest supported version.
 
 To run tests against an external RowStore instance (skips the automatic setup; tests that need direct database access are skipped):
 

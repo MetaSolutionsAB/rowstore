@@ -196,7 +196,9 @@ class ColumnNameCleanupIT extends BaseIntegrationTest {
                 assertThat(storedColumnNames(connector, datasetId)).containsAll(BROKEN_NAMES.values());
             }
         } finally {
-            executeMaintenance("DROP DATABASE IF EXISTS " + database + " WITH (FORCE)");
+            // like DROP DATABASE ... WITH (FORCE), which requires PostgreSQL 13 (the tests also run with 9.6, DEPL-4.01)
+            executeMaintenance("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '" + database + "'");
+            executeMaintenance("DROP DATABASE IF EXISTS " + database);
         }
     }
 
@@ -374,7 +376,7 @@ class ColumnNameCleanupIT extends BaseIntegrationTest {
     private static boolean waitingForLock(Connection conn, String statementStart) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT count(*) > 0 FROM pg_stat_activity WHERE datname = current_database() " +
-                        "AND wait_event_type = 'Lock' AND starts_with(query, ?)")) {
+                        "AND wait_event_type = 'Lock' AND position(?::text in query) = 1")) {
             ps.setString(1, statementStart);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() && rs.getBoolean(1);

@@ -767,17 +767,21 @@ public class PgDataset implements Dataset {
 		long before = System.currentTimeMillis();
 		String[] oldNames = renames.keySet().toArray(new String[0]);
 		String[] newNames = renames.values().toArray(new String[0]);
-		// The row's keys are matched with ??, the escaped ? operator; a row without a key gets no new key
-		String sql = "UPDATE " + dataTable + " SET data = (data - ?::text[]) || " +
+		// The row's keys are matched with ??, the escaped ? operator; a row without a key gets no new key. The old keys
+		// are removed one by one, since jsonb - text[] requires PostgreSQL 10 (DEPL-4.01)
+		String sql = "UPDATE " + dataTable + " SET data = (data" + " - ?::text".repeat(oldNames.length) + ") || " +
 				"COALESCE((SELECT jsonb_object_agg(r.new_name, data -> r.old_name) " +
 				"FROM unnest(?::text[], ?::text[]) AS r(old_name, new_name) WHERE data ?? r.old_name), '{}'::jsonb) " +
 				"WHERE data ??| ?::text[]";
 		try (PreparedStatement ps = conn.prepareStatement(sql)) {
 			Array oldNameArray = conn.createArrayOf("text", oldNames);
-			ps.setArray(1, oldNameArray);
-			ps.setArray(2, oldNameArray);
-			ps.setArray(3, conn.createArrayOf("text", newNames));
-			ps.setArray(4, oldNameArray);
+			int param = 1;
+			for (String oldName : oldNames) {
+				ps.setString(param++, oldName);
+			}
+			ps.setArray(param++, oldNameArray);
+			ps.setArray(param++, conn.createArrayOf("text", newNames));
+			ps.setArray(param, oldNameArray);
 			log.debug("Executing: " + ps);
 			ps.executeUpdate();
 		}

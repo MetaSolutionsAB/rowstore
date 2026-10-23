@@ -105,6 +105,12 @@ public class PgRowStore implements RowStore {
 	 */
 	static final String QUERY_CANCELED = "57014";
 
+	/**
+	 * Minimum version of PostgreSQL (server_version_num) of the primary database, 9.6 (DEPL-4.01): replaces and the
+	 * cleanup of column names use idle_in_transaction_session_timeout, and to_regclass(text).
+	 */
+	static final int MIN_SERVER_VERSION = 90600;
+
 	private final JdbcTemplate jdbcTemplate;
 
 	private final JdbcTemplate queryJdbcTemplate;
@@ -167,6 +173,7 @@ public class PgRowStore implements RowStore {
 
 		// like the migration in DataSourceConfig, the startup maintenance waits for the database if it is not reachable
 		StartupRetry startupRetry = new StartupRetry();
+		runStartupMaintenance(startupRetry, "check the version of the database", this::checkServerVersion);
 		runStartupMaintenance(startupRetry, "reset datasets with interrupted loads or lost uploads", this::resetInterruptedLoadsOrThrow);
 		runStartupMaintenance(startupRetry, "drop leftover shadow tables", this::dropLeftoverShadowTablesOrThrow);
 		log.info("Started RowStore {}", versionInfo.getVersion());
@@ -259,6 +266,38 @@ public class PgRowStore implements RowStore {
 			log.warn("connectionPoolMax {} of {} is lower than the sum of its connection limits {}, " +
 					"connections may have to wait for the pool", db.getConnectionPoolMax(), dbName, sum);
 		}
+	}
+
+	/**
+	 * Checks that the primary database runs at least {@link #MIN_SERVER_VERSION} (DEPL-4.01). Called at startup.
+	 *
+	 * @return Returns the version (server_version_num).
+	 * @throws IllegalStateException If the version is too old, which prevents the startup.
+	 * @throws DataAccessException If the database could not be accessed.
+	 */
+	private Integer checkServerVersion() {
+		Integer version = jdbcTemplate.queryForObject("SELECT current_setting('server_version_num')::int", Integer.class);
+		checkServerVersion(version);
+		return version;
+	}
+
+	/**
+	 * @param serverVersionNum The version of PostgreSQL as in its setting server_version_num, e.g., 160004 for 16.4.
+	 * @throws IllegalStateException If the version is older than {@link #MIN_SERVER_VERSION}.
+	 */
+	static void checkServerVersion(Integer serverVersionNum) {
+		if (serverVersionNum != null && serverVersionNum < MIN_SERVER_VERSION) {
+			throw new IllegalStateException("PostgreSQL " + versionName(MIN_SERVER_VERSION) + " or later is required, " +
+					"the database runs PostgreSQL " + versionName(serverVersionNum));
+		}
+	}
+
+	/**
+	 * @return Returns the version name of a server_version_num, e.g., "9.6" for 90624 and "16" for 160004.
+	 */
+	static String versionName(int serverVersionNum) {
+		int major = serverVersionNum / 10000;
+		return major >= 10 ? String.valueOf(major) : major + "." + (serverVersionNum / 100 % 100);
 	}
 
 	/**

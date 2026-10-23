@@ -64,6 +64,15 @@ public final class TestUtils {
     private TestUtils() {}
 
     /**
+     * @return Returns the Docker image of the PostgreSQL containers: the system property
+     * {@code rowstore.test.postgresImage} (e.g., {@code postgres:9.6-alpine} for the oldest supported version,
+     * DEPL-4.01), or PostgreSQL 16.
+     */
+    public static String postgresImage() {
+        return System.getProperty("rowstore.test.postgresImage", "postgres:16-alpine");
+    }
+
+    /**
      * Loads a test data file from the classpath.
      */
     public static byte[] loadTestData(String filename, Class<?> contextClass) {

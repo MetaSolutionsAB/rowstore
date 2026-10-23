@@ -89,6 +89,17 @@ Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configura
 2. Driver timeouts are 60 / 7 / 8 seconds
 3. `readOnly` is true and `readOnlyMode` is `always`
 
+### TC-DS-003: PostgreSQL older than 9.6 prevents the startup
+
+Unit test (`PgRowStoreServerVersionTest`) of the version check at startup ([DEPL-4.01](../08-deployment.md#depl-4-postgresql-requirements)).
+
+**Input (one per case):** `server_version_num` = 90400 (9.4), 90524 (9.5.24), 90600 (9.6.0), 90624, 100023 (10.23), 160004 (16.4), unknown (null).
+
+**Assertions:**
+1. 9.4 and 9.5 fail with `IllegalStateException` whose message names the required version `9.6` and the found version (`9.4`, `9.5`)
+2. 9.6, 10, 16 and an unknown version pass
+3. Version names: 90624 → `9.6`, 100023 → `10`, 160004 → `16`
+
 ### TC-POOL-006: SSL mode and driver timeouts are passed to the HikariCP pools
 
 **Assertions (primary and query pool):**

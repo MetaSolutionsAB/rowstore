@@ -68,7 +68,7 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 
 ## DEPL-4 PostgreSQL Requirements
 
-> **DEPL-4.01** PostgreSQL 9.4+ is required for JSONB column support. Recommended: PostgreSQL 16 (used in CI/CD tests).
+> **DEPL-4.01** PostgreSQL 9.6 or later is required (JSONB since 9.4; replaces and the cleanup of column names use `idle_in_transaction_session_timeout` and `to_regclass(text)`, available since 9.6). At startup, RowStore checks `server_version_num` of the primary database and does not start with an older version (the error names the required and the found version); like the other startup maintenance, the check waits for an unreachable database (ARCH-7.08), and if the version cannot be determined for another reason, an error is logged and the startup continues. Recommended: PostgreSQL 16 (used in CI/CD tests). The integration tests can be run against another version with `-Drowstore.test.postgresImage=postgres:9.6-alpine`; for 2.0, the integration tests of CSV parsing, replaces, the cleanup of column names, queries and exports were run against PostgreSQL 9.6 (ROWS-165).
 
 > **DEPL-4.02** Schema is managed by **Flyway** with `baselineOnMigrate=true`. On first startup against an existing database, Flyway adopts the current schema. New migrations are applied automatically. The initial migration (`V1__initial_schema.sql`) creates the `datasets` and `aliases` tables.
 
@@ -164,3 +164,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 | 2026-10-21 | DEPL-5.01: `queuedEtlProcesses` (API-3.15) |
 | 2026-10-23 | DEPL-5.04: waiting for the database at startup, Retry-After (ROWS-160, ROWS-167) |
 | 2026-10-23 | DEPL-1.02: arguments checked (CFG-7.05); added DEPL-2.04 (image user, `JAVA_OPTS`, heap, config location), DEPL-6.02 (access log), DEPL-7.02 (stop timeout); DEPL-7.01: queued jobs discarded at shutdown (ROWS-161, ROWS-162, ROWS-163, ROWS-166) |
+| 2026-10-23 | DEPL-4.01: PostgreSQL 9.6+ (was 9.4+), checked at startup (ROWS-165) |
