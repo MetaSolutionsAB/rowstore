@@ -24,6 +24,8 @@ import org.entrystore.rowstore.store.impl.SqlExceptionLogUtil;
 import org.mozilla.universalchardet.UniversalDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
 
 import java.io.File;
 import java.io.IOException;
@@ -130,6 +132,23 @@ public class DatasetUtil {
 	public static boolean isRegExpString(String s) {
 		char[] indicators = {'^', '$', '(', '|', '[', '*', '+', '{', '?', '/'};
 		return StringUtils.indexOfAny(s, indicators) > -1;
+	}
+
+	/**
+	 * @param contentType The Content-Type header of an upload, may be null.
+	 * @return Returns true if the upload is to be read as CSV: the media type is text/csv (case-insensitive, with any
+	 * parameters) or no Content-Type was sent, as accepted by 1.x (API-3.03, SEC-4.04).
+	 */
+	public static boolean isCsvContentType(String contentType) {
+		if (contentType == null || contentType.isBlank()) {
+			return true;
+		}
+		try {
+			MediaType mediaType = MediaType.parseMediaType(contentType);
+			return "text".equalsIgnoreCase(mediaType.getType()) && "csv".equalsIgnoreCase(mediaType.getSubtype());
+		} catch (InvalidMediaTypeException e) {
+			return false;
+		}
 	}
 
 	public static boolean isUUID(String string) {

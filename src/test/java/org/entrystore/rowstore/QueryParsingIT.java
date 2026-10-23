@@ -16,6 +16,7 @@
 
 package org.entrystore.rowstore;
 
+import io.restassured.path.json.JsonPath;
 import org.entrystore.rowstore.TestUtils.RawResponse;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -37,8 +38,8 @@ import static org.hamcrest.Matchers.hasSize;
 
 /**
  * Integration tests for the parsing of query strings as in 1.x: characters sent unencoded, malformed percent-encodings,
- * trimming and regular expressions that 2.0 rejected before.
- * Specification: 05-querying.md (QUERY-2.03, QUERY-4.05, QUERY-9.03, QUERY-9.04)
+ * trimming, tunnel parameters and regular expressions that 2.0 rejected before.
+ * Specification: 05-querying.md (QUERY-2.03, QUERY-3.06, QUERY-4.05, QUERY-9.03, QUERY-9.04)
  *
  * The requests are sent with {@link TestUtils#rawRequest}, since HTTP clients encode or reject these query strings.
  */
@@ -133,6 +134,37 @@ class QueryParsingIT extends BaseIntegrationTest {
     @DisplayName("TC-QUERY-023: Of a repeated parameter, the last value is used as in 1.x")
     void repeatedParameter_lastValueIsUsed() {
         assertThat(names(get("Name=Martinsson&Name=McLoud"))).containsExactly("McLoud");
+    }
+
+    @Test
+    @DisplayName("TC-QUERY-024: Tunnel parameters of 1.x are not column filters and not carried over to page links")
+    void tunnelParameters_areNotFilters() {
+        RawResponse response = get("Name=McLoud&media=json&charset=utf-8&language=sv&encoding=identity");
+        assertThat(names(response)).containsExactly("McLoud");
+
+        JsonPath all = get("media=json&charset=utf-8&_limit=2&_offset=2").json();
+        assertThat(all.getList("results")).hasSize(2);
+        assertThat(all.getString("prev")).doesNotContain("media").doesNotContain("charset").contains("_limit=2");
+        assertThat(all.getString("next")).doesNotContain("media").doesNotContain("charset");
+    }
+
+    @Test
+    @DisplayName("TC-QUERY-024: A tunnel parameter that is a column name of the dataset is a filter")
+    void tunnelParameter_thatIsColumnName_isFilter() {
+        DatasetUrls languages = createDatasetAndWait("language,n\nsv,1\nen,2\n".getBytes(StandardCharsets.UTF_8));
+        try {
+            given()
+                    .spec(jsonSpec)
+                    .queryParam("language", "sv")
+            .when()
+                    .get(languages.datasetUrl)
+            .then()
+                    .statusCode(200)
+                    .body("results", hasSize(1))
+                    .body("results[0].n", equalTo("1"));
+        } finally {
+            deleteDataset(languages.datasetUrl);
+        }
     }
 
     @ParameterizedTest(name = "[{index}] ?{0}")

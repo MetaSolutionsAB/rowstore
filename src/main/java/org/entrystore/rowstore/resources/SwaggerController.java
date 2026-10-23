@@ -64,7 +64,7 @@ public class SwaggerController {
 		this.versionInfo = versionInfo;
 	}
 
-	@GetMapping(value = "/dataset/{id}/swagger", produces = MediaType.APPLICATION_JSON_VALUE)
+	@GetMapping(value = "/dataset/{id}/swagger")
 	public ResponseEntity<String> represent(@PathVariable("id") String id) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
@@ -120,7 +120,7 @@ public class SwaggerController {
 				replace("__DATASET_ID__", dataset.getId()).
 				replace("__DATASET_PARAMETERS__", apiParams.toString());
 
-		return ResponseEntity.ok(result);
+		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result);
 	}
 
 }

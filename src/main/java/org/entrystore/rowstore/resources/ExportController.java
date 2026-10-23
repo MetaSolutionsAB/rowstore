@@ -62,14 +62,28 @@ public class ExportController {
 
 	private static final Logger log = LoggerFactory.getLogger(ExportController.class);
 
+	private static final MediaType TEXT_CSV = MediaType.parseMediaType("text/csv");
+
 	private final RowStore rowStore;
 
 	public ExportController(RowStore rowStore) {
 		this.rowStore = rowStore;
 	}
 
-	@GetMapping(value = "/dataset/{id}/export", produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<StreamingResponseBody> exportJSON(@PathVariable("id") String id, HttpServletRequest request) {
+	/**
+	 * Exports the dataset as JSON or CSV, depending on the Accept header (API-3.10, API-4.04), which can be set with the
+	 * query parameter media (API-4.05): CSV if it accepts CSV with a higher quality than JSON, or if it accepts neither,
+	 * but has a text type (e.g., text/plain), JSON otherwise.
+	 */
+	@GetMapping(value = "/dataset/{id}/export")
+	public ResponseEntity<StreamingResponseBody> export(@PathVariable("id") String id, HttpServletRequest request) {
+		if (TEXT_CSV.equals(ContentNegotiation.select(request, MediaType.APPLICATION_JSON, TEXT_CSV))) {
+			return exportCSV(id, request);
+		}
+		return exportJSON(id, request);
+	}
+
+	private ResponseEntity<StreamingResponseBody> exportJSON(String id, HttpServletRequest request) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
@@ -108,8 +122,7 @@ public class ExportController {
 		return ResponseEntity.ok().headers(headers).body(body);
 	}
 
-	@GetMapping(value = "/dataset/{id}/export", produces = "text/csv")
-	public ResponseEntity<StreamingResponseBody> exportCSV(@PathVariable("id") String id, HttpServletRequest request) {
+	private ResponseEntity<StreamingResponseBody> exportCSV(String id, HttpServletRequest request) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
@@ -150,7 +163,7 @@ public class ExportController {
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + id + ".csv\"");
-		headers.setContentType(MediaType.parseMediaType("text/csv"));
+		headers.setContentType(TEXT_CSV);
 		return ResponseEntity.ok().headers(headers).body(body);
 	}
 
