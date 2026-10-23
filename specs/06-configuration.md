@@ -78,6 +78,8 @@ Covers the JSON configuration file format, all application and database options,
 > **CFG-4.03** Connection pool settings (HikariCP):
 > - `connectionPoolMax` (int, default `-1`) — Maximum pool size (`maximumPoolSize`). A HikariCP pool is used only if the value is greater than 0; otherwise (the default) no pool is used and connections are opened per operation with `PGSimpleDataSource`.
 > - `connectionPoolInit` (int, default `-1`) — Minimum idle connections (`minimumIdle`), only effective with a pool. Values <= 0 mean `0`.
+>
+> 1.x never pooled the connections of `database` and pooled those of `queryDatabase` only if both values were greater than 0. A WARN is logged at startup when 2.0 pools connections that 1.x would not have pooled ([ARCH-7.07](01-system-architecture.md#arch-7-database-connection-limits)).
 
 > **CFG-4.04** Timeout settings (all in seconds):
 > - `socketTimeout` (int, default `0`) — Socket read timeout. `0` means no timeout.
@@ -212,3 +214,4 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-10-21 | CFG-4.08: queryLockTimeout; CFG-3.06: querytimeout applies to the JdbcTemplate statements of short operations |
 | 2026-10-21 | CFG-4.02: sslmode prefer when `ssl` is not set (as in 1.7); CFG-3.09: no unlimited upload size |
 | 2026-10-21 | CFG-3.11: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); CFG-6.03 accordingly |
+| 2026-10-23 | CFG-4.03: warning when pooling where 1.x did not (ROWS-167) |

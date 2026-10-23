@@ -116,6 +116,8 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 >
 > `/status?jvm` and the Actuator endpoints are served on the application port and must not be publicly reachable ([SEC-9.03](07-security.md#sec-9-reverse-proxy-contract)).
 
+> **DEPL-5.04** While the database is not reachable at startup, RowStore waits for it and does not listen on its port ([ARCH-7.08](01-system-architecture.md#arch-7-database-connection-limits)): health checks fail to connect until the database is reachable, and an orchestrator should not restart the instance only because it does not answer yet during that time (e.g., use a generous start period). Responses with 503 because the database is busy or unavailable carry `Retry-After` ([ARCH-7.09](01-system-architecture.md#arch-7-database-connection-limits)).
+
 ## DEPL-6 Logging
 
 > **DEPL-6.01** Logging uses Log4j2 (via SLF4J). Output is console-only (no file appenders by default). Log level can be set via the `loglevel` config option.
@@ -149,3 +151,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 | 2026-02-09 | Updated for Spring Boot migration: executable JAR, in-repo Dockerfile, Flyway, Actuator, graceful shutdown |
 | 2026-10-20 | Added DEPL-1.05 (reverse proxy required, SEC-9); DEPL-1.04 and DEPL-5.03 notes updated |
 | 2026-10-21 | DEPL-5.01: `queuedEtlProcesses` (API-3.15) |
+| 2026-10-23 | DEPL-5.04: waiting for the database at startup, Retry-After (ROWS-160, ROWS-167) |

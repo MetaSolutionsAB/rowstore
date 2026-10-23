@@ -15,8 +15,11 @@ TC-CONN-010 to TC-CONN-013, TC-CONN-021 and TC-CONN-029 are integration tests wi
 limits (`ConnectionLimitIT`: 2 query connections, 1 export connection, `maxetlprocesses` 2, wait timeout 2 s, hence
 lock timeout 1 s), TC-CONN-014 to TC-CONN-020 and TC-CONN-022 integration tests with one connection per budget
 (`ConnectionLimitSingleSlotIT`: 1 query connection, 1 export connection, `maxetlprocesses` 1, wait timeout 5 s, hence
-lock timeout 2.5 s), and TC-CONN-023 an integration test with an unreachable separate query database
-(`ConnectionLimitHealthIT`).
+lock timeout 2.5 s), TC-CONN-023 an integration test with an unreachable separate query database
+(`ConnectionLimitHealthIT`), TC-CONN-030 to TC-CONN-033 unit tests of the retries at startup (`StartupRetryTest`),
+TC-CONN-034 and TC-CONN-035 unit tests of the 503 responses (`DatabaseExceptionHandlerTest`), and TC-CONN-036 an
+integration test of the startup with an unreachable database (`DatabaseUnavailableAtStartupIT`, with its own
+PostgreSQL container).
 
 Some tests make requests hold their connections by making the queries of a dataset slow: its data table is renamed and
 replaced by a view that calls `pg_sleep` ("slow dataset"); afterwards the sleeping queries are cancelled and the data
@@ -297,3 +300,61 @@ connection of the statement of its result set.
 **Assertions:**
 1. Step 2 returns 503 after at least the lock timeout (1 s)
 2. No dataset was created
+
+## Database not reachable at startup (unit tests)
+
+### TC-CONN-030: Connectivity failures at startup are retried with growing delays until the task succeeds
+
+**Setup:** `StartupRetry` with an initial delay of 1 s, a maximum delay of 60 s and a fake sleep; the task fails eight
+times with a `SQLException` with SQL state `08001` (wrapped), then succeeds.
+
+**Assertions:**
+1. The task's result is returned after nine attempts
+2. The delays are 1, 2, 4, 8, 16, 32, 60 and 60 seconds
+
+### TC-CONN-031: Other failures at startup, e.g., of a migration or the authentication, are not retried
+
+**Assertions:**
+1. A runtime exception with a cause with SQL state `42601` (a failing migration) is thrown as it is, after one attempt
+2. A checked `SQLException` with SQL state `28P01` (wrong password) is thrown after one attempt, wrapped in an
+   `IllegalStateException`; there is no delay
+
+### TC-CONN-032: Connection failures, an unavailable database and failed connection attempts count as connectivity failures
+
+**Assertions:**
+1. SQL states `08001`, `57P03`, `57P01` and `53300`, `SQLTransientConnectionException`,
+   `CannotGetJdbcConnectionException` and a `ConnectException` cause are connectivity failures
+2. SQL states `28P01` and `42P01` and other exceptions are not
+
+### TC-CONN-033: An interruption while waiting for the database fails the startup
+
+**Assertions:**
+1. If the sleep between two attempts is interrupted, an `IllegalStateException` is thrown and the thread's interrupt
+   flag is set
+
+## 503 responses (unit tests)
+
+### TC-CONN-034: Unavailability of the database results in 503 with Retry-After
+
+**Assertions:**
+1. A wait timeout of a budget, an unreachable database and a lock timeout each result in 503 with an empty body and
+   `Retry-After: 5`
+
+### TC-CONN-035: A failure after a streamed response was committed is rethrown
+
+**Assertions:**
+1. If the response is already committed, the exception is rethrown instead of being mapped to 503
+
+## Database not reachable at startup (integration test)
+
+### TC-CONN-036: RowStore waits at startup for a database that is not reachable and starts once it is
+
+**Steps:**
+1. Start a separate PostgreSQL container and pause it, so that connection attempts time out
+2. Start RowStore against it (connect and login timeout 2 s) in the background
+3. Wait 10 seconds, then unpause the container
+
+**Assertions:**
+1. After step 3's wait, the startup has neither completed nor failed, and RowStore does not listen on its port
+2. After unpausing, the startup completes within 90 seconds, `GET /status` returns 200, and the migration ran exactly
+   once (one successful row of version 1 in `flyway_schema_history`)

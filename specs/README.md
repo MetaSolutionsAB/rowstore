@@ -127,7 +127,9 @@ Current limitations relevant to this area.
 | ARCH-7.04 | A request or ETL job holds at most one connection at a time |
 | ARCH-7.05 | Aggregated WARN for slow waits and timeouts; usage in /status and health details; health of both databases with short wait |
 | ARCH-7.06 | Sizing formula per instance and database; PgBouncer for many instances (queryLockTimeout 0, server-side lock_timeout) |
-| ARCH-7.07 | Budgets apply on top of an enabled HikariCP pool; pool size warning |
+| ARCH-7.07 | Budgets apply on top of an enabled HikariCP pool; pool size warning; warning when pooling where 1.x did not; no leak detection |
+| ARCH-7.08 | Database not reachable at startup: migration and startup maintenance retried with backoff, port not open meanwhile |
+| ARCH-7.09 | 503 for an unavailable database with Retry-After; logging of wait, lock and statement timeouts without flooding |
 
 ### DOM — Domain Model
 
@@ -209,7 +211,7 @@ Current limitations relevant to this area.
 | ETL-6.01 | POST = append (validates column match) |
 | ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate); owner and privileges kept |
 | ETL-6.03 | Replace status: PROCESSING, AVAILABLE or ERROR; previous data served until replaced and kept on failure |
-| ETL-6.04 | Swap lock: four 3 s lock_timeout probes with short delays, then a last attempt of at most 30 minutes, giving up with ERROR and previous data; lock holders logged; replica query cancellation |
+| ETL-6.04 | Swap lock: 3 s lock_timeout attempts retried with growing delays for at most 30 minutes, giving up with ERROR and previous data; lock holders logged; replica query cancellation |
 | ETL-6.05 | Leftover shadow tables dropped at next replace, on delete and at startup |
 | ETL-7.01 | text_pattern_ops index per column, escapeString for DDL |
 | ETL-7.02 | Skip index for fields > 256 chars |
@@ -349,6 +351,7 @@ Current limitations relevant to this area.
 | DEPL-5.01 | GET /status: service, version, datasets, activeEtlProcesses, queuedEtlProcesses |
 | DEPL-5.02 | GET /status?jvm: memory, processors, heap |
 | DEPL-5.03 | Spring Boot Actuator: /actuator/health, /actuator/metrics, /actuator/info |
+| DEPL-5.04 | Not listening while waiting for the database at startup; Retry-After on 503 |
 | DEPL-6.01 | Log4j2, console only, dynamic level via config |
 | DEPL-7.01 | Graceful shutdown: EtlProcessor.shutdown() with awaitTermination |
 
