@@ -23,7 +23,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-3 Test Organization
 
-> **TEST-3.01** The test suite contains **36 `*IT.java` integration test classes** with **243 tests** and **16 `*Test.java` unit test classes** with **208 tests** (as executed by Maven Failsafe and Surefire, including the tests of nested classes). Integration test classes follow the Maven Failsafe `*IT.java` naming convention, unit test classes the Maven Surefire `*Test.java` convention; `mvn test` runs only the unit tests, `mvn verify` runs both.
+> **TEST-3.01** The test suite contains **41 `*IT.java` integration test classes** with **363 tests** and **22 `*Test.java` unit test classes** with **310 tests** (as executed by Maven Failsafe and Surefire, including the tests of nested classes). Integration test classes follow the Maven Failsafe `*IT.java` naming convention, unit test classes the Maven Surefire `*Test.java` convention; `mvn test` runs only the unit tests, `mvn verify` runs both.
 
 > **TEST-3.02** Tests within each class are executed **sequentially** using JUnit 5's `@Order` annotation. This is necessary because many tests depend on prior test state (e.g., a dataset created in test 1 is queried in test 2).
 
