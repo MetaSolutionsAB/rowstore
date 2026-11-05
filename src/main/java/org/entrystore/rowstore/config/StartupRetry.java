@@ -33,8 +33,9 @@ import java.util.Set;
  * Retries the database work at startup (ARCH-7.08) while the database is not reachable, e.g., during a restart or a
  * failover of the database cluster, instead of failing the startup: with a delay of 1 second, doubled per attempt up
  * to 60 seconds, without limit. Each failed attempt is logged at WARN level with its cause. Only connectivity failures
- * are retried (see {@link #isConnectivityFailure(Throwable)}); any other failure, e.g., a failing migration or wrong
- * credentials, ends the retries and propagates, so that the startup fails as before.
+ * are retried (see {@link #isConnectivityFailure(Throwable)}); any other failure, e.g., a failing migration, wrong
+ * credentials or a missing database (also when reported through the connection pool), ends the retries and
+ * propagates, so that the startup fails as before.
  * <p>
  * The retries run in the startup thread before the web server accepts connections, so RowStore does not listen on its
  * port until the database is reachable. A shutdown of the JVM (e.g., SIGTERM) during the retries interrupts them and
@@ -148,31 +149,40 @@ public class StartupRetry {
 	}
 
 	/**
-	 * @return Returns whether the throwable or one of its causes means that the database is (temporarily) not
-	 * reachable: a connection exception (SQL state class 08, also for timeouts of connection attempts), the database
-	 * shutting down or starting up (57P01, 57P02, 57P03), too many connections (53300), a failed connection attempt
-	 * of the network or a connection pool, or Spring's DataAccessResourceFailureException. Authentication failures and
-	 * all other SQL errors (e.g., of a migration) are not.
+	 * @return Returns whether the throwable means that the database is (temporarily) not reachable. The first SQL state
+	 * in the cause chain decides: a connection exception (class 08, also for timeouts of connection attempts), the
+	 * database shutting down or starting up (57P01, 57P02, 57P03) and too many connections (53300) are connectivity
+	 * failures; any other SQL state is not, e.g., an authentication failure (28P01), a missing database (3D000), a full
+	 * disk (53100) or a failing migration, also if a connection pool or Spring wraps it into a connection exception.
+	 * Only if there is no SQL state in the cause chain, failed connection attempts of the network or a connection pool
+	 * and Spring's DataAccessResourceFailureException count as connectivity failures.
 	 */
 	public static boolean isConnectivityFailure(Throwable t) {
-		for (Throwable c = t; c != null; c = c.getCause()) {
-			if (c instanceof SQLException se && se.getSQLState() != null) {
-				String state = se.getSQLState();
-				if (state.startsWith("08") || UNAVAILABLE_SQL_STATES.contains(state)) {
-					return true;
-				}
-			}
+		String state = firstSqlState(t);
+		if (state != null) {
+			return state.startsWith("08") || UNAVAILABLE_SQL_STATES.contains(state);
+		}
+		for (Throwable c = t; c != null; c = c.getCause() == c ? null : c.getCause()) {
 			if (c instanceof SQLTransientConnectionException || c instanceof SQLNonTransientConnectionException ||
 					c instanceof DataAccessResourceFailureException || c instanceof ConnectException ||
 					c instanceof SocketTimeoutException || c instanceof NoRouteToHostException ||
 					c instanceof UnknownHostException) {
 				return true;
 			}
-			if (c.getCause() == c) {
-				break;
-			}
 		}
 		return false;
+	}
+
+	/**
+	 * @return Returns the SQL state of the outermost SQLException in the cause chain that has one, or null.
+	 */
+	private static String firstSqlState(Throwable t) {
+		for (Throwable c = t; c != null; c = c.getCause() == c ? null : c.getCause()) {
+			if (c instanceof SQLException se && se.getSQLState() != null) {
+				return se.getSQLState();
+			}
+		}
+		return null;
 	}
 
 	/**
