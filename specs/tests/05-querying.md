@@ -54,16 +54,6 @@ Tests for query functionality including filters, pagination, and regex modes. Th
 
 ### TC-QUERY-005: queryTime field present
 
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}`
-
-**Expected Response:**
-- Status: `200`
-- Body contains `queryTime` field >= 0
-
-### TC-QUERY-025: queryTime field present and valid
-
 Spec: API-5.01
 
 **Request:**
@@ -73,6 +63,34 @@ Spec: API-5.01
 **Expected Response:**
 - Status: `200`
 - `queryTime` is present (not null) and >= 0
+
+### TC-QUERY-015: Default query returns all rows
+
+Spec: API-5.01, QUERY-3.01
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}` with `Accept: application/json` (dataset with 5 rows, no filters, default limit)
+
+**Expected Response:**
+- Status: `200`, Content-Type `application/json`
+- `resultCount` is `5`, `results` has 5 rows
+
+### TC-QUERY-016: Response includes standard fields
+
+Spec: API-5.01
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}` with `Accept: application/json`
+
+**Expected Response:**
+- Status: `200`
+- `results`, `resultCount`, `offset`, `limit` and `queryTime` are present
+
+### TC-QUERY-025: [REMOVED] queryTime field present and valid
+
+Retired: the same check as TC-QUERY-005, which now has its details.
 
 ## Pagination Tests
 
@@ -84,8 +102,8 @@ Spec: API-5.01
 
 **Expected Response:**
 - Status: `200`
-- `results` array is empty
-- `resultCount` shows total count
+- `results` array is empty, `offset` is `1000`
+- `resultCount` is `0`: it is read from the returned rows, of which there are none (as in 1.x)
 
 ### TC-QUERY-007: Zero limit
 
@@ -153,7 +171,7 @@ Spec: API-5.01
 
 **Expected Response:**
 - Status: `200`
-- `prev` link present
+- `prev` link present (with `_offset=2`)
 - `next` absent when offset+limit >= resultCount
 
 ### TC-QUERY-014: [REMOVED] Format parameter

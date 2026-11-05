@@ -141,7 +141,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
     @Test
     @Order(5)
-    @DisplayName("TC-QUERY-005: Offset beyond result count returns empty results")
+    @DisplayName("TC-QUERY-006: Offset beyond result count returns empty results")
     void offsetBeyondResultCount_returnsEmptyResults() {
         Response response = given()
                 .spec(jsonSpec)
@@ -162,7 +162,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
     @Test
     @Order(6)
-    @DisplayName("TC-QUERY-006: Zero limit behavior")
+    @DisplayName("TC-QUERY-007: Zero limit is treated as the default limit")
     void zeroLimit_behavior() {
         // Zero limit is accepted and treated as default limit
         Response response = given()
@@ -180,7 +180,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
     @Test
     @Order(7)
-    @DisplayName("TC-QUERY-007: Negative limit behavior")
+    @DisplayName("TC-QUERY-008: Negative limit is treated as the default limit")
     void negativeLimit_behavior() {
         Response response = given()
                 .spec(jsonSpec)
@@ -194,7 +194,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
     @Test
     @Order(8)
-    @DisplayName("TC-QUERY-008: Negative offset behavior")
+    @DisplayName("TC-QUERY-009: Negative offset is corrected to 0")
     void negativeOffset_behavior() {
         Response response = given()
                 .spec(jsonSpec)
@@ -210,7 +210,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
     @Test
     @Order(9)
-    @DisplayName("TC-QUERY-009: Non-numeric limit returns 400")
+    @DisplayName("TC-QUERY-010: Non-numeric limit returns 400")
     void nonNumericLimit_returns400() {
         given()
                 .spec(jsonSpec)
@@ -223,7 +223,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
     @Test
     @Order(10)
-    @DisplayName("TC-QUERY-010: Prev/next links generation")
+    @DisplayName("TC-QUERY-011: Prev/next links on first page: next link with the following offset")
     void prevNextLinks_generation() {
         // First page - should have next but no prev
         Response firstPage = given()
@@ -243,7 +243,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
     @Test
     @Order(11)
-    @DisplayName("TC-QUERY-011: Prev link absent on first page")
+    @DisplayName("TC-QUERY-011: Prev/next links on first page: no prev link")
     void prevLinkAbsent_onFirstPage() {
         Response response = given()
                 .spec(jsonSpec)
@@ -260,7 +260,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
     @Test
     @Order(12)
-    @DisplayName("TC-QUERY-012: Next link absent on last page")
+    @DisplayName("TC-QUERY-013: Prev/next links on last page: prev link, no next link")
     void nextLinkAbsent_onLastPage() {
         // Go to last page
         Response response = given()
@@ -272,28 +272,15 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
         response.then().statusCode(200);
 
-        // Last page should not have next link
+        // Last page should have a prev link, but no next link
+        assertThat(response.jsonPath().getString("prev")).contains("_offset=2");
         Object next = response.jsonPath().get("next");
         assertThat(next).isNull();
     }
 
     @Test
-    @Order(13)
-    @DisplayName("TC-QUERY-013: Format parameter content negotiation")
-    void formatParameter_contentNegotiation() {
-        // Using Accept header for content negotiation (more standard)
-        given()
-                .spec(jsonSpec)  // Includes Accept: application/json
-        .when()
-                .get(datasetUrl)
-        .then()
-                .statusCode(200)
-                .contentType(ContentType.JSON);
-    }
-
-    @Test
     @Order(14)
-    @DisplayName("TC-QUERY-025: queryTime field present and valid")
+    @DisplayName("TC-QUERY-005: queryTime field present and valid")
     void queryTime_presentAndValid() {
         given()
                 .spec(jsonSpec)
@@ -339,7 +326,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
     @Test
     @Order(17)
-    @DisplayName("TC-QUERY-017: Middle page has both prev and next links")
+    @DisplayName("TC-QUERY-012: Prev/next links on middle page: both present")
     void middlePage_hasBothPrevAndNextLinks() {
         // Page 2 of 3 (5 rows, limit=2, offset=2) should have both prev and next
         Response response = given()
