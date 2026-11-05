@@ -73,35 +73,16 @@ class CsvParsingIT extends BaseIntegrationTest {
 
     @Test
     @Order(2)
-    @DisplayName("TC-CSV-002: Duplicate column names behavior")
+    @DisplayName("TC-CSV-002: Duplicate column names fail the load")
     void duplicateColumnNames() {
         byte[] csvData = loadTestData("duplicate_cols.csv");
         Response createResponse = createDataset(csvData);
         createResponse.then().statusCode(202);
 
-        String datasetUrl = getDatasetUrl(createResponse);
-        String infoUrl = getInfoUrl(createResponse);
-
         try {
-            // Poll for either AVAILABLE or ERROR (both are valid for duplicate columns)
-            await().atMost(MAX_WAIT).pollInterval(POLL_INTERVAL)
-                    .until(() -> {
-                        int s = given().spec(jsonSpec).get(infoUrl).jsonPath().getInt("status");
-                        return s == ETL_STATUS_AVAILABLE || s == ETL_STATUS_ERROR;
-                    });
-
-            int finalStatus = given().spec(jsonSpec).get(infoUrl).jsonPath().getInt("status");
-            if (finalStatus == ETL_STATUS_AVAILABLE) {
-                // If it succeeded, check how duplicates were handled
-                Response infoResponse = given()
-                        .spec(jsonSpec)
-                .when()
-                        .get(infoUrl);
-                assertThat(infoResponse.jsonPath().getInt("rowcount")).isEqualTo(2);
-            }
-            // Error status is also acceptable for duplicate columns
+            waitForDatasetError(getInfoUrl(createResponse));
         } finally {
-            deleteDataset(datasetUrl);
+            deleteDataset(getDatasetUrl(createResponse));
         }
     }
 

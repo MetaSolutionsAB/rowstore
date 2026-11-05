@@ -447,26 +447,27 @@ public class PgDataset implements Dataset {
 						// We convert all column names to lower case,
 						// otherwise all queries must be case sensitive later
 						columns = new String[line.length];
-						Set<String> labels = new LinkedHashSet<>();
-						// column numbers of each label that occurs more than once, for logging
-						Map<String, List<Integer>> duplicates = new LinkedHashMap<>();
+						// the column numbers of each label
+						Map<String, List<Integer>> labelColumns = new LinkedHashMap<>();
 						for (int i = 0; i < line.length; i++) {
 							String l = ColumnNames.normalize(line[i]);
 							// columns keep their position, so that the cells of the following columns are not shifted
 							if (l.isEmpty()) {
 								log.info("Skipping column {} of the CSV header, its label is empty", i + 1);
-							} else if (!labels.add(l)) {
-								// the first column with the label keeps it, the cells of later ones are skipped (ETL-4.09)
-								int first = Arrays.asList(columns).indexOf(l) + 1;
-								duplicates.computeIfAbsent(l, k -> new ArrayList<>(List.of(first))).add(i + 1);
 							} else {
 								columns[i] = l;
+								labelColumns.computeIfAbsent(l, k -> new ArrayList<>()).add(i + 1);
 							}
 						}
+						Set<String> labels = labelColumns.keySet();
+						// labels that are equal after normalization fail the load (ETL-4.09)
+						List<String> duplicates = labelColumns.entrySet().stream().filter(e -> e.getValue().size() > 1)
+								.map(e -> "\"" + e.getKey() + "\" in columns " + e.getValue()).toList();
 						if (!duplicates.isEmpty()) {
-							log.warn("Labels occur more than once in the CSV header of dataset {}, only the first column of each is loaded: {}",
-									getId(), duplicates.entrySet().stream()
-											.map(e -> "\"" + e.getKey() + "\" in columns " + e.getValue()).toList());
+							log.error("Labels occur more than once in the CSV header of dataset {}: {}", getId(), duplicates);
+							log.info("Rolling back transaction");
+							conn.rollback();
+							return false;
 						}
 						if (append) {
 							// we must compare existing column names with new ones; they are read with the load's
