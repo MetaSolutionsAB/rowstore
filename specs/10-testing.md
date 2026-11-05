@@ -17,7 +17,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > **TEST-2.01** Test stack:
 > - **JUnit 5** — Test framework with `@TestMethodOrder(OrderAnnotation.class)` for sequential execution
 > - **REST Assured 5.4.0** — HTTP client for sending requests and asserting responses
-> - **Testcontainers 1.20.4** — Manages a PostgreSQL 16-alpine Docker container per test environment
+> - **Testcontainers 1.20.4** — Manages a PostgreSQL 16-alpine Docker container per test environment; another image can be set with `-Drowstore.test.postgresImage`, and CI additionally runs a subset of the integration tests against `postgres:9.6-alpine`, the oldest supported version (DEPL-3.01, DEPL-4.01)
 > - **Awaitility 4.2.0** — Polling-based assertions for async ETL completion
 > - **AssertJ 3.27.7** — Fluent assertion library
 
@@ -124,3 +124,4 @@ Covers the Java integration test suite and its relationship to the framework-agn
 | 2026-10-20 | TEST-3.01, TEST-9.01 counts updated for the merged 2.0 test suite; TEST-8.01 rows for rate limiting via trusted proxies, path parameters and configuration |
 | 2026-10-21 | TEST-3.01, TEST-9.01 counts updated after merging the connection budgets and the reserved `_callback` parameter; TEST-8.01 row for connection limits |
 | 2026-10-23 | TEST-3.01, TEST-9.01 counts updated for the deployment fixes (ROWS-161, ROWS-163, ROWS-166); TEST-8.01 row for deployment |
+| 2026-11-05 | TEST-2.01: PostgreSQL image selectable, CI subset against PostgreSQL 9.6 (ROWS-165) |

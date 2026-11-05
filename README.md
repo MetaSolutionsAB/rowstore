@@ -408,7 +408,7 @@ mvn verify -Dit.test=StatusIT
 mvn verify -Dit.test=StatusIT#getStatus_returnsValidStructure
 ```
 
-The tests use PostgreSQL 16; another image can be set with `-Drowstore.test.postgresImage`, e.g. `-Drowstore.test.postgresImage=postgres:9.6-alpine` for the oldest supported version.
+The tests use PostgreSQL 16; another image can be set with `-Drowstore.test.postgresImage`, e.g. `-Drowstore.test.postgresImage=postgres:9.6-alpine` for the oldest supported version (CI runs a subset of the integration tests with it, see `bitbucket-pipelines.yml`).
 
 To run tests against an external RowStore instance (skips the automatic setup; tests that need direct database access are skipped):
 
