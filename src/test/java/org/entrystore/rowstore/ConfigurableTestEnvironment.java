@@ -206,7 +206,7 @@ public class ConfigurableTestEnvironment {
         synchronized (POSTGRES_LOCK) {
             if (sharedPostgresContainer == null || !sharedPostgresContainer.isRunning()) {
                 log.info("Starting shared PostgreSQL container...");
-                sharedPostgresContainer = new PostgreSQLContainer<>("postgres:16-alpine")
+                sharedPostgresContainer = new PostgreSQLContainer<>(TestUtils.postgresImage())
                         .withDatabaseName("rowstoretest")
                         .withUsername("rowstoretest")
                         .withPassword("rowstoretestpw");

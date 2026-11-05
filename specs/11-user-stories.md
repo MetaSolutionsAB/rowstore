@@ -174,7 +174,7 @@ Covers data publishers, API consumers, operators/admins, and embedded viewers. E
 >
 > **Persona**: Operator/Admin
 > **Goal**: Set up a new RowStore instance.
-> **Preconditions**: Java 25, PostgreSQL 9.4+.
+> **Preconditions**: Java 25, PostgreSQL 9.6+.
 > **Steps**:
 > 1. Create a PostgreSQL database
 > 2. Write a `rowstore.json` config file (see [CFG-9.01](06-configuration.md#cfg-9-annotated-example))
@@ -323,3 +323,4 @@ Covers data publishers, API consumers, operators/admins, and embedded viewers. E
 |------|-------------|
 | 2026-02-06 | Initial version |
 | 2026-02-09 | Updated for Spring Boot migration: JSONP story removed, CORS story added, deployment steps updated, Actuator monitoring added |
+| 2026-10-23 | Preconditions: PostgreSQL 9.6+ (ROWS-165) |

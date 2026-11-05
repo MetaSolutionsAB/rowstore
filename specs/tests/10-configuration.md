@@ -4,7 +4,7 @@
 
 Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configuration.md#cfg-1-file-format)) and for how database settings are applied to the data sources ([CFG-4](../06-configuration.md#cfg-4-database-configuration), [CFG-5](../06-configuration.md#cfg-5-read-replica-configuration)).
 
-- TC-CFG-* and TC-DS-* are unit tests (`RowStoreConfigTest`, `DataSourceConfigTest`); they need neither Docker nor a running server.
+- TC-CFG-* and TC-DS-* are unit tests (`RowStoreConfigTest`, `DataSourceConfigTest`, `PgRowStoreServerVersionTest`); they need neither Docker nor a running server.
 - TC-POOL-* are integration tests (`ConnectionPoolIT`) against an in-process server with `connectionPoolMax=3`, `ssl=false`, `socketTimeout=60` and a separate `queryDatabase` pointing to the same container. TC-POOL-006 to TC-POOL-008 inspect the DataSource beans and are skipped against an external instance. TC-POOL-001 to TC-POOL-005 (status, lifecycle, query and HikariCP metrics with a pool) are defined in the test class.
 
 ## Test Cases
@@ -97,6 +97,17 @@ Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configura
 1. The query data source is a HikariCP pool, created without connecting (`initializationFailTimeout` -1, ARCH-7.07, ARCH-7.08)
 2. Leak detection is disabled (threshold 0)
 3. The maximum pool size is 4 and the pool is read-only
+
+### TC-DS-003: PostgreSQL older than 9.6 prevents the startup
+
+Unit test (`PgRowStoreServerVersionTest`) of the version check at startup ([DEPL-4.01](../08-deployment.md#depl-4-postgresql-requirements)).
+
+**Input (one per case):** `server_version_num` = 90400 (9.4), 90524 (9.5.24), 90600 (9.6.0), 90624, 100023 (10.23), 160004 (16.4), unknown (null).
+
+**Assertions:**
+1. 9.4 and 9.5 fail with `IllegalStateException` whose message names the required version `9.6` and the found version (`9.4`, `9.5`)
+2. 9.6, 10, 16 and an unknown version pass
+3. Version names: 90624 → `9.6`, 100023 → `10`, 160004 → `16`
 
 ### TC-POOL-006: SSL mode and driver timeouts are passed to the HikariCP pools
 

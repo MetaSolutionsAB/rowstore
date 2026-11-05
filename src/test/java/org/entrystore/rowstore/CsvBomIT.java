@@ -72,4 +72,22 @@ class CsvBomIT extends BaseIntegrationTest {
         testCases().bomOnlyFirstLine_isEmptyLine();
     }
 
+    @Test
+    @DisplayName("TC-CSV-041: A first label consisting of a byte order mark only skips its column without shifting the others")
+    void bomOnlyFirstLabel_skipsColumnWithoutShifting() {
+        testCases().bomOnlyFirstLabel_skipsColumnWithoutShifting();
+    }
+
+    @Test
+    @DisplayName("TC-CSV-042: Columns with an empty label are skipped without shifting the others")
+    void emptyLabels_skipColumnsWithoutShifting() {
+        testCases().emptyLabels_skipColumnsWithoutShifting();
+    }
+
+    @Test
+    @DisplayName("TC-CSV-043: Labels that are equal after normalization fail the load")
+    void duplicateLabelsAfterNormalization_failLoad() {
+        testCases().duplicateLabelsAfterNormalization_failLoad();
+    }
+
 }

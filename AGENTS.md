@@ -65,6 +65,12 @@ mvn verify -Dit.test=StatusIT
 
 # Run a single test method
 mvn verify -Dit.test=StatusIT#getStatus_returnsValidStructure
+
+# Run integration tests against the oldest supported PostgreSQL version (DEPL-4.01; default image postgres:16-alpine)
+mvn verify -Drowstore.test.postgresImage=postgres:9.6-alpine
+
+# The subset that CI runs against PostgreSQL 9.6 (step "Integration Test PostgreSQL 9.6" in bitbucket-pipelines.yml, about 5 minutes)
+mvn verify -Dsurefire.skip=true -Drowstore.test.postgresImage=postgres:9.6-alpine -Dit.test=ColumnNameCleanupIT,DatasetReplaceIT,CsvBomIT,DatasetUtf8LifecycleIT,DatasetEmptyColumnIT
 ```
 
 To run tests against an external RowStore instance (skips Testcontainers):
@@ -207,6 +213,11 @@ Behaviour that is easy to break or to rely on by mistake:
   Never put a `return` into a `finally` block that could swallow an exception.
 - **`CSVReader.readNext()` returning `null` is not the end of the file.** `RFC4180Parser` returns `null` for an empty
   line; the end of the file is reached when `getLinesRead()` no longer advances (ETL-4.05).
+- **SQL must work on PostgreSQL 9.6** (DEPL-4.01, checked at startup). CI runs the full suite on PostgreSQL 16 and only
+  a subset on 9.6 (loads, replaces, the column name cleanup), so newer features slip through unnoticed elsewhere, e.g.
+  `jsonb - text[]` (10), `starts_with()` (11), `DROP DATABASE ... WITH (FORCE)` (13), also in test helpers. Run the
+  affected ITs with `-Drowstore.test.postgresImage=postgres:9.6-alpine`, and add ITs of new version-dependent SQL to
+  the 9.6 subset in `bitbucket-pipelines.yml`.
 - **The client address is `getRemoteAddr()`.** `TrustedProxyFilter` resolves it from `X-Forwarded-For`; never read
   that header elsewhere, and keep `server.forward-headers-strategy=none` (SEC-5.05, DEPL-1.04).
 - **Query strings reach Tomcat raw.** Clients send `^ | [ ] { } \` unencoded (`server.tomcat.relaxed-query-chars`), and

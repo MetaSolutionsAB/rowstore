@@ -155,9 +155,10 @@ Note: Characters like `é`, `Å`, `ä`, `ö`, `å`, `Ü` correctly converted fro
 - Body: Contents of `duplicate_cols.csv`
 
 **Expected Response:**
-- Status: `202` (accepted) or `400` (rejected)
+- Status: `202`
 
-Note: Behavior depends on implementation (last wins or error).
+**After Processing:**
+- `status` = 4 (ERROR), duplicate labels fail the load (ETL-4.09)
 
 ### TC-CSV-EDGE-003: Very long field value (>256 chars)
 
@@ -313,9 +314,10 @@ taken for an empty line, although the legacy parser returns the same record for 
 ## Byte Order Mark and Soft Hyphen Tests
 
 `<BOM>` denotes U+FEFF (in UTF-8 the bytes `EF BB BF`), `<SHY>` a soft hyphen U+00AD, and `\n` a line break. See
-ETL-4.06 and ETL-4.07. TC-CSV-023 to TC-CSV-029 run with the default parser (`CsvBomIT`), TC-CSV-030 to TC-CSV-036
-repeat them in the same order with `legacyparser: true` (`CsvBomLegacyParserIT`, requires a separate RowStore instance
-and is skipped when testing an external instance); the results must be the same.
+ETL-4.06 to ETL-4.09. TC-CSV-023 to TC-CSV-029 and TC-CSV-041 to TC-CSV-043 run with the default parser (`CsvBomIT`),
+TC-CSV-030 to TC-CSV-036 and TC-CSV-044 to TC-CSV-046 repeat them in the same order with `legacyparser: true`
+(`CsvBomLegacyParserIT`, requires a separate RowStore instance and is skipped when testing an external instance); the
+results must be the same.
 
 ### TC-CSV-023: A UTF-8 byte order mark before a quoted first label yields clean column names
 
@@ -378,6 +380,43 @@ As TC-CSV-023 with the body `"kopare_id",namn\n1,Anna\n2,Bo\n` encoded as UTF-16
 ### TC-CSV-030 to TC-CSV-036: Byte order marks and soft hyphens with the legacy parser
 
 As TC-CSV-023 to TC-CSV-029 (in this order), with a RowStore instance configured with `legacyparser: true`.
+
+### TC-CSV-041: A first label consisting of a byte order mark only skips its column without shifting the others
+
+The index column written by pandas with `to_csv(encoding="utf-8-sig")` (ETL-4.08).
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body (UTF-8): `<BOM>,a,b\n0,1,2\n1,3,4\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3) and `rowcount` = 2
+2. `columnnames` are exactly `a`, `b`
+3. `?a=1` returns exactly `{a: 1, b: 2}`, `?b=4` exactly `{a: 3, b: 4}`
+
+### TC-CSV-042: Columns with an empty label are skipped without shifting the others
+
+As TC-CSV-041 with the bodies `,a,b\n0,1,2\n1,3,4\n` and `a,<U+3000>,b\n1,x,2\n3,y,4\n` (a label of Unicode whitespace
+only is empty, ETL-4.04).
+
+### TC-CSV-043: Labels that are equal after normalization fail the load
+
+**Steps:**
+1. `POST /datasets` with each of the headers `id,ID,b`, `name, Name,b` and `id,id<SHY>,b`, followed by the rows
+   `1,2,3` and `4,5,6`
+2. Create a dataset from `id,b\n1,3\n`; `POST /dataset/{id}` (append) with `id,id<SHY>,b\n4,5,6\n`; then `PUT
+   /dataset/{id}` (replace) with the same file
+
+**Assertions:**
+1. Each load of step 1 ends with status ERROR (4) (ETL-4.09)
+2. The append and the replace each end with status ERROR (4); the dataset keeps `rowcount` = 1, the `columnnames` `id`,
+   `b`, and `?b=3` returns exactly `{id: 1, b: 3}`
+
+### TC-CSV-044 to TC-CSV-046: Empty and duplicate labels with the legacy parser
+
+As TC-CSV-041 to TC-CSV-043 (in this order), with a RowStore instance configured with `legacyparser: true`
+(`CsvBomLegacyParserIT`).
 
 ### TC-CSV-037 to TC-CSV-040: Reader that skips a byte order mark (unit tests)
 
