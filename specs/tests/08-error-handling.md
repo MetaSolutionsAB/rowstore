@@ -227,6 +227,28 @@ Spec: SEC-4.04
 **Expected Response:**
 - Status: `415`
 
+### TC-ERROR-022: Unknown and malformed dataset IDs return 404 without log messages at WARN or ERROR level
+
+Spec: API-6.06
+
+**Setup:** The log of the in-process server is captured (skipped against an external instance). Requests are sent raw, without re-encoding by the client.
+
+**Assertions:**
+1. `GET` of `/dataset/not-a-uuid`, `/dataset/wp-login.php`, `/dataset/a%2Fb`, `/dataset/%C3%A5%C3%A4%C3%B6`, `/dataset/{random UUID}` (also in upper case, and with its last character replaced by `x`), and of `/json`, `/info`, `/export`, `/aliases`, `/swagger`, `/html` below `/dataset/{random UUID}` return `404`
+2. `DELETE /dataset/{random UUID}` returns `404`
+3. None of these requests produces a log message at WARN or ERROR level (the access log records them at INFO level)
+
+### TC-ERROR-023: Database failures while looking up a dataset are not treated as unknown datasets
+
+Spec: API-6.05, API-6.06
+
+Unit test (`PgDatasetLookupTest`) with a fake database.
+
+**Assertions:**
+1. A connectivity failure while resolving the alias or while loading the dataset propagates (503)
+2. An alias rejected by the database with a data exception (SQL state class `22`, e.g. an invalid byte sequence) is an unknown dataset (404)
+3. Another database error while loading the dataset (e.g. missing privileges, `42501`) propagates (500)
+
 ## Corrupt CSV Error Handling
 
 These tests are in `DatasetCorruptIT.java`.

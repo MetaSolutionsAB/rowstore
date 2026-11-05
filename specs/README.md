@@ -2,7 +2,7 @@
 
 This specification suite is the canonical reference for the RowStore system. It documents the **current state** of the software (version 2.0-SNAPSHOT, branch `develop`) and serves all four user personas: data publishers, API consumers, operators/admins, and embedded viewers.
 
-The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (320 test cases across 14 files) are preserved alongside these specs.
+The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (322 test cases across 14 files) are preserved alongside these specs.
 
 ## Reading Paths by Persona
 
@@ -190,6 +190,7 @@ Current limitations relevant to this area.
 | API-6.03 | Constraints: 423, 424, 429 |
 | API-6.04 | Server errors: 500, 503 |
 | API-6.05 | Database connectivity failure → 503, not 404 |
+| API-6.06 | Unknown or malformed dataset IDs: 404, logged at DEBUG at most |
 | API-7.01 | [REMOVED] _callback wraps JSON in function call — JSONP removed |
 | API-8.01 | Server header: RowStore |
 | API-9.01 | Per-dataset OpenAPI spec from column names |
@@ -409,7 +410,7 @@ Current limitations relevant to this area.
 | TEST-6.01 | Awaitility polling for async ETL |
 | TEST-7.01 | 12+ CSV test files covering encodings and edge cases |
 | TEST-8.01 | Endpoint × test spec coverage matrix |
-| TEST-9.01 | specs/tests/: 320 test cases, 14 files |
+| TEST-9.01 | specs/tests/: 322 test cases, 14 files |
 
 ### USR — User Stories
 

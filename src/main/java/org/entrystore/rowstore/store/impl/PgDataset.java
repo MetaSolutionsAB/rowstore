@@ -147,6 +147,12 @@ public class PgDataset implements Dataset {
 	 */
 	private static final String LOCK_NOT_AVAILABLE = PgRowStore.LOCK_NOT_AVAILABLE;
 
+	/**
+	 * Class of the SQL states of data exceptions, e.g., an invalid byte sequence (22021) or a null character in a
+	 * string (22P05), with which the database rejects invalid input.
+	 */
+	private static final String DATA_EXCEPTION_CLASS = "22";
+
 	protected PgDataset(RowStore rowstore, String id) {
 		if (rowstore == null) {
 			throw new IllegalArgumentException("RowStore must not be null");
@@ -1352,6 +1358,10 @@ public class PgDataset implements Dataset {
 			String loadedTable = (String) row.get("data_table");
 			if (loadedTable != null) {
 				loadedTable = loadedTable.trim();
+				if (!loadedTable.matches(PgDatasets.DATA_TABLE_PATTERN)) {
+					// a corrupt row in the datasets table, not a client error, although the request gets 404
+					log.error("Dataset {} has an invalid data table name in the datasets table", getId());
+				}
 				validateDataTableName(loadedTable);
 			}
 			this.dataTable = loadedTable;
@@ -1360,8 +1370,8 @@ public class PgDataset implements Dataset {
 		} catch (DataAccessException e) {
 			Throwable cause = e.getCause();
 			if (cause instanceof SQLException se && "22P02".equalsIgnoreCase(se.getSQLState())) {
-				// invalid UUID input, treated like an unknown dataset
-				log.info(se.getMessage().replaceFirst("ERROR: ", ""));
+				// invalid UUID input, treated like an unknown dataset (404, ROWS-169)
+				log.debug(se.getMessage().replaceFirst("ERROR: ", ""));
 				throw new IllegalArgumentException(e);
 			}
 			// any other failure must not be mistaken for an unknown dataset; connectivity failures
@@ -1499,7 +1509,12 @@ public class PgDataset implements Dataset {
 			// unvalidated user input, which may be rejected by the database (e.g., invalid byte sequences).
 			throw e;
 		} catch (DataAccessException e) {
-			log.error(e.getMessage());
+			if (e.getCause() instanceof SQLException se && se.getSQLState() != null && se.getSQLState().startsWith(DATA_EXCEPTION_CLASS)) {
+				// the alias was rejected by the database, e.g., because of an invalid byte sequence (404, ROWS-169)
+				log.debug("Alias rejected by the database: {}", se.getMessage());
+			} else {
+				log.error(e.getMessage());
+			}
 			return null;
 		} finally {
 			log.debug("Resolving alias took {} ms", System.currentTimeMillis() - before);

@@ -200,8 +200,10 @@ public class PgDatasets implements Datasets {
 		}
 		try {
 			return new PgDataset(rowstore, id);
-		} catch (IllegalArgumentException | IllegalStateException iae) {
-			log.error("Unable to load dataset with ID " + id);
+		} catch (IllegalArgumentException | IllegalStateException e) {
+			// an unknown or malformed ID is a client error (404), already recorded by the access log (ROWS-169);
+			// database failures are not caught here and propagate (503 or 500)
+			log.debug("No dataset with ID {}: {}", id, e.getMessage());
 			return null;
 		}
 	}
