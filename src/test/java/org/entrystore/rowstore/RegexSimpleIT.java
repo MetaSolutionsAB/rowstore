@@ -30,6 +30,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
@@ -175,5 +176,30 @@ class RegexSimpleIT extends ConfigurableTestBase {
         String body = response.getBody().asString();
         // Should contain "Regular expressions may be used" since regex is enabled (in simple mode)
         assertThat(body).contains("Regular expressions may be used");
+    }
+
+    @Test
+    @Order(7)
+    @DisplayName("TC-REGEX-SIM-007: Regular expressions with quantified groups are accepted")
+    void caretWithQuantifiedGroups_works() {
+        given()
+                .spec(jsonSpec)
+                .queryParam("Name", "^(Mc|Ma)(L|r)+")
+        .when()
+                .get(datasetUrl)
+        .then()
+                .statusCode(200)
+                .body("results.name", containsInAnyOrder("McLoud", "Martinsson"));
+    }
+
+    @Test
+    @Order(8)
+    @DisplayName("TC-REGEX-SIM-008: Unencoded regex characters in the query string are accepted")
+    void unencodedRegexCharacters_areAccepted() {
+        String path = datasetUrl.substring(datasetUrl.indexOf("/dataset/"));
+        TestUtils.RawResponse response = TestUtils.rawGet(getExtensionBaseUrl(), path + "?Name=^(McLoud|Martinsson)$",
+                "Accept: application/json");
+        assertThat(response.status()).isEqualTo(200);
+        assertThat(response.json().getList("results.name")).containsExactlyInAnyOrder("McLoud", "Martinsson");
     }
 }

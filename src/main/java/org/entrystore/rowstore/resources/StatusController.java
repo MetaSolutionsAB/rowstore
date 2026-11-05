@@ -42,7 +42,7 @@ public class StatusController {
 		this.versionInfo = versionInfo;
 	}
 
-	@GetMapping(value = "/status", params = "jvm", produces = MediaType.APPLICATION_JSON_VALUE)
+	@GetMapping(value = "/status", params = "jvm")
 	public ResponseEntity<JvmStatusResponse> getJvmStatus() {
 		JvmStatusResponse body = new JvmStatusResponse(
 				Runtime.getRuntime().totalMemory(),
@@ -54,10 +54,10 @@ public class StatusController {
 				getTotalUsedMemory(),
 				ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed()
 		);
-		return ResponseEntity.ok(body);
+		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(body);
 	}
 
-	@GetMapping(value = "/status", produces = MediaType.APPLICATION_JSON_VALUE)
+	@GetMapping(value = "/status")
 	public ResponseEntity<StatusResponse> getSimpleStatus() {
 		StatusResponse body = new StatusResponse(
 				"RowStore",
@@ -67,7 +67,7 @@ public class StatusController {
 				rowStore.getEtlProcessor().getQueuedEtlProcesses(),
 				rowStore.getConnectionUsage()
 		);
-		return ResponseEntity.ok(body);
+		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(body);
 	}
 
 	/**

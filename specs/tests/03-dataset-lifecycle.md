@@ -560,3 +560,24 @@ Martinsson,0,,
 **Assertions:**
 1. The data table has a `rownr` column
 2. The column's `data_type` is `bigint` (created as `BIGSERIAL`, so that replace-heavy datasets cannot exhaust a 32-bit sequence)
+
+### TC-DATASET1-024: Aliases are read from a JSON array regardless of the Content-Type
+
+Spec: API-3.09
+
+**Requests:** `PUT` and `POST /dataset/{id}/aliases` with the body `["<alias>"]` and Content-Type
+`text/plain;charset=UTF-8`, `application/x-www-form-urlencoded; charset=UTF-8`, `application/json` or none
+
+**Assertions:**
+1. Response status is 204
+2. `GET /dataset/{id}/aliases` returns exactly `["<alias>"]`
+
+### TC-DATASET1-025: Alias updates whose body is not a JSON array are rejected with 400
+
+Spec: API-3.09
+
+**Requests:** `PUT /dataset/{id}/aliases` with `alias` (Content-Type `text/plain`) or `{}` (`application/json`);
+`POST /dataset/{id}/aliases` without body
+
+**Assertions:**
+1. Response status is 400

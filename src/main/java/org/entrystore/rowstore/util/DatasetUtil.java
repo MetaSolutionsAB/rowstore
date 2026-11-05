@@ -24,6 +24,8 @@ import org.entrystore.rowstore.store.impl.SqlExceptionLogUtil;
 import org.mozilla.universalchardet.UniversalDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
 
 import java.io.File;
 import java.io.IOException;
@@ -39,7 +41,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /**
  * @author Hannes Ebner
@@ -133,16 +134,21 @@ public class DatasetUtil {
 		return StringUtils.indexOfAny(s, indicators) > -1;
 	}
 
-	private static final int MAX_REGEX_LENGTH = 200;
-	private static final Pattern CATASTROPHIC_BACKTRACK = Pattern.compile(
-			"\\(.+[+*]\\)\\s*[+*]" +  // (a+)+ or (a*)* patterns
-			"|\\(.+\\|.+\\)\\s*[+*]"   // (a|a)+ alternation with quantifier
-	);
-
-	public static boolean isSafeRegex(String pattern) {
-		return pattern != null
-				&& pattern.length() <= MAX_REGEX_LENGTH
-				&& !CATASTROPHIC_BACKTRACK.matcher(pattern).find();
+	/**
+	 * @param contentType The Content-Type header of an upload, may be null.
+	 * @return Returns true if the upload is to be read as CSV: the media type is text/csv (case-insensitive, with any
+	 * parameters) or no Content-Type was sent, as accepted by 1.x (API-3.03, SEC-4.04).
+	 */
+	public static boolean isCsvContentType(String contentType) {
+		if (contentType == null || contentType.isBlank()) {
+			return true;
+		}
+		try {
+			MediaType mediaType = MediaType.parseMediaType(contentType);
+			return "text".equalsIgnoreCase(mediaType.getType()) && "csv".equalsIgnoreCase(mediaType.getSubtype());
+		} catch (InvalidMediaTypeException e) {
+			return false;
+		}
 	}
 
 	public static boolean isUUID(String string) {

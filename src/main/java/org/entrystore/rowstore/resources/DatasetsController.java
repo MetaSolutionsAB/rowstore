@@ -49,7 +49,7 @@ public class DatasetsController {
 		this.rowStore = rowStore;
 	}
 
-	@GetMapping(value = "/datasets", produces = MediaType.APPLICATION_JSON_VALUE)
+	@GetMapping(value = "/datasets")
 	public ResponseEntity<List<String>> listDatasets() {
 		Set<Dataset> datasets = rowStore.getDatasets().getAll();
 		if (datasets == null) {
@@ -58,11 +58,15 @@ public class DatasetsController {
 		List<String> result = datasets.stream()
 				.map(Dataset::getId)
 				.toList();
-		return ResponseEntity.ok(result);
+		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result);
 	}
 
-	@PostMapping(value = "/datasets", consumes = "text/csv")
+	@PostMapping(value = "/datasets")
 	public ResponseEntity<?> acceptCSV(HttpServletRequest request) {
+		if (!DatasetUtil.isCsvContentType(request.getContentType())) {
+			return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).build();
+		}
+
 		if (request.getContentLength() == 0) {
 			return ResponseEntity.badRequest().build();
 		}

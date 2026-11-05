@@ -103,6 +103,7 @@ All packages are below `org.entrystore.rowstore` in `src/main/java`.
 - `RowStoreConfigLoader` - Bridges `rowstore.json` into Spring: loads the file and exposes it as a `RowStoreConfig` bean (not `application.properties`); configuration failures are `RowStoreConfigException`s, reported without stack trace by `RowStoreConfigFailureAnalyzer` (CFG-1.03)
 - `DataSourceConfig` - Creates the primary and the read-only query `DataSource` programmatically from `rowstore.json` (`PGSimpleDataSource` by default, HikariCP when `connectionPoolMax` > 0) and runs Flyway migrations programmatically (Spring's DataSource and Flyway auto-configuration are disabled); at startup, `StartupRetry` waits for a database that is not reachable yet (ARCH-7.08)
 - `CorsConfig` - CORS filter (`FilterRegistrationBean`) with origins from `cors.allowedorigins`
+- `TomcatConfig` - Passes encoded slashes and backslashes (`%2F`, `%5C`) in paths through undecoded, so that they are part of the dataset ID (404) instead of rejected by Tomcat (QUERY-9.03)
 - `DatabaseExceptionHandler` - Maps database connectivity failures in controllers to 503 with `Retry-After` (instead of 404/500)
 - `RowStoreHealthIndicator` - Actuator health check of both databases within the query budgets (UP, BUSY if all connections are in use, DOWN if unreachable), dataset count, active and queued ETL processes, connection usage; replaces the disabled Actuator `db` indicator
 - `CustomErrorController` - Error responses for `/error`
@@ -111,6 +112,8 @@ All packages are below `org.entrystore.rowstore` in `src/main/java`.
 - `DatasetController` - GET `/dataset/{id}` (query with column filters, JSON or HTML), PUT/POST (replace/append CSV), DELETE
 - `DatasetsController` - GET `/datasets` (list), POST (create from CSV)
 - `AliasController`, `DatasetInfoController`, `ExportController`, `StatusController`, `SwaggerController`, `WebGuiController`
+- `ContentNegotiation` - Selects the representation of `/dataset/{id}` and the export without ever answering 406 (API-4.04);
+  JSON-only resources set the Content-Type explicitly instead of using `produces`, so that any Accept header gets JSON as in 1.x
 - `VersionInfo` - Reads `VERSION.txt` from the classpath
 - `resources/model/` - Typed response records (`StatusResponse`, `JvmStatusResponse`, `DatasetInfoResponse`, `DatasetAcceptedResponse`, `QueryResponse`)
 
@@ -151,11 +154,13 @@ completed run is recorded in `maintenance_tasks` (ETL-11.07).
 1. `AccessLogFilter` - Access log in the 1.x format after the response is complete, also for async responses (DEPL-6.02); resolves the client address through `TrustedProxyFilter`, so that requests rejected by the filters below are logged with it
 2. `PathParameterFilter` - Rejects request paths containing `;` (path parameters) with 400
 3. `CorsFilter` - CORS headers, also on responses of the filters below (e.g. 429)
-4. `TrustedProxyFilter` - Takes the client address from `X-Forwarded-For`: by default the last entry, written by the connecting peer (the reverse proxy); with `trustedproxies`, only for listed peers, walked from the right
-5. `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
+4. `ParameterParsingFilter` - Rejects requests whose query string Tomcat could not decode (e.g. `?col=100%`) with 400, instead of dropping the parameter
+5. `TrustedProxyFilter` - Takes the client address from `X-Forwarded-For`: by default the last entry, written by the connecting peer (the reverse proxy); with `trustedproxies`, only for listed peers, walked from the right
+6. `TunnelFilter` - Restlet-compatible tunnel of 1.x: `media` query parameter replaces `Accept`; `method` parameter or `X-HTTP-Method-Override` replaces the method of POST requests (only POST, and only without `Origin` or from the `baseurl` origin or a listed CORS origin, SEC-9.05)
+7. `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
 
 **Utilities** (`util/`):
-- `DatasetUtil` - Dataset URL building, charset detection, byte order mark skipping, regex heuristics and safety checks
+- `DatasetUtil` - Dataset URL building, charset detection, byte order mark skipping, regex heuristics
 - `ColumnNames` - Normalization of CSV labels and stored column names (lowercase, strip, byte order marks and soft hyphens removed)
 - `Hashing` - Hash helpers
 
@@ -204,6 +209,10 @@ Behaviour that is easy to break or to rely on by mistake:
   line; the end of the file is reached when `getLinesRead()` no longer advances (ETL-4.05).
 - **The client address is `getRemoteAddr()`.** `TrustedProxyFilter` resolves it from `X-Forwarded-For`; never read
   that header elsewhere, and keep `server.forward-headers-strategy=none` (SEC-5.05, DEPL-1.04).
+- **Query strings reach Tomcat raw.** Clients send `^ | [ ] { } \` unencoded (`server.tomcat.relaxed-query-chars`), and
+  REST Assured always encodes query parameters, so ITs for such query strings must use `TestUtils.rawRequest()`.
+  Never call `getParameter()` on a form POST before the body is read (it consumes the body); read raw query values with
+  `TunnelFilter.firstQueryValue()` instead.
 - **Stacked branches can merge cleanly but not compile.** Feature branches are often based on other open branches.
   After merging, run `mvn -DskipTests test-compile`: textual merges can add a method twice or leave a test fake
   implementing an interface method with an outdated signature.

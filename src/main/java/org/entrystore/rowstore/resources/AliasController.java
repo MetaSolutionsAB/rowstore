@@ -16,6 +16,9 @@
 
 package org.entrystore.rowstore.resources;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletRequest;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
 import org.slf4j.Logger;
@@ -27,10 +30,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
 import java.util.Set;
 
 @RestController
@@ -39,24 +42,34 @@ public class AliasController {
 
 	private static final Logger log = LoggerFactory.getLogger(AliasController.class);
 
+	private static final TypeReference<Set<String>> ALIASES = new TypeReference<>() {
+	};
+
 	private final RowStore rowStore;
 
-	public AliasController(RowStore rowStore) {
+	private final ObjectMapper objectMapper;
+
+	public AliasController(RowStore rowStore, ObjectMapper objectMapper) {
 		this.rowStore = rowStore;
+		this.objectMapper = objectMapper;
 	}
 
-	@GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+	@GetMapping
 	public ResponseEntity<Set<String>> getAliases(@PathVariable("id") String id) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();
 		}
 
-		return ResponseEntity.ok(dataset.getAliases());
+		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(dataset.getAliases());
 	}
 
-	@PutMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<Void> setAliases(@PathVariable("id") String id, @RequestBody Set<String> aliases) {
+	@PutMapping
+	public ResponseEntity<Void> setAliases(@PathVariable("id") String id, HttpServletRequest request) {
+		Set<String> aliases = readAliases(request);
+		if (aliases == null) {
+			return ResponseEntity.badRequest().build();
+		}
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();
@@ -74,8 +87,12 @@ public class AliasController {
 		return ResponseEntity.noContent().build();
 	}
 
-	@PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<Void> addAliases(@PathVariable("id") String id, @RequestBody Set<String> newAliases) {
+	@PostMapping
+	public ResponseEntity<Void> addAliases(@PathVariable("id") String id, HttpServletRequest request) {
+		Set<String> newAliases = readAliases(request);
+		if (newAliases == null) {
+			return ResponseEntity.badRequest().build();
+		}
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();
@@ -104,6 +121,22 @@ public class AliasController {
 
 		dataset.setAliases(Set.of());
 		return ResponseEntity.noContent().build();
+	}
+
+	/**
+	 * Reads the aliases from the request body, a JSON array, regardless of the Content-Type, as in 1.x (API-3.09):
+	 * e.g., fetch() sends text/plain and jQuery application/x-www-form-urlencoded by default. The body is read from
+	 * the input stream, since the parameters of a form POST would consume it.
+	 *
+	 * @return Returns the aliases, or null if the body is not a JSON array.
+	 */
+	private Set<String> readAliases(HttpServletRequest request) {
+		try {
+			return objectMapper.readValue(request.getInputStream().readAllBytes(), ALIASES);
+		} catch (IOException e) {
+			log.info("Unable to read aliases from request body: {}", e.getMessage());
+			return null;
+		}
 	}
 
 }

@@ -37,7 +37,7 @@ public class DatasetInfoController {
 		this.rowStore = rowStore;
 	}
 
-	@GetMapping(value = "/dataset/{id}/info", produces = MediaType.APPLICATION_JSON_VALUE)
+	@GetMapping(value = "/dataset/{id}/info")
 	public ResponseEntity<DatasetInfoResponse> getInfo(@PathVariable("id") String id) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
@@ -55,7 +55,7 @@ public class DatasetInfoController {
 				DatasetUtil.buildDatasetURL(rowStore.getConfig().getBaseURL(), dataset.getId())
 		);
 
-		return ResponseEntity.ok(body);
+		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(body);
 	}
 
 }

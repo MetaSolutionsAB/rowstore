@@ -41,6 +41,8 @@ public class WebGuiController {
 
 	private static final Logger log = LoggerFactory.getLogger(WebGuiController.class);
 
+	private static final MediaType TEXT_HTML_UTF8 = new MediaType(MediaType.TEXT_HTML, StandardCharsets.UTF_8);
+
 	private final RowStore rowStore;
 
 	private static String htmlEmbed = null;
@@ -60,6 +62,9 @@ public class WebGuiController {
 		this.rowStore = rowStore;
 	}
 
+	/**
+	 * Always responds with HTML, regardless of the Accept header (API-4.04).
+	 */
 	@GetMapping(value = "/dataset/{id}/html")
 	public ResponseEntity<String> represent(@PathVariable("id") String id,
 			@RequestParam Map<String, String> allParams) {
@@ -72,11 +77,9 @@ public class WebGuiController {
 			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
 		}
 
-		if (allParams.containsKey("embed")) {
-			return ResponseEntity.ok(htmlEmbed);
-		}
-
-		return ResponseEntity.ok(htmlFull);
+		return ResponseEntity.ok()
+				.contentType(TEXT_HTML_UTF8)
+				.body(allParams.containsKey("embed") ? htmlEmbed : htmlFull);
 	}
 
 	private static String readClasspathResource(String name) throws IOException {

@@ -17,8 +17,10 @@
 package org.entrystore.rowstore.resources;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.entrystore.rowstore.etl.EtlResource;
 import org.entrystore.rowstore.etl.EtlStatus;
+import org.entrystore.rowstore.filters.TunnelFilter;
 import org.entrystore.rowstore.resources.model.DatasetAcceptedResponse;
 import org.entrystore.rowstore.resources.model.QueryResponse;
 import org.entrystore.rowstore.store.Dataset;
@@ -37,7 +39,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.File;
@@ -45,6 +46,8 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -54,14 +57,38 @@ public class DatasetController {
 
 	private static final Logger log = LoggerFactory.getLogger(DatasetController.class);
 
+	private static final MediaType TEXT_PLAIN_UTF8 = new MediaType(MediaType.TEXT_PLAIN, StandardCharsets.UTF_8);
+
 	private final RowStore rowStore;
 
 	public DatasetController(RowStore rowStore) {
 		this.rowStore = rowStore;
 	}
 
-	@GetMapping(value = "/dataset/{id}", produces = MediaType.TEXT_HTML_VALUE)
-	public ResponseEntity<Void> representHtml(@PathVariable("id") String id) {
+	/**
+	 * Responds with a redirect to the HTML view or with the JSON query result, depending on the Accept header
+	 * (API-4.03, API-4.04): HTML if no Accept header is sent or if it accepts neither, but has a text type (e.g.,
+	 * text/plain), JSON otherwise. All responses vary by the Accept header, also errors.
+	 */
+	@GetMapping(value = "/dataset/{id}")
+	public ResponseEntity<?> represent(@PathVariable("id") String id, HttpServletRequest request,
+			HttpServletResponse response) {
+		response.addHeader(HttpHeaders.VARY, HttpHeaders.ACCEPT);
+		if (MediaType.TEXT_HTML.equals(ContentNegotiation.select(request, MediaType.TEXT_HTML, MediaType.APPLICATION_JSON))) {
+			return representHtml(id);
+		}
+		return doQuery(id, queryParameters(request));
+	}
+
+	/**
+	 * Always responds with JSON, regardless of the Accept header (API-4.04).
+	 */
+	@GetMapping(value = "/dataset/{id}/json")
+	public ResponseEntity<?> representJson(@PathVariable("id") String id, HttpServletRequest request) {
+		return doQuery(id, queryParameters(request));
+	}
+
+	private ResponseEntity<Void> representHtml(String id) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();
@@ -73,16 +100,20 @@ public class DatasetController {
 				.build();
 	}
 
-	@GetMapping(value = "/dataset/{id}/json", produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<?> representJsonExplicit(@PathVariable("id") String id,
-			@RequestParam Map<String, String> allParams) {
-		return doQuery(id, allParams);
-	}
-
-	@GetMapping(value = "/dataset/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<?> representJson(@PathVariable("id") String id,
-			@RequestParam Map<String, String> allParams) {
-		return doQuery(id, allParams);
+	/**
+	 * Returns the query parameters as in 1.x (QUERY-2.03): names and values are trimmed, parameters whose name is
+	 * empty after trimming are skipped, and of a repeated parameter the last value is used.
+	 */
+	static Map<String, String> queryParameters(HttpServletRequest request) {
+		Map<String, String> parameters = new LinkedHashMap<>();
+		for (Map.Entry<String, String[]> entry : request.getParameterMap().entrySet()) {
+			String key = entry.getKey().trim();
+			String[] values = entry.getValue();
+			if (!key.isEmpty() && values != null && values.length > 0) {
+				parameters.put(key, values[values.length - 1].trim());
+			}
+		}
+		return parameters;
 	}
 
 	private ResponseEntity<?> doQuery(String id, Map<String, String> parameters) {
@@ -97,10 +128,18 @@ public class DatasetController {
 
 		Set<String> columns = dataset.getColumnNames();
 		Map<String, String> tuples = new HashMap<>();
+		// tunnel parameters of 1.x that are not column names, neither filters nor carried over to the page URLs
+		Set<String> tunnelParams = new HashSet<>();
 		int specialParamCount = 0;
 		for (String k : parameters.keySet()) {
 			// _callback is reserved since 1.x (JSONP); JSONP is no longer supported, so it is ignored (QUERY-3.05)
 			if ("_limit".equals(k) || "_offset".equals(k) || "_sort".equals(k) || "_callback".equals(k)) {
+				specialParamCount++;
+				continue;
+			}
+			// consumed by the TunnelService in 1.x, unlike then they filter if the dataset has such a column (QUERY-3.06)
+			if (TunnelFilter.PREFERENCE_PARAMETERS.contains(k) && !columns.contains(k)) {
+				tunnelParams.add(k);
 				specialParamCount++;
 				continue;
 			}
@@ -135,6 +174,7 @@ public class DatasetController {
 			if ("57014".equals(qResult.getStatus())) {
 				log.debug("Query timed out");
 				return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+						.contentType(TEXT_PLAIN_UTF8)
 						.body("The submitted query exceeded the configured maximum time limit.");
 			}
 			return ResponseEntity.badRequest().build();
@@ -144,17 +184,20 @@ public class DatasetController {
 				.map(JSONObject::toMap)
 				.toList();
 
+		Map<String, String> pageParameters = new LinkedHashMap<>(parameters);
+		pageParameters.keySet().removeAll(tunnelParams);
+
 		String prev = null;
 		if ((qResult.getOffset() - qResult.getLimit()) >= 0) {
-			prev = constructPageUrl(dataset, qResult.getOffset() - qResult.getLimit(), qResult, parameters);
+			prev = constructPageUrl(dataset, qResult.getOffset() - qResult.getLimit(), qResult, pageParameters);
 		}
 
 		String next = null;
 		if (qResult.getResultCount() >= (qResult.getLimit() + qResult.getOffset())) {
-			next = constructPageUrl(dataset, qResult.getOffset() + qResult.getLimit(), qResult, parameters);
+			next = constructPageUrl(dataset, qResult.getOffset() + qResult.getLimit(), qResult, pageParameters);
 		}
 
-		return ResponseEntity.ok(new QueryResponse(
+		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(new QueryResponse(
 				rows,
 				qResult.getLimit(),
 				qResult.getOffset(),
@@ -165,17 +208,21 @@ public class DatasetController {
 		));
 	}
 
-	@PostMapping(value = "/dataset/{id}", consumes = "text/csv")
+	@PostMapping(value = "/dataset/{id}")
 	public ResponseEntity<?> acceptCSVPost(@PathVariable("id") String id, HttpServletRequest request) {
 		return acceptCSV(id, request, true);
 	}
 
-	@PutMapping(value = "/dataset/{id}", consumes = "text/csv")
+	@PutMapping(value = "/dataset/{id}")
 	public ResponseEntity<?> acceptCSVPut(@PathVariable("id") String id, HttpServletRequest request) {
 		return acceptCSV(id, request, false);
 	}
 
 	private ResponseEntity<?> acceptCSV(String id, HttpServletRequest request, boolean append) {
+		if (!DatasetUtil.isCsvContentType(request.getContentType())) {
+			return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).build();
+		}
+
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();

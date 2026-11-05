@@ -197,6 +197,36 @@ Note: UUID-like aliases might be rejected to prevent confusion with actual datas
 3. `GET /dataset/{id}?Name=a;b` returns `200` (`;` in the query string is not a path parameter)
 4. `GET /dataset/{id}%3Bx` returns `404` (encoded `;` is not a delimiter, the ID does not exist)
 
+### TC-ERROR-021: Encoded slashes and backslashes in dataset paths return 404
+
+Spec: QUERY-9.03
+
+**Setup:** An available dataset. Requests are sent raw, without re-encoding or normalization by the client.
+
+**Assertions:**
+1. `GET` of `/dataset/a%2Fb`, `/dataset/a%2fb`, `/dataset/a%5Cb`, `/dataset/a%5cb`, and of `/info`, `/export`, `/aliases` (`%2F` and `%5C`), `/json`, `/html` below `/dataset/a%2Fb` return `404` (not Tomcat's `400`)
+2. `GET /dataset/x%2F..%2Fstatus`, `/dataset/x%5C..%5Cstatus`, `/dataset/%2E%2E%2Fstatus`, `/dataset/{id}%2Finfo`, `/dataset/{id}%5Cinfo`, `/dataset%2F{id}` and `/actuator%2Fhealth` return `404` (no traversal to another resource)
+3. `DELETE` of `/dataset/x%2F..%2F{id}`, `/dataset/x%5C..%5C{id}`, `/dataset/{id}%2F` and `/dataset/x%2F..%2F{id}/aliases` return `404`, and `GET /dataset/{id}` still returns `200`
+
+### TC-ERROR-019: Uploads without Content-Type are read as CSV
+
+Spec: API-3.03, SEC-4.04
+
+**Steps** (requests without Content-Type header, CSV `name,n` / `a,1` / `b,2`):
+1. `POST /datasets` → `202` with `Location`; once available, `rowcount` is 2
+2. `POST /dataset/{id}` → `202`; once available, `rowcount` is 4
+3. `PUT /dataset/{id}` → `202`; once available, `rowcount` is 2
+4. `POST /datasets` without Content-Type and without body → `400`
+
+### TC-ERROR-020: Uploads with another Content-Type than text/csv are rejected with 415
+
+Spec: SEC-4.04
+
+**Requests:** `POST /datasets` with a CSV body and Content-Type `text/plain`, `application/octet-stream` or `application/json`
+
+**Expected Response:**
+- Status: `415`
+
 ## Corrupt CSV Error Handling
 
 These tests are in `DatasetCorruptIT.java`.

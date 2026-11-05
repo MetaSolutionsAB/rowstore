@@ -216,3 +216,17 @@ row, so the dataset then has rows but no column names, as if reading the column 
 - `GET /dataset/{id}/export` with `Accept: text/csv` returns `500`, and no database backend is left referencing the data table
 - `GET /dataset/{id}/export` with `Accept: application/json` returns `200` with all 3 rows (the JSON export does not use the column names)
 - A dataset created from `headers_only.csv` (no rows, hence no column names) is exported as CSV with `200`
+
+### TC-EXPORT-017: The media parameter selects the export format
+
+Spec: API-4.05
+
+**Requests and expected Content-Type** (status `200`):
+
+| Query string | Accept header | Content-Type |
+|--------------|---------------|--------------|
+| `media=csv` | (none) | `text/csv` |
+| `media=text/csv` | `application/json` | `text/csv` |
+| `media=text%2Fcsv` | `application/json` | `text/csv` |
+| `media=json` | `text/csv` | `application/json` |
+| `media=foo` (ignored) | `text/csv` | `text/csv` |
