@@ -338,7 +338,7 @@ Current limitations relevant to this area.
 | SEC-9.02 | Proxy authenticates all non-GET/HEAD requests |
 | SEC-9.03 | Proxy blocks /actuator/**, /swagger-ui*, /v3/api-docs*, /status?jvm (and `;` paths, defence in depth) |
 | SEC-9.04 | Proxy is the only X-Forwarded-For source (and listed in trustedproxies if set) |
-| SEC-9.05 | Method tunnel on POST: proxies authorizing methods differently must strip it |
+| SEC-9.05 | Method tunnel on POST: proxies authorizing methods differently must strip it; cross-origin tunnel refused with 403 |
 
 ### DEPL — Deployment
 

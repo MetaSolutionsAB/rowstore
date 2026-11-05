@@ -155,7 +155,7 @@ completed run is recorded in `maintenance_tasks` (ETL-11.07).
 3. `CorsFilter` - CORS headers, also on responses of the filters below (e.g. 429)
 4. `ParameterParsingFilter` - Rejects requests whose query string Tomcat could not decode (e.g. `?col=100%`) with 400, instead of dropping the parameter
 5. `TrustedProxyFilter` - Takes the client address from `X-Forwarded-For`: by default the last entry, written by the connecting peer (the reverse proxy); with `trustedproxies`, only for listed peers, walked from the right
-6. `TunnelFilter` - Restlet-compatible tunnel of 1.x: `media` query parameter replaces `Accept`; `method` parameter or `X-HTTP-Method-Override` replaces the method of POST requests (only POST, SEC-9.05)
+6. `TunnelFilter` - Restlet-compatible tunnel of 1.x: `media` query parameter replaces `Accept`; `method` parameter or `X-HTTP-Method-Override` replaces the method of POST requests (only POST, and only without `Origin` or from the `baseurl` origin or a listed CORS origin, SEC-9.05)
 7. `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
 
 **Utilities** (`util/`):

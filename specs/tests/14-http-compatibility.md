@@ -92,3 +92,12 @@ Spec: API-4.06
 1. `POST /dataset/{id}?method=PATCH` with CSV → `400`
 2. `POST /dataset/{id}` with `X-HTTP-Method-Override: TRACE` and CSV → `400`
 3. The dataset still has its 2 rows (nothing was appended)
+
+### TC-TUNNEL-NEW1: A cross-origin POST with a tunnelled method is refused with 403
+
+Spec: API-4.06, SEC-9.05
+
+1. `POST /dataset/{id}?method=DELETE` with `Origin: https://evil.example.com`, `Content-Type: text/plain` → `403`, empty body
+2. `POST /dataset/{id}` with `Origin: null`, `X-HTTP-Method-Override: DELETE`, `Content-Type: text/plain` → `403`
+3. `POST /dataset/{id}?method=PUT` with `Origin: https://evil.example.com` and CSV → `403`
+4. The dataset still has its 2 rows
