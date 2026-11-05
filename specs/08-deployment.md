@@ -76,7 +76,7 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 
 > **DEPL-4.03** The database user needs the `CREATE` privilege on its schema: Flyway creates `flyway_schema_history` and the migrations create `maintenance_tasks` at the first start, datasets get their own data tables, and every replace creates a shadow table (ETL-6.02). Without it, the migration fails and RowStore does not start.
 
-> **DEPL-4.04** Rollback to 1.7: 1.7 runs on a database that 2.0 has used and ignores `flyway_schema_history` and `maintenance_tasks`. Column names renamed by the cleanup (ETL-11) stay renamed, data tables recreated by a replace keep `rownr BIGSERIAL`, and 1.7 stores byte order marks and soft hyphens in the column names of new uploads again. Before upgrading to 2.0 again, the row `column-name-cleanup` must be deleted from `maintenance_tasks` (ETL-11.07), so that the cleanup checks the datasets loaded by 1.7. Leftover shadow tables are dropped at the next start of 2.0, not by 1.7.
+> **DEPL-4.04** Rollback to 1.7: 1.7 runs on a database that 2.0 has used and ignores `flyway_schema_history` and `maintenance_tasks`. Column names renamed by the cleanup (ETL-11) stay renamed, and 1.7 stores byte order marks and soft hyphens in the column names of new uploads again. The data tables of all datasets created or replaced by 2.0 (DOM-4.03) keep `rownr BIGSERIAL`; 1.7 works with them, since it uses `rownr` only for sorting and counting and empties the table with `TRUNCATE` on a replace (data tables created by 1.7 get `rownr SERIAL` again). Before upgrading to 2.0 again, the row `column-name-cleanup` must be deleted from `maintenance_tasks` (ETL-11.07), so that the cleanup checks the datasets loaded by 1.7. Leftover shadow tables are dropped at the next start of 2.0, not by 1.7.
 
 ## DEPL-5 Monitoring
 
@@ -172,3 +172,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 | 2026-10-23 | DEPL-1.02: arguments checked (CFG-7.05); added DEPL-2.04 (image user, `JAVA_OPTS`, heap, config location), DEPL-6.02 (access log), DEPL-7.02 (stop timeout); DEPL-7.01: queued jobs discarded at shutdown (ROWS-161, ROWS-162, ROWS-163, ROWS-166) |
 | 2026-10-23 | DEPL-4.01: PostgreSQL 9.6+ (was 9.4+), checked at startup (ROWS-165) |
 | 2026-10-23 | Added DEPL-1.06 (context path, templates), DEPL-4.03 (CREATE privilege), DEPL-4.04 (rollback to 1.7) (ROWS-168) |
+| 2026-11-05 | DEPL-4.04: all data tables created or replaced by 2.0 have `rownr BIGSERIAL` (ROWS-168) |
