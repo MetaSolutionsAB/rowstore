@@ -123,15 +123,15 @@ public class AccessLogFilter implements Filter {
 	}
 
 	/**
-	 * @return Returns the size of the request body: the Content-Length, 0 without a body, or "-" for a chunked body
-	 * of unknown size.
+	 * @return Returns the size of the request body: the Content-Length, 0 without a body, or an empty string for a
+	 * chunked body of unknown size (like 1.x).
 	 */
 	private static String requestBytes(HttpServletRequest request) {
 		long length = request.getContentLengthLong();
 		if (length >= 0) {
 			return String.valueOf(length);
 		}
-		return request.getHeader("Transfer-Encoding") != null ? "-" : "0";
+		return request.getHeader("Transfer-Encoding") != null ? "" : "0";
 	}
 
 	private static String hostRef(HttpServletRequest request) {

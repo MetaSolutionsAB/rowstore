@@ -17,6 +17,8 @@
 package org.entrystore.rowstore.filters;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.entrystore.rowstore.store.RowStoreConfig;
+import org.json.JSONObject;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -31,14 +33,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Unit tests for the method and media type tunnel of {@link TunnelFilter}.
- * Specification: API-4.05, API-4.06
+ * Specification: API-4.05, API-4.06, SEC-9.05
  */
 @DisplayName("TunnelFilter Tests")
 class TunnelFilterTest {
 
+    private static final RowStoreConfig CONFIG = new RowStoreConfig(new JSONObject("""
+            {
+                "baseurl": "https://rowstore.example.org:443/rowstore/",
+                "cors": { "allowedorigins": [ "*", "https://app.example.org/" ] },
+                "database": { "host": "localhost", "database": "rowstore", "user": "rowstore", "password": "pw" }
+            }
+            """));
+
     private static HttpServletRequest filter(MockHttpServletRequest request, MockHttpServletResponse response) throws Exception {
         MockFilterChain chain = new MockFilterChain();
-        new TunnelFilter().doFilter(request, response, chain);
+        new TunnelFilter(CONFIG).doFilter(request, response, chain);
         return (HttpServletRequest) chain.getRequest();
     }
 
@@ -106,6 +116,72 @@ class TunnelFilterTest {
         request.addParameter("method", "DELETE");
         HttpServletRequest filtered = filter(request, new MockHttpServletResponse());
         assertThat(filtered.getMethod()).isEqualTo("POST");
+    }
+
+    @ParameterizedTest(name = "[{index}] Origin {0} -> tunnelled")
+    @CsvSource({
+            "https://rowstore.example.org",
+            "HTTPS://RowStore.example.org",
+            "https://app.example.org"
+    })
+    @DisplayName("Method tunnel is honoured for the origin of the base URL and listed CORS origins")
+    void methodTunnel_trustedOrigin(String origin) throws Exception {
+        for (boolean header : new boolean[]{false, true}) {
+            MockHttpServletRequest request = request("POST", header ? null : "method=DELETE");
+            if (header) {
+                request.addHeader(TunnelFilter.METHOD_HEADER, "DELETE");
+            }
+            request.addHeader("Origin", origin);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            HttpServletRequest filtered = filter(request, response);
+            assertThat(response.getStatus()).isEqualTo(200);
+            assertThat(filtered.getMethod()).isEqualTo("DELETE");
+        }
+    }
+
+    @ParameterizedTest(name = "[{index}] Origin {0} -> 403")
+    @CsvSource({
+            "https://evil.example.com",
+            "null",
+            "http://rowstore.example.org",
+            "https://rowstore.example.org:8443",
+            "*"
+    })
+    @DisplayName("Method tunnel from other origins is refused with 403, also if cors.allowedorigins contains *")
+    void methodTunnel_foreignOrigin_isRefused(String origin) throws Exception {
+        for (boolean header : new boolean[]{false, true}) {
+            MockHttpServletRequest request = request("POST", header ? null : "method=DELETE");
+            if (header) {
+                request.addHeader(TunnelFilter.METHOD_HEADER, "DELETE");
+            }
+            request.addHeader("Origin", origin);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            MockFilterChain chain = new MockFilterChain();
+            new TunnelFilter(CONFIG).doFilter(request, response, chain);
+            assertThat(response.getStatus()).isEqualTo(403);
+            assertThat(response.getContentAsString()).isEmpty();
+            assertThat(chain.getRequest()).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("A POST from another origin without tunnel is passed on")
+    void foreignOrigin_withoutTunnel_isPassedOn() throws Exception {
+        MockHttpServletRequest request = request("POST", "media=csv");
+        request.addHeader("Origin", "https://evil.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        HttpServletRequest filtered = filter(request, response);
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(filtered.getMethod()).isEqualTo("POST");
+    }
+
+    @Test
+    @DisplayName("origin() omits the path and default ports")
+    void origin() {
+        assertThat(TunnelFilter.origin("http://localhost:8282/")).isEqualTo("http://localhost:8282");
+        assertThat(TunnelFilter.origin("https://Example.org:443/rowstore")).isEqualTo("https://example.org");
+        assertThat(TunnelFilter.origin("http://example.org:80")).isEqualTo("http://example.org");
+        assertThat(TunnelFilter.origin("http://[::1]:8080/")).isEqualTo("http://[::1]:8080");
     }
 
     @ParameterizedTest(name = "[{index}] ?{0} -> {1}")

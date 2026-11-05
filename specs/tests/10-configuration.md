@@ -89,6 +89,15 @@ Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configura
 2. Driver timeouts are 60 / 7 / 8 seconds
 3. `readOnly` is true and `readOnlyMode` is `always`
 
+### TC-DS-002: A pooled data source is created without a reachable database and without leak detection
+
+**Input:** Config with a separate `queryDatabase` with `connectionPoolMax` = 4 that points to a port where no database listens (`localhost:1`); `database` without pool.
+
+**Assertions:**
+1. The query data source is a HikariCP pool, created without connecting (`initializationFailTimeout` -1, ARCH-7.07, ARCH-7.08)
+2. Leak detection is disabled (threshold 0)
+3. The maximum pool size is 4 and the pool is read-only
+
 ### TC-DS-003: PostgreSQL older than 9.6 prevents the startup
 
 Unit test (`PgRowStoreServerVersionTest`) of the version check at startup ([DEPL-4.01](../08-deployment.md#depl-4-postgresql-requirements)).

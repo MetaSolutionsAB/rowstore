@@ -58,6 +58,14 @@ Spec: API-4.05
 1. `GET /dataset/{id}?media=html` with `Accept: application/json` → `303`
 2. `GET /dataset/{id}?media=json&Name=McLoud` with `Accept: text/html` → `200`, exactly McLoud
 
+### TC-CONNEG-006: Negotiated responses carry Vary: Accept
+
+Spec: API-4.04
+
+1. `GET /dataset/{id}` with `Accept: application/json` (200), `text/html` (303) and without `Accept` (303) → `Vary` contains `Accept`
+2. `GET /dataset/{id}/export` with `Accept: text/csv` and `application/json` (200) → `Vary` contains `Accept`
+3. `GET /dataset/{unknown}` and `GET /dataset/{unknown}/export` (404) → `Vary` contains `Accept`
+
 ## Method Tunnel
 
 ### TC-TUNNEL-001: POST with method=PUT replaces the data
@@ -92,3 +100,12 @@ Spec: API-4.06
 1. `POST /dataset/{id}?method=PATCH` with CSV → `400`
 2. `POST /dataset/{id}` with `X-HTTP-Method-Override: TRACE` and CSV → `400`
 3. The dataset still has its 2 rows (nothing was appended)
+
+### TC-TUNNEL-005: A cross-origin POST with a tunnelled method is refused with 403
+
+Spec: API-4.06, SEC-9.05
+
+1. `POST /dataset/{id}?method=DELETE` with `Origin: https://evil.example.com`, `Content-Type: text/plain` → `403`, empty body
+2. `POST /dataset/{id}` with `Origin: null`, `X-HTTP-Method-Override: DELETE`, `Content-Type: text/plain` → `403`
+3. `POST /dataset/{id}?method=PUT` with `Origin: https://evil.example.com` and CSV → `403`
+4. The dataset still has its 2 rows

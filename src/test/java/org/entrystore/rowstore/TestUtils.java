@@ -318,7 +318,9 @@ public final class TestUtils {
             Map<String, String> responseHeaders = new LinkedHashMap<>();
             for (int i = 1; i < lines.length; i++) {
                 int colon = lines[i].indexOf(':');
-                responseHeaders.put(lines[i].substring(0, colon).trim().toLowerCase(), lines[i].substring(colon + 1).trim());
+                // repeated headers are combined, as allowed for list-valued headers such as Vary
+                responseHeaders.merge(lines[i].substring(0, colon).trim().toLowerCase(), lines[i].substring(colon + 1).trim(),
+                        (a, b) -> a + ", " + b);
             }
             return new RawResponse(status, responseHeaders, text.substring(headerEnd + 4));
         } catch (IOException e) {
@@ -331,7 +333,8 @@ public final class TestUtils {
     }
 
     /**
-     * A response of {@link #rawRequest(String, String, String, List, byte[])}, with header names in lower case.
+     * A response of {@link #rawRequest(String, String, String, List, byte[])}, with header names in lower case and the
+     * values of repeated headers joined with ", ".
      */
     public record RawResponse(int status, Map<String, String> headers, String body) {
 

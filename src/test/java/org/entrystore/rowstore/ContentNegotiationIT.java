@@ -26,6 +26,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.Arrays;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -149,6 +151,25 @@ class ContentNegotiationIT extends BaseIntegrationTest {
         RawResponse json = get("/dataset/{ds}?media=json&Name=McLoud", "text/html");
         assertThat(json.status()).isEqualTo(200);
         assertThat(json.json().getList("results.name")).containsExactly("McLoud");
+    }
+
+    @ParameterizedTest(name = "[{index}] {0} with Accept: {1} -> {2}")
+    @CsvSource(delimiter = '|', nullValues = "null", value = {
+            "/dataset/{ds}                    | application/json  | 200",
+            "/dataset/{ds}                    | text/html         | 303",
+            "/dataset/{ds}                    | null              | 303",
+            "/dataset/{ds}/export             | text/csv          | 200",
+            "/dataset/{ds}/export             | application/json  | 200",
+            "/dataset/unknown-dataset         | application/json  | 404",
+            "/dataset/unknown-dataset         | text/html         | 404",
+            "/dataset/unknown-dataset/export  | text/csv          | 404"
+    })
+    @DisplayName("TC-CONNEG-006: Negotiated responses carry Vary: Accept")
+    void negotiatedResponses_varyByAccept(String subPath, String accept, int status) {
+        RawResponse response = get(subPath, accept);
+        assertThat(response.status()).isEqualTo(status);
+        assertThat(response.header("Vary")).isNotNull();
+        assertThat(Arrays.stream(response.header("Vary").split(",")).map(String::trim)).contains("Accept");
     }
 
 }

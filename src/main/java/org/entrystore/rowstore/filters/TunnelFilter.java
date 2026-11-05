@@ -24,6 +24,7 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
+import org.entrystore.rowstore.store.RowStoreConfig;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
@@ -32,10 +33,12 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
@@ -51,7 +54,10 @@ import java.util.Set;
  * request (API-4.06), e.g., {@code POST /dataset/{id}?method=PUT} replaces the data. The header takes precedence. Unlike
  * in 1.x, the method of other requests is never replaced, since the reverse proxy authenticates all requests other than
  * GET and HEAD (SEC-9.02): a GET request must not become a DELETE. A value that is not a method of the API is rejected
- * with 400 instead of appending the data of the POST.</li>
+ * with 400 instead of appending the data of the POST. To prevent cross-site request forgery through HTML forms, which
+ * can send a POST without preflight, the method is only replaced if the request has no Origin header or its Origin is
+ * the origin of the base URL or listed in cors.allowedorigins (a wildcard does not count); other requests are refused
+ * with 403 (SEC-9.05).</li>
  * </ul>
  * The query parameters {@code media}, {@code charset}, {@code encoding} and {@code language} were consumed by the
  * TunnelService and are therefore not column filters, unless the dataset has a column of that name (QUERY-3.06).
@@ -88,6 +94,22 @@ public class TunnelFilter implements Filter {
 			"txt", MediaType.TEXT_PLAIN_VALUE,
 			"xml", MediaType.TEXT_XML_VALUE);
 
+	/**
+	 * Origins that may tunnel the method: the origin of the base URL and the explicitly allowed CORS origins.
+	 */
+	private final Set<String> tunnelOrigins;
+
+	public TunnelFilter(RowStoreConfig config) {
+		Set<String> origins = new HashSet<>();
+		origins.add(origin(config.getBaseURL()));
+		for (String allowed : config.getCorsAllowedOrigins()) {
+			origins.add(normalizeOrigin(allowed));
+		}
+		// a wildcard does not list any origin, and the opaque origin "null" is never trusted
+		origins.removeAll(Set.of("*", "null"));
+		tunnelOrigins = Set.copyOf(origins);
+	}
+
 	@Override
 	public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain chain)
 			throws IOException, ServletException {
@@ -106,6 +128,12 @@ public class TunnelFilter implements Filter {
 					((HttpServletResponse) servletResponse).sendError(HttpServletResponse.SC_BAD_REQUEST);
 					return;
 				}
+				String origin = request.getHeader(HttpHeaders.ORIGIN);
+				if (origin != null && !tunnelOrigins.contains(normalizeOrigin(origin))) {
+					// not falling through to the POST, which would append or upload data
+					((HttpServletResponse) servletResponse).setStatus(HttpServletResponse.SC_FORBIDDEN);
+					return;
+				}
 			}
 		}
 
@@ -115,6 +143,23 @@ public class TunnelFilter implements Filter {
 			servletRequest = new TunnelledRequest(request, method, accept);
 		}
 		chain.doFilter(servletRequest, servletResponse);
+	}
+
+	/**
+	 * @return Returns the origin (scheme://host[:port], without default port) of a URL.
+	 */
+	static String origin(String url) {
+		URI uri = URI.create(url.trim());
+		int port = uri.getPort();
+		boolean defaultPort = port == -1 ||
+				(port == 80 && "http".equalsIgnoreCase(uri.getScheme())) ||
+				(port == 443 && "https".equalsIgnoreCase(uri.getScheme()));
+		return normalizeOrigin(uri.getScheme() + "://" + uri.getHost() + (defaultPort ? "" : ":" + port));
+	}
+
+	private static String normalizeOrigin(String origin) {
+		String o = origin.trim().toLowerCase(Locale.ROOT);
+		return o.endsWith("/") ? o.substring(0, o.length() - 1) : o;
 	}
 
 	/**

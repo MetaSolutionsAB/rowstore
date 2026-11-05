@@ -10,7 +10,8 @@ requests and ETL jobs holding at most one connection at a time. See
 
 TC-CONN-001 to TC-CONN-006 and TC-CONN-024 to TC-CONN-026 are unit tests of the budget (`LimitedDataSourceTest`)
 with a fake data source, TC-CONN-008, TC-CONN-009 and TC-CONN-028 unit tests of the configuration
-(`RowStoreConfigConnectionLimitsTest`), TC-CONN-027 a unit test of the session statements (`PgRowStoreSessionSqlTest`).
+(`RowStoreConfigConnectionLimitsTest`), TC-CONN-027 and TC-CONN-037 unit tests of the session statements and of the warning about a short lock timeout
+(`PgRowStoreSessionSqlTest`).
 TC-CONN-010 to TC-CONN-013, TC-CONN-021 and TC-CONN-029 are integration tests with small
 limits (`ConnectionLimitIT`: 2 query connections, 1 export connection, `maxetlprocesses` 2, wait timeout 2 s, hence
 lock timeout 1 s), TC-CONN-014 to TC-CONN-020 and TC-CONN-022 integration tests with one connection per budget
@@ -323,8 +324,12 @@ times with a `SQLException` with SQL state `08001` (wrapped), then succeeds.
 
 **Assertions:**
 1. SQL states `08001`, `57P03`, `57P01` and `53300`, `SQLTransientConnectionException`,
-   `CannotGetJdbcConnectionException` and a `ConnectException` cause are connectivity failures
+   `CannotGetJdbcConnectionException` and a `ConnectException` cause (without SQL states), and a
+   `SQLTransientConnectionException` of a pool with SQL state `08001` and a cause with `08001` are connectivity failures
 2. SQL states `28P01` and `42P01` and other exceptions are not
+3. The first SQL state in the cause chain decides, also behind a connection pool: a `SQLTransientConnectionException`
+   with SQL state `28P01` and a cause with `28P01` (wrong password), and a `CannotGetJdbcConnectionException` with a
+   cause with SQL state `3D000` (missing database) or `53100` (disk full) are not connectivity failures
 
 ### TC-CONN-033: An interruption while waiting for the database fails the startup
 
@@ -358,3 +363,13 @@ times with a `SQLException` with SQL state `08001` (wrapped), then succeeds.
 1. After step 3's wait, the startup has neither completed nor failed, and RowStore does not listen on its port
 2. After unpausing, the startup completes within 90 seconds, `GET /status` returns 200, and the migration ran exactly
    once (one successful row of version 1 in `flyway_schema_history`)
+
+## Lock timeout of queries during a replace (unit test)
+
+### TC-CONN-037: A query lock timeout that is set, but not longer than a swap lock attempt, is warned about
+
+**Assertions:**
+1. `queryLockTimeout` 3 and a `connectionWaitTimeout` of 6 s (lock timeout 3 s by default) are warned about at startup,
+   since queries arriving during an attempt of a replace to lock the data table (3 s, ETL-6.04) may get 503
+2. `connectionWaitTimeout` 7 s (lock timeout 3.5 s), `queryLockTimeout` 4, the default (15 s) and `queryLockTimeout` 0
+   (no lock timeout) are not

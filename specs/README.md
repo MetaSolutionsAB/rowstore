@@ -2,7 +2,7 @@
 
 This specification suite is the canonical reference for the RowStore system. It documents the **current state** of the software (version 2.0-SNAPSHOT, branch `develop`) and serves all four user personas: data publishers, API consumers, operators/admins, and embedded viewers.
 
-The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (315 test cases across 14 files) are preserved alongside these specs.
+The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (320 test cases across 14 files) are preserved alongside these specs.
 
 ## Reading Paths by Persona
 
@@ -342,7 +342,7 @@ Current limitations relevant to this area.
 | SEC-9.02 | Proxy authenticates all non-GET/HEAD requests |
 | SEC-9.03 | Proxy blocks /actuator/**, /swagger-ui*, /v3/api-docs*, /status?jvm (and `;` paths, defence in depth) |
 | SEC-9.04 | Proxy is the only X-Forwarded-For source (and listed in trustedproxies if set) |
-| SEC-9.05 | Method tunnel on POST: proxies authorizing methods differently must strip it |
+| SEC-9.05 | Method tunnel on POST: proxies authorizing methods differently must strip it; cross-origin tunnel refused with 403 |
 
 ### DEPL — Deployment
 
@@ -389,7 +389,7 @@ Current limitations relevant to this area.
 |----|-------------|
 | TEST-1.01 | Integration tests verifying REST API end-to-end |
 | TEST-2.01 | JUnit 5, REST Assured, Testcontainers, Awaitility, AssertJ |
-| TEST-3.01 | 35 IT classes with 241 tests, 12 unit test classes with 185 tests |
+| TEST-3.01 | 36 IT classes with 243 tests, 14 unit test classes with 195 tests |
 | TEST-3.02 | Sequential execution within classes |
 | TEST-4.01 | Default profile (regexpqueries=full) |
 | TEST-4.02 | regex-disabled profile |
@@ -399,7 +399,7 @@ Current limitations relevant to this area.
 | TEST-6.01 | Awaitility polling for async ETL |
 | TEST-7.01 | 12+ CSV test files covering encodings and edge cases |
 | TEST-8.01 | Endpoint × test spec coverage matrix |
-| TEST-9.01 | specs/tests/: 315 test cases, 14 files |
+| TEST-9.01 | specs/tests/: 320 test cases, 14 files |
 
 ### USR — User Stories
 
