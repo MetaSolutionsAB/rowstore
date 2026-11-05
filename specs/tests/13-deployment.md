@@ -59,7 +59,7 @@ Tests for the command line and configuration location checks at startup ([CFG-1.
 
 **Assertions:**
 1. Empty fields for the query, the user agent and the referrer
-2. Request bytes `0`, `8` and `-`
+2. Request bytes `0`, `8` and empty (unknown size)
 
 ### TC-DEPL-008: An asynchronous response is logged when it is complete
 
