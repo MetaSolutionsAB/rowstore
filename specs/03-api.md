@@ -14,7 +14,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-1.02** JSON is the default response format for all API endpoints.
 
-> **API-1.03** Content negotiation is supported via the `Accept` header and the `format` query parameter. The `format` parameter takes precedence over the `Accept` header.
+> **API-1.03** Content negotiation is supported via the `Accept` header ([API-4.04](#api-4-content-negotiation)) and the `media` query parameter, which replaces the `Accept` header when present ([API-4.05](#api-4-content-negotiation)). There is no `format` parameter (API-4.02).
 
 > **API-1.04** [REMOVED] JSONP support via `_callback` parameter — replaced by CORS.
 
@@ -175,3 +175,4 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-10-21 | API-3.15: `queuedEtlProcesses` in `/status` and health |
 | 2026-10-23 | API-3.03, API-3.05, API-3.06: uploads without Content-Type are accepted; API-3.09: alias bodies are read regardless of the Content-Type; API-3.10, API-3.12, API-4.04: no 406, fallback negotiation as in 1.x; API-4.05, API-4.06: `media` and method tunnel (ROWS-155, ROWS-156, ROWS-158) |
 | 2026-10-23 | Correction: `DELETE /dataset/{id}` returned 204 in 1.x as well (Restlet turned the empty 200 response into 204), API-3.07 is unchanged from 1.x; API-4.02 removed (never implemented); API-8.01: version no longer in the `Server` header (ROWS-168) |
+| 2026-11-05 | API-1.03: content negotiation via `Accept` and the `media` parameter, not `format` (ROWS-168) |
