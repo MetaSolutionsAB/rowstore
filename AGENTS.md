@@ -159,7 +159,7 @@ completed run is recorded in `maintenance_tasks` (ETL-11.07).
 7. `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
 
 **Utilities** (`util/`):
-- `DatasetUtil` - Dataset URL building, charset detection, byte order mark skipping, regex heuristics and safety checks
+- `DatasetUtil` - Dataset URL building, charset detection, byte order mark skipping, regex heuristics
 - `ColumnNames` - Normalization of CSV labels and stored column names (lowercase, strip, byte order marks and soft hyphens removed)
 - `Hashing` - Hash helpers
 

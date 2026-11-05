@@ -147,9 +147,9 @@ The query engine tries to optimize queries by detecting whether a query value co
 
 Queries are subject to an eventually configured query timeout, see configuration section. If a query exceeds the configured timeout the running request to the database is interrupted and HTTP status 503 is returned. Requests for a dataset (`/dataset/{id}` and its sub-resources) also get HTTP 503 if the database cannot be reached, if no database connection becomes available within `connectionWaitTimeout`, or if the dataset is locked (e.g. by a replace waiting for a long export) for longer than `queryLockTimeout` (see [Database connections](#database-connections)).
 
-The parameter `_callback` (JSONP in 1.x) is accepted and ignored: responses are always plain JSON. The parameters `media`, `charset`, `encoding` and `language` are no filters either (see above), unless the dataset has a column of that name.
+The parameter `_callback` (JSONP in 1.x) is accepted and ignored: responses are always plain JSON. The parameters `media`, `charset`, `encoding` and `language` are no filters either (see above), unless the dataset has a column of that name. On `/dataset/{id}`, a `media` value that is a media type or file extension (e.g. `html`) still selects the representation; use `/dataset/{id}/json` to filter such a column.
 
-As in 1.x, parameter names and values are trimmed (`name=Bo%20` matches `Bo`), and regular expression characters such as `^`, `|`, `[`, `{` and `\` may be sent unencoded. Non-ASCII characters must be percent-encoded. A query string with a malformed percent-encoding (e.g. `name=100%`) is rejected with HTTP 400. Regular expressions are not restricted; their run time is limited by `querytimeout`.
+As in 1.x, parameter names and values are trimmed (`name=Bo%20` matches `Bo`), and regular expression characters such as `^`, `|`, `[`, `{` and `\` may be sent unencoded. Non-ASCII characters must be percent-encoded. A query string with a malformed percent-encoding (e.g. `name=100%`) is rejected with HTTP 400. Regular expressions are not restricted; their run time is limited by `querytimeout` if it is configured (by default, there is no limit).
 
 ### /dataset/{id}/info
 

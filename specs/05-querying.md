@@ -32,7 +32,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-3.05** `_callback` — Reserved parameter kept for compatibility with 1.x clients. It is accepted and ignored: it is not treated as a column filter and the response is plain JSON (JSONP wrapping was removed in 2.0, see [QUERY-3.03](#query-3-special-parameters)). Like other non-pagination parameters, it is carried over to the `prev`/`next` URLs ([QUERY-6.02](#query-6-pagination)).
 
-> **QUERY-3.06** `media`, `charset`, `encoding` and `language` — Parameters of the TunnelService of Restlet in 1.x, which consumed them for content negotiation ([API-4.05](03-api.md#api-4-content-negotiation)). They are not column filters and not carried over to the `prev`/`next` URLs, unless the dataset has a column of that name, in which case they filter like any column (in 1.x, such a filter was dropped silently and all rows were returned).
+> **QUERY-3.06** `media`, `charset`, `encoding` and `language` — Parameters of the TunnelService of Restlet in 1.x, which consumed them for content negotiation ([API-4.05](03-api.md#api-4-content-negotiation)). They are not column filters and not carried over to the `prev`/`next` URLs, unless the dataset has a column of that name, in which case they filter it (in 1.x, such a filter was dropped silently and all rows were returned). On `/dataset/{id}`, a `media` value that is a media type or file extension still replaces the `Accept` header as well (e.g. `?media=html` redirects to `/dataset/{id}/html`); `/dataset/{id}/json` ignores the `Accept` header and can be used to filter such a column.
 
 ## QUERY-4 Regex Modes
 
@@ -48,7 +48,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-4.04** The heuristic detection checks for the presence of these characters: `` ^ $ ( | [ * + { ? / ``. This is implemented in `DatasetUtil.isRegExpString()`.
 
-> **QUERY-4.05** Regular expressions are passed to PostgreSQL without further validation, as in 1.x; their length and structure are not restricted (see [SEC-4.08](07-security.md#sec-4-input-validation), removed). PostgreSQL's regex engine does not backtrack catastrophically like backtracking engines; the run time of a query is limited by `querytimeout` ([QUERY-7.01](#query-7-query-timeout)). An invalid regular expression returns **400 Bad Request**.
+> **QUERY-4.05** Regular expressions are passed to PostgreSQL without further validation, as in 1.x; their length and structure are not restricted (see [SEC-4.08](07-security.md#sec-4-input-validation), removed). PostgreSQL's regex engine does not backtrack catastrophically like backtracking engines; the run time of a query is limited by `querytimeout` ([QUERY-7.01](#query-7-query-timeout)) only if it is configured; by default, there is no limit (ROWS-118). An invalid regular expression returns **400 Bad Request**.
 
 ## QUERY-5 SQL Construction
 
@@ -114,4 +114,5 @@ Covers the read path from query parameter parsing through SQL execution to respo
 | 2026-10-20 | QUERY-3.01: values above `querymaxlimit` fall back to the default |
 | 2026-10-21 | Added QUERY-3.05: `_callback` accepted and ignored instead of rejected with 400 (ROWS-147) |
 | 2026-10-23 | Added QUERY-2.03 (trimming, ROWS-157), QUERY-3.06 (tunnel parameters, ROWS-158), QUERY-4.05 (no regex validation, ROWS-153), QUERY-9.03 (unencoded characters, ROWS-151), QUERY-9.04 (malformed encodings, ROWS-152) |
+| 2026-11-05 | QUERY-3.06: `media` still selects the representation on `/dataset/{id}`; QUERY-4.05: run time only limited if `querytimeout` is configured |
 | 2026-11-05 | QUERY-9.03: `%2F` and `%5C` in dataset IDs return 404, path characters are not relaxed (ROWS-151) |

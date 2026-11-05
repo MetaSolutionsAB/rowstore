@@ -40,7 +40,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-4.07** **Data table name validation**: Data table names are validated against the regex pattern `data_[a-f0-9]{32}` before use in any SQL operation. This prevents SQL injection through malicious table names stored in the database.
 
-> **SEC-4.08** [REMOVED] (2026-10-23) **ReDoS protection**: regex filter values were validated by `DatasetUtil.isSafeRegex()`, which rejected patterns longer than 200 characters or matching supposedly dangerous constructs with 400. The check rejected common regular expressions (e.g. `^(B|C)(o|e)*`) and, in full mode, long literal values detected as regex (e.g. URLs) that 1.x accepted, while PostgreSQL's regex engine is not susceptible to catastrophic backtracking. The run time of queries is limited by `querytimeout`, see [QUERY-4.05](05-querying.md#query-4-regex-modes) (ROWS-153).
+> **SEC-4.08** [REMOVED] (2026-10-23) **ReDoS protection**: regex filter values were validated by `DatasetUtil.isSafeRegex()`, which rejected patterns longer than 200 characters or matching supposedly dangerous constructs with 400. The check rejected common regular expressions (e.g. `^(B|C)(o|e)*`) and, in full mode, long literal values detected as regex (e.g. URLs) that 1.x accepted, while PostgreSQL's regex engine is not susceptible to catastrophic backtracking. The run time of queries is limited by `querytimeout` only if it is configured (default: no limit, ROWS-118), see [QUERY-4.05](05-querying.md#query-4-regex-modes) (ROWS-153).
 
 > **SEC-4.09** **Upload size limit**: CSV uploads are limited to `maxuploadsize` bytes (default 100 MB, configurable). Uploads exceeding this limit are rejected.
 
@@ -124,4 +124,4 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 | 2026-10-20 | SEC-6.01: CORS headers also on 429 responses |
 | 2026-10-21 | SEC-5.06: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); SEC-5.05 and SEC-9.04 accordingly |
 | 2026-10-23 | SEC-4.04: uploads without Content-Type accepted (ROWS-156); SEC-4.08 removed (ROWS-153); added SEC-9.05 (method tunnel, ROWS-158) |
-| 2026-11-05 | SEC-9.05: method tunnel only for requests without Origin or from the origin of `baseurl` or a listed CORS origin, otherwise 403 (CSRF, ROWS-158) |
+| 2026-11-05 | SEC-9.05: method tunnel only for requests without Origin or from the origin of `baseurl` or a listed CORS origin, otherwise 403 (CSRF, ROWS-158); SEC-4.08 note: `querytimeout` has no default |
