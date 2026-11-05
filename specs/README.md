@@ -376,7 +376,7 @@ Current limitations relevant to this area.
 |----|-------------|
 | TEST-1.01 | Integration tests verifying REST API end-to-end |
 | TEST-2.01 | JUnit 5, REST Assured, Testcontainers, Awaitility, AssertJ |
-| TEST-3.01 | 36 IT classes with 243 tests, 14 unit test classes with 195 tests |
+| TEST-3.01 | 37 IT classes with 245 tests, 17 unit test classes with 218 tests |
 | TEST-3.02 | Sequential execution within classes |
 | TEST-4.01 | Default profile (regexpqueries=full) |
 | TEST-4.02 | regex-disabled profile |
