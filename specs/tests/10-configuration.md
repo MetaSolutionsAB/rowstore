@@ -4,7 +4,7 @@
 
 Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configuration.md#cfg-1-file-format)) and for how database settings are applied to the data sources ([CFG-4](../06-configuration.md#cfg-4-database-configuration), [CFG-5](../06-configuration.md#cfg-5-read-replica-configuration)).
 
-- TC-CFG-* and TC-DS-* are unit tests (`RowStoreConfigTest`, `DataSourceConfigTest`); they need neither Docker nor a running server.
+- TC-CFG-* and TC-DS-* are unit tests (`RowStoreConfigTest`, `DataSourceConfigTest`, `PgRowStoreServerVersionTest`); they need neither Docker nor a running server.
 - TC-POOL-* are integration tests (`ConnectionPoolIT`) against an in-process server with `connectionPoolMax=3`, `ssl=false`, `socketTimeout=60` and a separate `queryDatabase` pointing to the same container. TC-POOL-006 to TC-POOL-008 inspect the DataSource beans and are skipped against an external instance. TC-POOL-001 to TC-POOL-005 (status, lifecycle, query and HikariCP metrics with a pool) are defined in the test class.
 
 ## Test Cases
