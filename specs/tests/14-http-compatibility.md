@@ -58,6 +58,14 @@ Spec: API-4.05
 1. `GET /dataset/{id}?media=html` with `Accept: application/json` → `303`
 2. `GET /dataset/{id}?media=json&Name=McLoud` with `Accept: text/html` → `200`, exactly McLoud
 
+### TC-CONNEG-NEW1: Negotiated responses carry Vary: Accept
+
+Spec: API-4.04
+
+1. `GET /dataset/{id}` with `Accept: application/json` (200), `text/html` (303) and without `Accept` (303) → `Vary` contains `Accept`
+2. `GET /dataset/{id}/export` with `Accept: text/csv` and `application/json` (200) → `Vary` contains `Accept`
+3. `GET /dataset/{unknown}` and `GET /dataset/{unknown}/export` (404) → `Vary` contains `Accept`
+
 ## Method Tunnel
 
 ### TC-TUNNEL-001: POST with method=PUT replaces the data

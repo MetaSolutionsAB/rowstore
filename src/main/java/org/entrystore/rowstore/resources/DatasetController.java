@@ -17,6 +17,7 @@
 package org.entrystore.rowstore.resources;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.entrystore.rowstore.etl.EtlResource;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.filters.TunnelFilter;
@@ -67,10 +68,12 @@ public class DatasetController {
 	/**
 	 * Responds with a redirect to the HTML view or with the JSON query result, depending on the Accept header
 	 * (API-4.03, API-4.04): HTML if no Accept header is sent or if it accepts neither, but has a text type (e.g.,
-	 * text/plain), JSON otherwise.
+	 * text/plain), JSON otherwise. All responses vary by the Accept header, also errors.
 	 */
 	@GetMapping(value = "/dataset/{id}")
-	public ResponseEntity<?> represent(@PathVariable("id") String id, HttpServletRequest request) {
+	public ResponseEntity<?> represent(@PathVariable("id") String id, HttpServletRequest request,
+			HttpServletResponse response) {
+		response.addHeader(HttpHeaders.VARY, HttpHeaders.ACCEPT);
 		if (MediaType.TEXT_HTML.equals(ContentNegotiation.select(request, MediaType.TEXT_HTML, MediaType.APPLICATION_JSON))) {
 			return representHtml(id);
 		}

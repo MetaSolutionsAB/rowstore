@@ -18,6 +18,7 @@ package org.entrystore.rowstore.resources;
 
 import com.opencsv.CSVWriter;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.entrystore.rowstore.etl.EtlStatus;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
@@ -73,10 +74,12 @@ public class ExportController {
 	/**
 	 * Exports the dataset as JSON or CSV, depending on the Accept header (API-3.10, API-4.04), which can be set with the
 	 * query parameter media (API-4.05): CSV if it accepts CSV with a higher quality than JSON, or if it accepts neither,
-	 * but has a text type (e.g., text/plain), JSON otherwise.
+	 * but has a text type (e.g., text/plain), JSON otherwise. All responses vary by the Accept header, also errors.
 	 */
 	@GetMapping(value = "/dataset/{id}/export")
-	public ResponseEntity<StreamingResponseBody> export(@PathVariable("id") String id, HttpServletRequest request) {
+	public ResponseEntity<StreamingResponseBody> export(@PathVariable("id") String id, HttpServletRequest request,
+			HttpServletResponse response) {
+		response.addHeader(HttpHeaders.VARY, HttpHeaders.ACCEPT);
 		if (TEXT_CSV.equals(ContentNegotiation.select(request, MediaType.APPLICATION_JSON, TEXT_CSV))) {
 			return exportCSV(id, request);
 		}
