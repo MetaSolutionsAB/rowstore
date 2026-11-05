@@ -3,14 +3,14 @@
 ## Overview
 
 Tests for the scheduling and failure handling of ETL loads: per-dataset ordering, coalescing of queued loads,
-permits only for running loads, takeover of stale PROCESSING datasets, startup reset, status handling when a
+permits only for running loads, shutdown, takeover of stale PROCESSING datasets, startup reset, status handling when a
 load fails or the database is unreachable, atomic replaces, and the cleanup of column names stored before 2.0.
 See [04-etl-pipeline.md](../04-etl-pipeline.md) (ETL-6, ETL-8, ETL-10, ETL-11).
 
 TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027, TC-ETL-028, TC-ETL-051, TC-ETL-054 and TC-ETL-055 are unit tests (`EtlProcessorTest`,
 `PgDatasetPopulateTest`, `PgDatasetSwapLockTest`) that use fakes instead of a database. TC-ETL-010 to TC-ETL-014
 and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026, TC-ETL-029 and TC-ETL-053 integration tests of
-replaces (`DatasetReplaceIT`). TC-ETL-030 is a unit test (`EtlProcessorTest`), TC-ETL-031 to TC-ETL-037,
+replaces (`DatasetReplaceIT`). TC-ETL-030, TC-ETL-070 and TC-ETL-071 are unit tests (`EtlProcessorTest`), TC-ETL-031 to TC-ETL-037,
 TC-ETL-045, TC-ETL-046 and TC-ETL-049 are integration tests of the column name cleanup (`ColumnNameCleanupIT`),
 TC-ETL-038 to TC-ETL-044 and TC-ETL-048 unit tests of the cleaning rule (`ColumnNamesTest`), and TC-ETL-047 a unit test of the cleanup's stop
 condition (`PgRowStoreConnectionFailureTest`).
@@ -219,6 +219,29 @@ with SQL state `55P03`.
 2. A3 runs (a new worker is started for dataset A); the order is A1, task, A3
 3. No permit is leaked (`activeEtlProcesses` returns to 0)
 
+### TC-ETL-070: Shutdown discards queued loads and logs their datasets, running loads finish
+
+**Steps:**
+1. With 1 permit, start a blocking load `a1` of dataset `a`
+2. Submit `a2` to `a` (waits behind `a1`), `b1` to `b` (waits for the permit) and an exclusive task for `a`
+3. Shut the ETL processor down in the background, then release `a1`
+
+**Assertions:**
+1. The files of `a2` and `b1` are deleted and the task's future is cancelled before `a1` is released
+2. Only `a1` runs and ends with status AVAILABLE; `b` gets no status change
+3. A WARN names both datasets as having discarded uploads (DEPL-7.01)
+4. The shutdown returns once `a1` has finished
+
+### TC-ETL-071: Loads submitted after shutdown are rejected and their files deleted
+
+**Steps:**
+1. Shut the ETL processor down
+2. Submit a load and an exclusive task
+
+**Assertions:**
+1. Both are rejected with `RejectedExecutionException`
+2. The load's file is deleted and nothing runs
+
 ## Integration tests
 
 ### TC-ETL-010: A dataset stuck in processing does not block a new upload
@@ -271,7 +294,7 @@ with SQL state `55P03`.
 3. After connections are allowed again, the status becomes ERROR (4) within 30 seconds (the status write is
    retried, see ETL-10.02)
 
-### TC-ETL-014: Datasets left in processing are reset to error at startup
+### TC-ETL-014: Datasets left in processing or accepted data are reset to error at startup
 
 **Steps:**
 1. Create two datasets and wait until they are available
@@ -279,8 +302,9 @@ with SQL state `55P03`.
 3. Invoke the startup reset (`PgRowStore.resetInterruptedLoads()`, called by the constructor at startup)
 
 **Assertions:**
-1. The returned IDs contain the first dataset but not the second one
-2. The first dataset has status ERROR (4), the second one still ACCEPTED_DATA (1)
+1. The returned IDs contain both datasets
+2. Both datasets have status ERROR (4) (ETL-8.06: the queued upload of a dataset in ACCEPTED_DATA was lost when
+   RowStore stopped)
 
 ### TC-ETL-018: Uploads via different spellings of a dataset ID and via an alias are applied in submission order
 

@@ -105,6 +105,18 @@ public class TrustedProxyFilter implements Filter {
 	}
 
 	/**
+	 * Resolves the client address of a request that has not passed this filter yet, e.g., for the access log, which
+	 * also logs requests that are rejected before this filter.
+	 *
+	 * @return the client address from X-Forwarded-For if the request came from a trusted proxy, the remote address
+	 * otherwise
+	 */
+	public String getClientAddress(HttpServletRequest request) {
+		String clientAddr = resolveClientAddress(request);
+		return clientAddr != null ? clientAddr : request.getRemoteAddr();
+	}
+
+	/**
 	 * @return the client address from X-Forwarded-For, or null if the request did not come from a trusted proxy
 	 * or has no X-Forwarded-For header
 	 */
