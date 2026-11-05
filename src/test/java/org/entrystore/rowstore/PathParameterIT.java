@@ -120,7 +120,7 @@ class PathParameterIT extends BaseIntegrationTest {
             "/dataset%2F{ds}",
             "/actuator%2Fhealth"
     })
-    @DisplayName("TC-ERROR-NEW1: Encoded slashes and backslashes in dataset paths return 404, as in 1.x")
+    @DisplayName("TC-ERROR-021: Encoded slashes and backslashes in dataset paths return 404, as in 1.x")
     void encodedSlashes_return404(String path) {
         String fullPath = path.replace("{ds}", dataset.datasetId);
         // a raw request, since REST Assured and java.net.URI would re-encode or normalize the path
@@ -129,7 +129,7 @@ class PathParameterIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("TC-ERROR-NEW1: A DELETE with encoded slashes does not reach another dataset")
+    @DisplayName("TC-ERROR-021: A DELETE with encoded slashes does not reach another dataset")
     void encodedSlashes_deleteDoesNotTraverse() {
         for (String path : new String[]{"/dataset/x%2F..%2F{ds}", "/dataset/x%5C..%5C{ds}", "/dataset/{ds}%2F",
                 "/dataset/x%2F..%2F{ds}/aliases"}) {

@@ -197,7 +197,7 @@ Note: UUID-like aliases might be rejected to prevent confusion with actual datas
 3. `GET /dataset/{id}?Name=a;b` returns `200` (`;` in the query string is not a path parameter)
 4. `GET /dataset/{id}%3Bx` returns `404` (encoded `;` is not a delimiter, the ID does not exist)
 
-### TC-ERROR-NEW1: Encoded slashes and backslashes in dataset paths return 404
+### TC-ERROR-021: Encoded slashes and backslashes in dataset paths return 404
 
 Spec: QUERY-9.03
 

@@ -164,7 +164,7 @@ class ContentNegotiationIT extends BaseIntegrationTest {
             "/dataset/unknown-dataset         | text/html         | 404",
             "/dataset/unknown-dataset/export  | text/csv          | 404"
     })
-    @DisplayName("TC-CONNEG-NEW1: Negotiated responses carry Vary: Accept")
+    @DisplayName("TC-CONNEG-006: Negotiated responses carry Vary: Accept")
     void negotiatedResponses_varyByAccept(String subPath, String accept, int status) {
         RawResponse response = get(subPath, accept);
         assertThat(response.status()).isEqualTo(status);

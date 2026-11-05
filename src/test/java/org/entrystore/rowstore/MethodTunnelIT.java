@@ -105,7 +105,7 @@ class MethodTunnelIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("TC-TUNNEL-NEW1: A cross-origin POST with a tunnelled method is refused with 403")
+    @DisplayName("TC-TUNNEL-005: A cross-origin POST with a tunnelled method is refused with 403")
     void post_tunnelFromForeignOrigin_isRefused() {
         DatasetUrls urls = createDatasetAndWait(CSV);
         try {

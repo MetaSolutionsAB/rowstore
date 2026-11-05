@@ -58,7 +58,7 @@ Spec: API-4.05
 1. `GET /dataset/{id}?media=html` with `Accept: application/json` → `303`
 2. `GET /dataset/{id}?media=json&Name=McLoud` with `Accept: text/html` → `200`, exactly McLoud
 
-### TC-CONNEG-NEW1: Negotiated responses carry Vary: Accept
+### TC-CONNEG-006: Negotiated responses carry Vary: Accept
 
 Spec: API-4.04
 
@@ -101,7 +101,7 @@ Spec: API-4.06
 2. `POST /dataset/{id}` with `X-HTTP-Method-Override: TRACE` and CSV → `400`
 3. The dataset still has its 2 rows (nothing was appended)
 
-### TC-TUNNEL-NEW1: A cross-origin POST with a tunnelled method is refused with 403
+### TC-TUNNEL-005: A cross-origin POST with a tunnelled method is refused with 403
 
 Spec: API-4.06, SEC-9.05
 
