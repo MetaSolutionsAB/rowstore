@@ -10,7 +10,7 @@ requests and ETL jobs holding at most one connection at a time. See
 
 TC-CONN-001 to TC-CONN-006 and TC-CONN-024 to TC-CONN-026 are unit tests of the budget (`LimitedDataSourceTest`)
 with a fake data source, TC-CONN-008, TC-CONN-009 and TC-CONN-028 unit tests of the configuration
-(`RowStoreConfigConnectionLimitsTest`), TC-CONN-027 and TC-CONN-NEW1 unit tests of the session statements and of the warning about a short lock timeout
+(`RowStoreConfigConnectionLimitsTest`), TC-CONN-027 and TC-CONN-037 unit tests of the session statements and of the warning about a short lock timeout
 (`PgRowStoreSessionSqlTest`).
 TC-CONN-010 to TC-CONN-013, TC-CONN-021 and TC-CONN-029 are integration tests with small
 limits (`ConnectionLimitIT`: 2 query connections, 1 export connection, `maxetlprocesses` 2, wait timeout 2 s, hence
@@ -366,7 +366,7 @@ times with a `SQLException` with SQL state `08001` (wrapped), then succeeds.
 
 ## Lock timeout of queries during a replace (unit test)
 
-### TC-CONN-NEW1: A query lock timeout that is set, but not longer than a swap lock attempt, is warned about
+### TC-CONN-037: A query lock timeout that is set, but not longer than a swap lock attempt, is warned about
 
 **Assertions:**
 1. `queryLockTimeout` 3 and a `connectionWaitTimeout` of 6 s (lock timeout 3 s by default) are warned about at startup,

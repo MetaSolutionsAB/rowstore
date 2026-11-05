@@ -54,7 +54,7 @@ class PgRowStoreSessionSqlTest {
     }
 
     @Test
-    @DisplayName("TC-CONN-NEW1: A query lock timeout that is set, but not longer than a swap lock attempt, is warned about")
+    @DisplayName("TC-CONN-037: A query lock timeout that is set, but not longer than a swap lock attempt, is warned about")
     void lockTimeoutNotLongerThanSwapLockAttempt() {
         assertThat(PgRowStore.isQueryLockTimeoutTooShort(database(new JSONObject().put("queryLockTimeout", 3)))).isTrue();
         // default: half of the wait timeout
