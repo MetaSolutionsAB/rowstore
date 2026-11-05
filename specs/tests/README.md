@@ -15,9 +15,9 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
 | `08-error-handling.md` | Error codes: 400, 404, 423, 424, path parameters, corrupt CSV | 22 |
 | `09-rate-limiting.md` | Rate limiting (429), client address via trusted proxies - requires separate profiles | 11 |
-| `10-configuration.md` | rowstore.json validation and data source settings (unit and integration tests) | 13 |
-| `11-etl-processing.md` | ETL scheduling, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 52 |
-| `12-connection-limits.md` | Connection budgets: FIFO waiting, wait timeouts (503), usage in `/status`, one connection per request, lock timeouts, health checks (unit and integration tests) | 28 |
+| `10-configuration.md` | rowstore.json validation and data source settings (unit and integration tests) | 14 |
+| `11-etl-processing.md` | ETL scheduling, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 55 |
+| `12-connection-limits.md` | Connection budgets: FIFO waiting, wait timeouts (503), usage in `/status`, one connection per request, lock timeouts, health checks, startup without a reachable database, 503 responses (unit and integration tests) | 36 |
 
 Test counts are the number of test case IDs per file; a heading that covers a range (e.g. `TC-CSV-017 to TC-CSV-022`) counts each ID, and test cases marked `[REMOVED]` are not counted.
 
@@ -144,12 +144,12 @@ Dataset creation and modification are asynchronous. Tests should:
 | Metadata Endpoints | 11 |
 | Error Handling | 22 |
 | Rate Limiting | 11 |
-| Configuration | 13 |
-| ETL Processing | 52 |
-| Connection Limits | 28 |
-| **Total** | **259** |
+| Configuration | 14 |
+| ETL Processing | 55 |
+| Connection Limits | 36 |
+| **Total** | **271** |
 
-Note: The specifications define 259 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 271 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 

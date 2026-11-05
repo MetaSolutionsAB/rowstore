@@ -7,9 +7,9 @@ permits only for running loads, takeover of stale PROCESSING datasets, startup r
 load fails or the database is unreachable, atomic replaces, and the cleanup of column names stored before 2.0.
 See [04-etl-pipeline.md](../04-etl-pipeline.md) (ETL-6, ETL-8, ETL-10, ETL-11).
 
-TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027 and TC-ETL-028 are unit tests (`EtlProcessorTest`,
+TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027, TC-ETL-028, TC-ETL-051, TC-ETL-054 and TC-ETL-055 are unit tests (`EtlProcessorTest`,
 `PgDatasetPopulateTest`, `PgDatasetSwapLockTest`) that use fakes instead of a database. TC-ETL-010 to TC-ETL-014
-and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026 and TC-ETL-029 integration tests of
+and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026, TC-ETL-029 and TC-ETL-053 integration tests of
 replaces (`DatasetReplaceIT`). TC-ETL-030 is a unit test (`EtlProcessorTest`), TC-ETL-031 to TC-ETL-037,
 TC-ETL-045, TC-ETL-046 and TC-ETL-049 are integration tests of the column name cleanup (`ColumnNameCleanupIT`),
 TC-ETL-038 to TC-ETL-044 and TC-ETL-048 unit tests of the cleaning rule (`ColumnNamesTest`), and TC-ETL-047 a unit test of the cleanup's stop
@@ -18,7 +18,7 @@ condition (`PgRowStoreConnectionFailureTest`).
 ## Prerequisites
 
 - Unit tests: none
-- Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013, TC-ETL-014, TC-ETL-020 to TC-ETL-026 and TC-ETL-029
+- Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013, TC-ETL-014, TC-ETL-020 to TC-ETL-026, TC-ETL-029 and TC-ETL-053
   additionally require direct database access (superuser) and are skipped when testing an external instance; so do
   TC-ETL-031 to TC-ETL-037, TC-ETL-045, TC-ETL-046 and TC-ETL-049, which also call into the RowStore application (TC-ETL-035 additionally starts separate
   RowStore instances on a separate database)
@@ -128,28 +128,31 @@ Generated CSV files with the header `name,value` and rows `<prefix><n>,<n>` (e.g
 1. The ERROR status write is attempted exactly three times (initial attempt and two retries)
 2. `populate()` still throws the original exception
 
-### TC-ETL-027: A timed out lock for replacing the data table is retried within a savepoint, the last attempt without timeout
+### TC-ETL-027: A timed out lock for replacing the data table is retried within a savepoint, every attempt with a short timeout
 
 **Setup:** `PgDataset.lockDataTableForReplace()` with a fake connection whose `LOCK TABLE` statements fail with SQL
-state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 1 ms configured.
+state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 1 ms configured, a wait limit of
+60 s, a maximum delay of 2 ms and a log interval of 60 s for the lock holders.
 
 **Assertions:**
 1. If two attempts fail, the statements are `SET LOCAL idle_in_transaction_session_timeout = 0` (once, before the first
    savepoint), then per attempt `SAVEPOINT`, `SET LOCAL lock_timeout = '3s'`, `LOCK TABLE <dataTable> IN
    ACCESS EXCLUSIVE MODE`, a failed attempt is followed by `ROLLBACK TO SAVEPOINT`, and the third attempt succeeds
    (returns true)
-2. If the three short attempts (one per delay) fail, each is rolled back to its savepoint, the lock holders are
-   queried (within a savepoint), and the last attempt is `SAVEPOINT`, `SET LOCAL lock_timeout = '30min'`,
-   `LOCK TABLE ...`, which succeeds (returns true)
+2. If five attempts fail (more than the configured delays), every attempt, including the further ones, runs with
+   `SET LOCAL lock_timeout = '3s'`, each failed one is rolled back to its savepoint, the lock holders are queried
+   (within a savepoint) exactly once, and the sixth attempt succeeds (returns true)
 
-### TC-ETL-051: If the last attempt to lock the data table times out, locking gives up and logs the lock holders
+### TC-ETL-051: If the lock cannot be acquired within the wait limit, locking gives up and logs the lock holders
 
-**Setup:** As TC-ETL-027; all `LOCK TABLE` statements fail with SQL state `55P03`, including the last attempt with
-`lock_timeout = '30min'`.
+**Setup:** As TC-ETL-027, with a wait limit of 200 ms and a maximum delay of 5 ms; all `LOCK TABLE` statements fail
+with SQL state `55P03`.
 
 **Assertions:**
-1. `lockDataTableForReplace()` returns false (the caller rolls back, ETL-6.04), after four `LOCK TABLE` attempts
-2. The last attempt is rolled back to its savepoint, and the lock holders are queried before it and afterwards
+1. `lockDataTableForReplace()` returns false (the caller rolls back, ETL-6.04), after more than four `LOCK TABLE`
+   attempts, all with `lock_timeout = '3s'`
+2. The lock holders are queried twice: when the configured delays are used up, and after the last attempt was rolled
+   back to its savepoint
 
 ### TC-ETL-028: A lock for replacing the data table that fails for another reason is not retried
 
@@ -157,6 +160,21 @@ state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 
 
 **Assertions:**
 1. The `SQLException` is thrown after one attempt, without rolling back to the savepoint
+
+### TC-ETL-054: While the lock is retried, the lock holders are logged at most once per interval
+
+**Setup:** As TC-ETL-027, with a log interval of 0 for the lock holders; five `LOCK TABLE` attempts fail.
+
+**Assertions:**
+1. The lock holders are queried after each of the three failed attempts that follow when the configured delays are
+   used up; the sixth attempt succeeds
+
+### TC-ETL-055: The delay between attempts to lock the data table grows up to 30 seconds
+
+**Setup:** `PgDataset` with the default delays (1, 2, 5, 5 s) and the default maximum delay (30 s).
+
+**Assertions:**
+1. The delays after the attempts 1, 4, 5, 6, 7 and 101 are 1, 5, 10, 20, 30 and 30 seconds
 
 ### TC-ETL-050: A load of a dataset that was deleted while the load was queued is skipped
 
@@ -345,6 +363,23 @@ state `55P03` (lock timeout) while a lock timeout is set; three retry delays of 
 1. In step 3, after the first attempt has timed out, the status in the database is still PROCESSING (2) and queries
    return the rows `A1`, `A2`, `A3`
 2. After step 4, the dataset becomes available with the rows `B1`, `B2`
+
+### TC-ETL-053: While a replace waits for a long reader, queries of the dataset are blocked for at most one short lock attempt
+
+**Steps:**
+1. Create dataset A from CSV `A` (3 rows) and dataset C from CSV `C` (1 row), and wait until they are available
+2. In a separate transaction, read the data table of A (holds an `ACCESS SHARE` lock like a long export or `pg_dump`)
+3. `PUT /dataset/{A}` with CSV `B` (2 rows); wait until the load's `LOCK TABLE` waits for the lock, then wait
+   28 seconds (longer than the first four attempts with their delays, about 25 seconds)
+4. For 12 seconds, query A and C repeatedly
+5. End the separate transaction
+
+**Assertions:**
+1. In step 4, every query of A returns 200 with the rows `A1`, `A2`, `A3` within less than 5 seconds (at most one
+   attempt's lock timeout of 3 seconds), every query of C returns 200 with `C1`, and the status of A is still
+   PROCESSING (2)
+2. After step 5, A becomes available with the rows `B1`, `B2` within 60 seconds (the next attempt follows within the
+   maximum delay of 30 seconds)
 
 ### TC-ETL-024: A leftover shadow table is dropped at the start of a replace
 

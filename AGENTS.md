@@ -99,9 +99,9 @@ All packages are below `org.entrystore.rowstore` in `src/main/java`.
 
 **Configuration** (`config/`):
 - `RowStoreConfigLoader` - Bridges `rowstore.json` into Spring: loads the file and exposes it as a `RowStoreConfig` bean (not `application.properties`)
-- `DataSourceConfig` - Creates the primary and the read-only query `DataSource` programmatically from `rowstore.json` (`PGSimpleDataSource` by default, HikariCP when `connectionPoolMax` > 0) and runs Flyway migrations programmatically (Spring's DataSource and Flyway auto-configuration are disabled)
+- `DataSourceConfig` - Creates the primary and the read-only query `DataSource` programmatically from `rowstore.json` (`PGSimpleDataSource` by default, HikariCP when `connectionPoolMax` > 0) and runs Flyway migrations programmatically (Spring's DataSource and Flyway auto-configuration are disabled); at startup, `StartupRetry` waits for a database that is not reachable yet (ARCH-7.08)
 - `CorsConfig` - CORS filter (`FilterRegistrationBean`) with origins from `cors.allowedorigins`
-- `DatabaseExceptionHandler` - Maps database connectivity failures in controllers to 503 (instead of 404/500)
+- `DatabaseExceptionHandler` - Maps database connectivity failures in controllers to 503 with `Retry-After` (instead of 404/500)
 - `RowStoreHealthIndicator` - Actuator health check of both databases within the query budgets (UP, BUSY if all connections are in use, DOWN if unreachable), dataset count, active and queued ETL processes, connection usage; replaces the disabled Actuator `db` indicator
 - `CustomErrorController` - Error responses for `/error`
 

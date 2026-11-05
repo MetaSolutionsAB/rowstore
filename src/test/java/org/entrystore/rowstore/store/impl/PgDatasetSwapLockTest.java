@@ -38,7 +38,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests the retries of {@link PgDataset#lockDataTableForReplace(Connection)} when the lock of the data table times
- * out, e.g., because of a long streaming export, and that the last attempt waits without a timeout. The waiting itself is covered by DatasetReplaceIT (TC-ETL-023).
+ * out, e.g., because of a long streaming export: every attempt waits at most 3 seconds, and the attempts are retried
+ * until the wait limit. The waiting itself is covered by DatasetReplaceIT (TC-ETL-023, TC-ETL-053).
  */
 class PgDatasetSwapLockTest {
 
@@ -55,10 +56,11 @@ class PgDatasetSwapLockTest {
     private boolean lockTimeout;
 
     @Test
-    @DisplayName("TC-ETL-027: A timed out lock for replacing the data table is retried within a savepoint, the last attempt without timeout")
-    void timedOutLock_isRetriedWithinSavepoint_lastAttemptWithoutTimeout() throws SQLException {
+    @DisplayName("TC-ETL-027: A timed out lock for replacing the data table is retried within a savepoint, every attempt with a short timeout")
+    void timedOutLock_isRetriedWithinSavepoint_everyAttemptWithShortTimeout() throws SQLException {
         PgDataset dataset = newDataset();
         dataset.setSwapRetryDelays(1, 1, 1);
+        dataset.setSwapLockWaitLimit(60000, 2, 60000);
 
         failingLocks = 2;
         assertThat(dataset.lockDataTableForReplace(connection())).isTrue();
@@ -70,31 +72,61 @@ class PgDatasetSwapLockTest {
                 "ROLLBACK TO SAVEPOINT",
                 "SAVEPOINT", "SET LOCAL lock_timeout = '3s'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
 
-        // one short attempt per delay, then the lock holders are logged and the last, long attempt gets the lock
+        // after the short delays, the attempts go on with the same short timeout; the lock holders are logged once
         executed.clear();
-        failingLocks = 3;
+        failingLocks = 5;
         assertThat(dataset.lockDataTableForReplace(connection())).isTrue();
-        assertThat(executed.stream().filter(s -> s.equals("SET LOCAL lock_timeout = '3s'"))).hasSize(3);
-        assertThat(executed.stream().filter(s -> s.equals("ROLLBACK TO SAVEPOINT"))).hasSize(3);
-        assertThat(executed.subList(executed.size() - 5, executed.size())).containsExactly(
-                "SAVEPOINT", "LOCK HOLDERS",
-                "SAVEPOINT", "SET LOCAL lock_timeout = '30min'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
+        assertThat(executed.stream().filter(s -> s.startsWith("SET LOCAL lock_timeout"))).hasSize(6)
+                .allMatch(s -> s.equals("SET LOCAL lock_timeout = '3s'"));
+        assertThat(executed.stream().filter(s -> s.equals("ROLLBACK TO SAVEPOINT"))).hasSize(5);
+        assertThat(executed.stream().filter(s -> s.equals("LOCK HOLDERS"))).hasSize(1);
+        assertThat(executed.subList(executed.size() - 3, executed.size())).containsExactly(
+                "SAVEPOINT", "SET LOCAL lock_timeout = '3s'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
     }
 
     @Test
-    @DisplayName("TC-ETL-051: If the last attempt to lock the data table times out, locking gives up and logs the lock holders")
-    void lastAttemptTimesOut_givesUp() throws SQLException {
+    @DisplayName("TC-ETL-051: If the lock cannot be acquired within the wait limit, locking gives up and logs the lock holders")
+    void waitLimitExceeded_givesUp() throws SQLException {
         PgDataset dataset = newDataset();
         dataset.setSwapRetryDelays(1, 1, 1);
+        dataset.setSwapLockWaitLimit(200, 5, 60000);
         failingLocks = Integer.MAX_VALUE;
 
         assertThat(dataset.lockDataTableForReplace(connection())).isFalse();
-        assertThat(executed.stream().filter(s -> s.startsWith("LOCK TABLE"))).hasSize(4);
-        assertThat(executed.subList(executed.size() - 8, executed.size())).containsExactly(
-                "SAVEPOINT", "LOCK HOLDERS",
-                "SAVEPOINT", "SET LOCAL lock_timeout = '30min'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE",
-                "ROLLBACK TO SAVEPOINT",
+        assertThat(executed.stream().filter(s -> s.startsWith("LOCK TABLE"))).hasSizeGreaterThan(4);
+        assertThat(executed.stream().filter(s -> s.startsWith("SET LOCAL lock_timeout")))
+                .allMatch(s -> s.equals("SET LOCAL lock_timeout = '3s'"));
+        // once when the short delays are used up, and when giving up
+        assertThat(executed.stream().filter(s -> s.equals("LOCK HOLDERS"))).hasSize(2);
+        assertThat(executed.subList(executed.size() - 4, executed.size())).containsExactly(
+                "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE", "ROLLBACK TO SAVEPOINT",
                 "SAVEPOINT", "LOCK HOLDERS");
+    }
+
+    @Test
+    @DisplayName("TC-ETL-054: While the lock is retried, the lock holders are logged at most once per interval")
+    void lockHolders_areLoggedAtMostOncePerInterval() throws SQLException {
+        PgDataset dataset = newDataset();
+        dataset.setSwapRetryDelays(1, 1, 1);
+        dataset.setSwapLockWaitLimit(60000, 2, 0);
+
+        // attempts 3 to 5 fail after the short delays are used up, each is followed by a log of the holders
+        failingLocks = 5;
+        assertThat(dataset.lockDataTableForReplace(connection())).isTrue();
+        assertThat(executed.stream().filter(s -> s.equals("LOCK HOLDERS"))).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("TC-ETL-055: The delay between attempts to lock the data table grows up to 30 seconds")
+    void retryDelay_growsUpToMaximum() {
+        PgDataset dataset = newDataset();
+
+        assertThat(dataset.swapRetryDelay(0)).isEqualTo(1000);
+        assertThat(dataset.swapRetryDelay(3)).isEqualTo(5000);
+        assertThat(dataset.swapRetryDelay(4)).isEqualTo(10000);
+        assertThat(dataset.swapRetryDelay(5)).isEqualTo(20000);
+        assertThat(dataset.swapRetryDelay(6)).isEqualTo(30000);
+        assertThat(dataset.swapRetryDelay(100)).isEqualTo(30000);
     }
 
     @Test

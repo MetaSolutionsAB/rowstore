@@ -78,6 +78,8 @@ Covers the JSON configuration file format, all application and database options,
 > **CFG-4.03** Connection pool settings (HikariCP):
 > - `connectionPoolMax` (int, default `-1`) — Maximum pool size (`maximumPoolSize`). A HikariCP pool is used only if the value is greater than 0; otherwise (the default) no pool is used and connections are opened per operation with `PGSimpleDataSource`.
 > - `connectionPoolInit` (int, default `-1`) — Minimum idle connections (`minimumIdle`), only effective with a pool. Values <= 0 mean `0`.
+>
+> 1.x never pooled the connections of `database` and pooled those of `queryDatabase` only if both values were greater than 0. A WARN is logged at startup when 2.0 pools connections that 1.x would not have pooled ([ARCH-7.07](01-system-architecture.md#arch-7-database-connection-limits)).
 
 > **CFG-4.04** Timeout settings (all in seconds):
 > - `socketTimeout` (int, default `0`) — Socket read timeout. `0` means no timeout.
@@ -92,7 +94,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-4.07** `connectionWaitTimeout` (int, seconds) — Maximum time a request waits for a connection of a budget before it fails with 503 ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)). Defaults to `querytimeout` (CFG-3.06) if that is greater than 0, otherwise to `30`.
 
-> **CFG-4.08** `queryLockTimeout` (int, seconds) — Maximum time a connection of the query budget waits for a lock ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)), set as PostgreSQL `lock_timeout` when the connection is obtained. Defaults to half of `connectionWaitTimeout`. `0` disables it: RowStore then changes no session state of any connection (no `SET lock_timeout` for query connections and no `RESET lock_timeout` for pooled export and load connections), which is required with PgBouncer transaction pooling; the lock timeout should then be configured on the server side ([ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits)). Negative or non-numeric values are rejected at startup (`rowstore.json: 'database.queryLockTimeout' must be a number greater than or equal to 0`).
+> **CFG-4.08** `queryLockTimeout` (int, seconds) — Maximum time a connection of the query budget waits for a lock ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)), set as PostgreSQL `lock_timeout` when the connection is obtained. Defaults to half of `connectionWaitTimeout`. A lock timeout greater than 0 and at most 3 seconds (also the default with a `connectionWaitTimeout` of 6 seconds or less) is warned about at startup, since requests that arrive while a replace tries to lock the data table may then get 503 ([ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace)). `0` disables it: RowStore then changes no session state of any connection (no `SET lock_timeout` for query connections and no `RESET lock_timeout` for pooled export and load connections), which is required with PgBouncer transaction pooling; the lock timeout should then be configured on the server side ([ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits)). Negative or non-numeric values are rejected at startup (`rowstore.json: 'database.queryLockTimeout' must be a number greater than or equal to 0`).
 >
 > The load budget of the `database` is limited by `maxetlprocesses` (CFG-3.03). Values of CFG-4.05 to CFG-4.07 that are not numbers greater than 0 are rejected at startup with an error naming the key (e.g., `rowstore.json: 'database.maxQueryConnections' must be a number greater than 0`); there is no "unlimited" value. See [ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits) for sizing the limits of many instances that share a PostgreSQL cluster.
 
@@ -212,3 +214,5 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-10-21 | CFG-4.08: queryLockTimeout; CFG-3.06: querytimeout applies to the JdbcTemplate statements of short operations |
 | 2026-10-21 | CFG-4.02: sslmode prefer when `ssl` is not set (as in 1.7); CFG-3.09: no unlimited upload size |
 | 2026-10-21 | CFG-3.11: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); CFG-6.03 accordingly |
+| 2026-10-23 | CFG-4.03: warning when pooling where 1.x did not (ROWS-167) |
+| 2026-11-05 | CFG-4.08: startup warning for a lock timeout of 3 seconds or less (ETL-6.04) |
