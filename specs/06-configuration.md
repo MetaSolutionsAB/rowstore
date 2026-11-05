@@ -98,7 +98,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-4.07** `connectionWaitTimeout` (int, seconds) — Maximum time a request waits for a connection of a budget before it fails with 503 ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)). Defaults to `querytimeout` (CFG-3.06) if that is greater than 0, otherwise to `30`.
 
-> **CFG-4.08** `queryLockTimeout` (int, seconds) — Maximum time a connection of the query budget waits for a lock ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)), set as PostgreSQL `lock_timeout` when the connection is obtained. Defaults to half of `connectionWaitTimeout`. `0` disables it: RowStore then changes no session state of any connection (no `SET lock_timeout` for query connections and no `RESET lock_timeout` for pooled export and load connections), which is required with PgBouncer transaction pooling; the lock timeout should then be configured on the server side ([ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits)). Negative or non-numeric values are rejected at startup (`rowstore.json: 'database.queryLockTimeout' must be a number greater than or equal to 0`).
+> **CFG-4.08** `queryLockTimeout` (int, seconds) — Maximum time a connection of the query budget waits for a lock ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)), set as PostgreSQL `lock_timeout` when the connection is obtained. Defaults to half of `connectionWaitTimeout`. A lock timeout greater than 0 and at most 3 seconds (also the default with a `connectionWaitTimeout` of 6 seconds or less) is warned about at startup, since requests that arrive while a replace tries to lock the data table may then get 503 ([ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace)). `0` disables it: RowStore then changes no session state of any connection (no `SET lock_timeout` for query connections and no `RESET lock_timeout` for pooled export and load connections), which is required with PgBouncer transaction pooling; the lock timeout should then be configured on the server side ([ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits)). Negative or non-numeric values are rejected at startup (`rowstore.json: 'database.queryLockTimeout' must be a number greater than or equal to 0`).
 >
 > The load budget of the `database` is limited by `maxetlprocesses` (CFG-3.03). Values of CFG-4.05 to CFG-4.07 that are not numbers greater than 0 are rejected at startup with an error naming the key (e.g., `rowstore.json: 'database.maxQueryConnections' must be a number greater than 0`); there is no "unlimited" value. See [ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits) for sizing the limits of many instances that share a PostgreSQL cluster.
 
@@ -127,7 +127,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-7.02** `--server.port=<PORT>` — HTTP listen port. Default: `8282`. Standard Spring Boot property.
 
-> **CFG-7.03** [REMOVED] `-l, --log-level` — CLI log level override. Use Spring Boot properties or Log4j2 configuration instead.
+> **CFG-7.03** [REMOVED] `-l, --log-level` — CLI log level override. The log level is set with `loglevel` in rowstore.json ([CFG-3.04](#cfg-3-application-options)); it is applied to the root logger when the configuration is loaded and overrides `logging.level.root`.
 
 > **CFG-7.04** [REMOVED] `--connector-params` — Jetty connector parameters. Jetty has been replaced by embedded Tomcat.
 
@@ -221,4 +221,5 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-10-21 | CFG-4.02: sslmode prefer when `ssl` is not set (as in 1.7); CFG-3.09: no unlimited upload size |
 | 2026-10-21 | CFG-3.11: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); CFG-6.03 accordingly |
 | 2026-10-23 | CFG-4.03: warning when pooling where 1.x did not (ROWS-167) |
-| 2026-10-23 | Added CFG-1.03 (configuration failures without stack trace), CFG-3.12 (`accesslog`), CFG-7.05 (unsupported arguments); CFG-2.02: file paths; CFG-8.02: warning if set (ROWS-161, ROWS-166) |
+| 2026-10-23 | Added CFG-1.03 (configuration failures without stack trace), CFG-3.12 (`accesslog`), CFG-7.05 (unsupported arguments); CFG-2.02: file paths; CFG-7.03: `loglevel` replaces `-l`; CFG-8.02: warning if set (ROWS-161, ROWS-166) |
+| 2026-11-05 | CFG-4.08: startup warning for a lock timeout of 3 seconds or less (ETL-6.04) |

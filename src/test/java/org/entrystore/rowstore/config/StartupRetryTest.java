@@ -86,10 +86,19 @@ class StartupRetryTest {
         assertThat(StartupRetry.isConnectivityFailure(new SQLTransientConnectionException("pool timeout"))).isTrue();
         assertThat(StartupRetry.isConnectivityFailure(new CannotGetJdbcConnectionException("no connection"))).isTrue();
         assertThat(StartupRetry.isConnectivityFailure(new RuntimeException(new ConnectException("refused")))).isTrue();
+        assertThat(StartupRetry.isConnectivityFailure(
+                new SQLTransientConnectionException("pool timeout", "08001", new SQLException("refused", "08001")))).isTrue();
 
         assertThat(StartupRetry.isConnectivityFailure(new SQLException("authentication failed", "28P01"))).isFalse();
         assertThat(StartupRetry.isConnectivityFailure(new SQLException("relation does not exist", "42P01"))).isFalse();
         assertThat(StartupRetry.isConnectivityFailure(new IllegalStateException("other"))).isFalse();
+        // the SQL state decides, also if a connection pool reports the failure as a connection exception
+        assertThat(StartupRetry.isConnectivityFailure(
+                new SQLTransientConnectionException("pool timeout", "28P01", new SQLException("auth", "28P01")))).isFalse();
+        assertThat(StartupRetry.isConnectivityFailure(new CannotGetJdbcConnectionException("no connection",
+                new SQLException("database does not exist", "3D000")))).isFalse();
+        assertThat(StartupRetry.isConnectivityFailure(new CannotGetJdbcConnectionException("no connection",
+                new SQLException("could not extend file: No space left on device", "53100")))).isFalse();
     }
 
     @Test

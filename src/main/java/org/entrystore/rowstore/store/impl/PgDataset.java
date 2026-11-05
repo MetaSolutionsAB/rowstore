@@ -104,11 +104,12 @@ public class PgDataset implements Dataset {
 	private long[] statusRetryDelaysMillis = {1000, 5000, 15000, 30000, 45000};
 
 	/**
-	 * Maximum time an attempt to lock the data table for a replace waits, see lockDataTableForReplace(). Queries of the
-	 * data table that queue behind an attempt wait at most this long, which is less than the lock timeout of requests
-	 * (queryLockTimeout), so that they neither fail nor hold their connections for long (ETL-6.04).
+	 * Maximum time in seconds an attempt to lock the data table for a replace waits, see lockDataTableForReplace().
+	 * Queries of the data table that queue behind an attempt wait at most this long. If the lock timeout of requests
+	 * (queryLockTimeout) is longer or 0 (disabled), they neither fail nor hold their connections for long; if it is
+	 * shorter or equal, they may get 503, which is warned about at startup (ETL-6.04).
 	 */
-	static final String SWAP_LOCK_TIMEOUT = "3s";
+	static final int SWAP_LOCK_TIMEOUT_SECONDS = 3;
 
 	/**
 	 * Maximum time the attempts to lock the data table are retried, e.g., while a backup or a long export reads it. If
@@ -942,12 +943,12 @@ public class PgDataset implements Dataset {
 	/**
 	 * Locks the data table exclusively for replacing it, within the load's transaction. The lock has to wait for
 	 * readers of the data table, e.g., a long streaming export, and while it waits, it blocks new queries of the
-	 * data table. Therefore every attempt waits at most {@link #SWAP_LOCK_TIMEOUT}, and a timed out attempt is retried
-	 * after a delay (short at first, then growing up to {@link #MAX_SWAP_RETRY_DELAY_MILLIS}), so that queries are never
-	 * blocked for longer than one attempt at a time, also while a reader holds the data table for a long time. If the
-	 * lock could not be acquired within {@link #SWAP_LOCK_WAIT_LIMIT_MILLIS} (e.g., behind a backup or a session left
-	 * idle in a transaction), the caller gives up instead of blocking the dataset indefinitely. The sessions holding
-	 * the data table are logged once the first, short delays are used up, then at most every
+	 * data table. Therefore every attempt waits at most {@link #SWAP_LOCK_TIMEOUT_SECONDS}, and a timed out attempt is
+	 * retried after a delay (short at first, then growing up to {@link #MAX_SWAP_RETRY_DELAY_MILLIS}), so that queries
+	 * are never blocked for longer than one attempt at a time, also while a reader holds the data table for a long
+	 * time. If the lock could not be acquired within {@link #SWAP_LOCK_WAIT_LIMIT_MILLIS} (e.g., behind a backup or a
+	 * session left idle in a transaction), the caller gives up instead of blocking the dataset indefinitely. The
+	 * sessions holding the data table are logged once the first, short delays are used up, then at most every
 	 * {@link #LOCK_HOLDERS_LOG_INTERVAL_MILLIS}, and when giving up.
 	 *
 	 * After the lock has been acquired, the attempt's lock_timeout stays in force until the end of the transaction.
@@ -981,7 +982,7 @@ public class PgDataset implements Dataset {
 		for (int attempt = 0; ; attempt++) {
 			Savepoint savepoint = conn.setSavepoint();
 			try (Statement stmt = conn.createStatement()) {
-				executeDdl(stmt, "SET LOCAL lock_timeout = '" + SWAP_LOCK_TIMEOUT + "'");
+				executeDdl(stmt, "SET LOCAL lock_timeout = '" + SWAP_LOCK_TIMEOUT_SECONDS + "s'");
 				executeDdl(stmt, "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
 				if (attempt > 0) {
 					log.info("Locked data table {} of dataset {} to {} after {} attempts in {} s", dataTable, getId(),
@@ -1015,7 +1016,7 @@ public class PgDataset implements Dataset {
 			if (attempt >= swapRetryDelaysMillis.length - 1 &&
 					(!holdersLogged || TimeUnit.NANOSECONDS.toMillis(now - lastHoldersLog) >= lockHoldersLogIntervalMillis)) {
 				logLockHolders(conn, "Retrying for up to " + TimeUnit.MILLISECONDS.toSeconds(swapLockWaitLimitMillis - elapsedMillis) +
-						" s (" + (attempt + 1) + " attempts so far, at most " + SWAP_LOCK_TIMEOUT + " each) to " + purpose +
+						" s (" + (attempt + 1) + " attempts so far, at most " + SWAP_LOCK_TIMEOUT_SECONDS + " s each) to " + purpose +
 						", data table " + dataTable + " of dataset " + getId() + " is held by");
 				holdersLogged = true;
 				lastHoldersLog = now;

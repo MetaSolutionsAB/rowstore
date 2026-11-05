@@ -63,19 +63,25 @@ class DatabaseUnavailableAtStartupIT {
 
     private Path configFile;
 
-    private CompletableFuture<ConfigurableApplicationContext> startup;
+    private final CompletableFuture<ConfigurableApplicationContext> startup = new CompletableFuture<>();
+
+    /**
+     * Runs the startup, so that tearDown() can interrupt a startup that still waits for the database.
+     */
+    private Thread startupThread;
 
     @AfterEach
-    void tearDown() throws IOException {
+    void tearDown() throws IOException, InterruptedException {
         if (postgres != null && postgres.isRunning() && isPaused()) {
             DockerClientFactory.instance().client().unpauseContainerCmd(postgres.getContainerId()).exec();
         }
-        if (startup != null) {
+        if (startupThread != null) {
+            // a failed test must not leave a startup retrying in the JVM of the test run
+            startupThread.interrupt();
+            startupThread.join(STARTUP_AFTER_RECOVERY.toMillis());
             ConfigurableApplicationContext context = startup.getNow(null);
             if (context != null) {
                 context.close();
-            } else {
-                startup.cancel(true);
             }
         }
         if (postgres != null) {
@@ -100,10 +106,16 @@ class DatabaseUnavailableAtStartupIT {
         configFile = createConfig(port);
 
         DockerClientFactory.instance().client().pauseContainerCmd(postgres.getContainerId()).exec();
-        startup = CompletableFuture.supplyAsync(() -> SpringApplication.run(RowStoreApplication.class,
-                "--server.port=" + port,
-                "--rowstore.config.uri=" + configFile.toUri(),
-                "--spring.main.banner-mode=off"));
+        startupThread = Thread.ofPlatform().name("rowstore-startup").daemon().start(() -> {
+            try {
+                startup.complete(SpringApplication.run(RowStoreApplication.class,
+                        "--server.port=" + port,
+                        "--rowstore.config.uri=" + configFile.toUri(),
+                        "--spring.main.banner-mode=off"));
+            } catch (Throwable t) {
+                startup.completeExceptionally(t);
+            }
+        });
 
         Thread.sleep(UNREACHABLE.toMillis());
         // still waiting for the database, the startup has neither failed nor opened the port

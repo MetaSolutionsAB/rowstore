@@ -94,7 +94,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-9 Framework-Agnostic Specs
 
-> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **272 test cases** across 13 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
+> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **310 test cases** across 14 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
 
 ## Known Limitations
 
@@ -124,3 +124,4 @@ Covers the Java integration test suite and its relationship to the framework-agn
 | 2026-10-20 | TEST-3.01, TEST-9.01 counts updated for the merged 2.0 test suite; TEST-8.01 rows for rate limiting via trusted proxies, path parameters and configuration |
 | 2026-10-21 | TEST-3.01, TEST-9.01 counts updated after merging the connection budgets and the reserved `_callback` parameter; TEST-8.01 row for connection limits |
 | 2026-10-23 | TEST-3.01, TEST-9.01 counts updated for the deployment fixes (ROWS-161, ROWS-163, ROWS-166); TEST-8.01 row for deployment |
+| 2026-11-05 | TEST-3.01, TEST-9.01 counts updated for the swap lock retries, the startup retry and the 503 handling |

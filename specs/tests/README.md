@@ -13,13 +13,13 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `05-querying.md` | Query functionality: filters, pagination, regex modes, reserved `_callback` parameter (JSONP test cases retired), query string parsing (unencoded characters, malformed encodings, trimming, tunnel parameters) | 40 |
 | `06-export.md` | JSON/CSV export endpoints | 17 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
-| `08-error-handling.md` | Error codes: 400, 404, 415, 423, 424, path parameters, upload content types, corrupt CSV | 24 |
+| `08-error-handling.md` | Error codes: 400, 404, 415, 423, 424, path parameters, upload content types, corrupt CSV | 25 |
 | `09-rate-limiting.md` | Rate limiting (429), client address via trusted proxies - requires separate profiles | 11 |
-| `10-configuration.md` | rowstore.json validation and data source settings (unit and integration tests) | 13 |
+| `10-configuration.md` | rowstore.json validation and data source settings (unit and integration tests) | 14 |
 | `11-etl-processing.md` | ETL scheduling, shutdown, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 57 |
-| `12-connection-limits.md` | Connection budgets: FIFO waiting, wait timeouts (503), usage in `/status`, one connection per request, lock timeouts, health checks, startup without a reachable database, 503 responses (unit and integration tests) | 35 |
+| `12-connection-limits.md` | Connection budgets: FIFO waiting, wait timeouts (503), usage in `/status`, one connection per request, lock timeouts, health checks, startup without a reachable database, 503 responses (unit and integration tests) | 36 |
 | `13-deployment.md` | Command line and configuration location checks, access log (unit and integration tests) | 11 |
-| `14-http-compatibility.md` | Content negotiation without 406 and method tunnelling as in 1.x | 9 |
+| `14-http-compatibility.md` | Content negotiation without 406 and method tunnelling as in 1.x | 11 |
 
 Test counts are the number of test case IDs per file; a heading that covers a range (e.g. `TC-CSV-017 to TC-CSV-022`) counts each ID, and test cases marked `[REMOVED]` are not counted.
 
@@ -139,20 +139,21 @@ Dataset creation and modification are asynchronous. Tests should:
 |----------|------------|
 | Status | 5 |
 | Datasets List | 1 |
-| Dataset Lifecycle | 22 |
+| Dataset Lifecycle | 24 |
 | CSV Formats | 47 |
-| Querying | 31 |
-| Export | 16 |
+| Querying | 40 |
+| Export | 17 |
 | Metadata Endpoints | 11 |
-| Error Handling | 22 |
+| Error Handling | 25 |
 | Rate Limiting | 11 |
-| Configuration | 13 |
-| ETL Processing | 54 |
-| Connection Limits | 28 |
+| Configuration | 14 |
+| ETL Processing | 57 |
+| Connection Limits | 36 |
 | Deployment | 11 |
-| **Total** | **272** |
+| HTTP Compatibility | 11 |
+| **Total** | **310** |
 
-Note: The specifications define 272 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 310 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 
