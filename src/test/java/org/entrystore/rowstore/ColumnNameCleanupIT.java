@@ -374,7 +374,7 @@ class ColumnNameCleanupIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("TC-ETL-061: The cleanup only renames names with a byte order mark or soft hyphens; an append keeps the other stored names")
+    @DisplayName("TC-ETL-NEW2: The cleanup only renames names with a byte order mark or soft hyphens; an append keeps the other stored names")
     void cleanupKeepsWhitespaceAndCase_appendUsesStoredNames() throws Exception {
         DatasetUrls urls = createDatasetAndWait(bytes(CSV));
         try {
@@ -408,7 +408,7 @@ class ColumnNameCleanupIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("TC-ETL-062: A stored name that cleans to empty is kept by the cleanup and ignored by an append, and a replace drops it")
+    @DisplayName("TC-ETL-NEW3: A stored name that cleans to empty is kept by the cleanup and ignored by an append, and a replace drops it")
     void nameCleanedToEmpty_keptAndIgnoredByAppend() throws Exception {
         DatasetUrls urls = createDatasetAndWait(bytes("x,a,b\n0,1,2\n1,3,4\n"));
         try {

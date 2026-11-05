@@ -11,8 +11,8 @@ TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027, TC-ETL-028, TC-E
 `PgDatasetPopulateTest`, `PgDatasetSwapLockTest`) that use fakes instead of a database. TC-ETL-010 to TC-ETL-014
 and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026, TC-ETL-029 and TC-ETL-053 integration tests of
 replaces (`DatasetReplaceIT`). TC-ETL-030, TC-ETL-070 and TC-ETL-071 are unit tests (`EtlProcessorTest`), TC-ETL-031 to TC-ETL-037,
-TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-061 and TC-ETL-062 are integration tests of the column name cleanup
-(`ColumnNameCleanupIT`), TC-ETL-038 to TC-ETL-044, TC-ETL-048 and TC-ETL-060 unit tests of the cleaning rule
+TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-NEW2 and TC-ETL-NEW3 are integration tests of the column name cleanup
+(`ColumnNameCleanupIT`), TC-ETL-038 to TC-ETL-044, TC-ETL-048 and TC-ETL-NEW1 unit tests of the cleaning rule
 (`ColumnNamesTest`), and TC-ETL-047 a unit test of the cleanup's stop condition (`PgRowStoreConnectionFailureTest`).
 
 ## Prerequisites
@@ -20,7 +20,7 @@ TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-061 and TC-ETL-062 are integration te
 - Unit tests: none
 - Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013, TC-ETL-014, TC-ETL-020 to TC-ETL-026, TC-ETL-029 and TC-ETL-053
   additionally require direct database access (superuser) and are skipped when testing an external instance; so do
-  TC-ETL-031 to TC-ETL-037, TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-061 and TC-ETL-062, which also call into the RowStore application (TC-ETL-035 additionally starts separate
+  TC-ETL-031 to TC-ETL-037, TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-NEW2 and TC-ETL-NEW3, which also call into the RowStore application (TC-ETL-035 additionally starts separate
   RowStore instances on a separate database)
 
 ## Test Data
@@ -691,7 +691,7 @@ of the two is a label. No result (append fails) if both candidates of a name are
 `"x""`), if no candidate is a label, if the numbers of names and labels differ (in both directions), or if two names
 would get the same label.
 
-### TC-ETL-060: An append keeps stored names that the cleanup does not change and ignores stored names that are empty as a label
+### TC-ETL-NEW1: An append keeps stored names that the cleanup does not change and ignores stored names that are empty as a label
 
 1. `zon<U+2003>`, `namn `, `Kommun` with the labels `zon`, `namn`, `kommun`: no renames, the labels are stored under
    the existing names (ETL-11.08)
@@ -728,7 +728,7 @@ legacy parser configured to the name a fresh import with the legacy parser yield
 3. Without the temporary index name, the index of `field_100652` was not created (its name existed) and then dropped
    with the index of the old name, leaving the column unindexed
 
-### TC-ETL-061: The cleanup only renames names with a byte order mark or soft hyphens; an append keeps the other stored names
+### TC-ETL-NEW2: The cleanup only renames names with a byte order mark or soft hyphens; an append keeps the other stored names
 
 **Steps:**
 1. Create a dataset from `kopare_id,namn,ort\n1,Anna,Göteborg\n2,Bo,Mölndal\n`
@@ -742,7 +742,7 @@ legacy parser configured to the name a fresh import with the legacy parser yield
 2. The append succeeds with 3 rows; the keys and indexes are unchanged, and `?kopare_id=3` returns
    `{kopare_id: 3, Namn: Cecilia, ort<U+3000>: Partille}`
 
-### TC-ETL-062: A stored name that cleans to empty is kept by the cleanup and ignored by an append, and a replace drops it
+### TC-ETL-NEW3: A stored name that cleans to empty is kept by the cleanup and ignored by an append, and a replace drops it
 
 **Steps:**
 1. Create a dataset from `x,a,b\n0,1,2\n1,3,4\n` and rename the keys `x` to `<BOM>` and `a` to `a<SHY>`, as stored

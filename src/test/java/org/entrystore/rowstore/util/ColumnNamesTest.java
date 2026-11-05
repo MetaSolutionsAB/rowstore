@@ -243,7 +243,7 @@ class ColumnNamesTest {
     }
 
     @Test
-    @DisplayName("TC-ETL-060: An append keeps stored names that the cleanup does not change and ignores stored names that are empty as a label")
+    @DisplayName("TC-ETL-NEW1: An append keeps stored names that the cleanup does not change and ignores stored names that are empty as a label")
     void forAppend_keepsUncleanedNamesAndIgnoresEmptyNames() {
         // stored names that only differ from the labels in whitespace or case are kept (ETL-11.08)
         ColumnNames.AppendNames kept = ColumnNames.forAppend(List.of(decode("zon<EM>"), "namn ", "Kommun"), Set.of("zon", "namn", "kommun"));
