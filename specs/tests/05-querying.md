@@ -62,6 +62,18 @@ Tests for query functionality including filters, pagination, and regex modes. Th
 - Status: `200`
 - Body contains `queryTime` field >= 0
 
+### TC-QUERY-NEW1: queryTime field present and valid
+
+Spec: API-5.01
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}` with `Accept: application/json`
+
+**Expected Response:**
+- Status: `200`
+- `queryTime` is present (not null) and >= 0
+
 ## Pagination Tests
 
 ### TC-QUERY-006: Offset beyond result count
@@ -147,14 +159,6 @@ Tests for query functionality including filters, pagination, and regex modes. Th
 ### TC-QUERY-014: [REMOVED] Format parameter
 
 Retired: the `format` parameter was never implemented (API-4.02, QUERY-3.04 removed).
-
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}?format=application/json`
-
-**Expected Response:**
-- Status: `200`
-- Content-Type: `application/json`
 
 ### TC-QUERY-018: Reserved _callback parameter is ignored
 
