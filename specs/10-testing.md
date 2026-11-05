@@ -23,7 +23,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-3 Test Organization
 
-> **TEST-3.01** The test suite contains **41 `*IT.java` integration test classes** with **371 tests** and **23 `*Test.java` unit test classes** with **321 tests** (as executed by Maven Failsafe and Surefire, including the tests of nested classes). Integration test classes follow the Maven Failsafe `*IT.java` naming convention, unit test classes the Maven Surefire `*Test.java` convention; `mvn test` runs only the unit tests, `mvn verify` runs both.
+> **TEST-3.01** The test suite contains **42 `*IT.java` integration test classes** with **375 tests** and **23 `*Test.java` unit test classes** with **321 tests** (as executed by Maven Failsafe and Surefire, including the tests of nested classes). Integration test classes follow the Maven Failsafe `*IT.java` naming convention, unit test classes the Maven Surefire `*Test.java` convention; `mvn test` runs only the unit tests, `mvn verify` runs both.
 
 > **TEST-3.02** Tests within each class are executed **sequentially** using JUnit 5's `@Order` annotation. This is necessary because many tests depend on prior test state (e.g., a dataset created in test 1 is queried in test 2).
 
@@ -86,7 +86,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT |
 > | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT, RateLimitAverageIT, RateLimitPartialConfigIT, RateLimitZeroValueIT, RateLimitClientIpIT (plus unit test TrustedProxyFilterTest) |
 > | Path parameters | [08-error-handling.md](tests/08-error-handling.md) | PathParameterIT |
-> | CORS | — | CorsIT |
+> | CORS | [15-cors.md](tests/15-cors.md) | CorsIT, CorsRestrictedIT, RateLimitClientIpIT (TC-CORS-007) |
 > | Configuration and data sources | [10-configuration.md](tests/10-configuration.md) | ConnectionPoolIT (plus unit tests RowStoreConfigTest, DataSourceConfigTest) |
 > | Connection limits | [12-connection-limits.md](tests/12-connection-limits.md) | ConnectionLimitIT, ConnectionLimitSingleSlotIT, ConnectionLimitHealthIT (plus unit tests LimitedDataSourceTest, RowStoreConfigConnectionLimitsTest, PgRowStoreSessionSqlTest) |
 > | Deployment | [13-deployment.md](tests/13-deployment.md) | AccessLogIT (plus unit tests RowStoreApplicationTest, RowStoreConfigLoaderTest, AccessLogFilterTest) |
@@ -94,7 +94,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-9 Framework-Agnostic Specs
 
-> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **322 test cases** across 14 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
+> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **334 test cases** across 15 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
 
 ## Known Limitations
 
@@ -126,3 +126,4 @@ Covers the Java integration test suite and its relationship to the framework-agn
 | 2026-10-23 | TEST-3.01, TEST-9.01 counts updated for the deployment fixes (ROWS-161, ROWS-163, ROWS-166); TEST-8.01 row for deployment |
 | 2026-11-05 | TEST-2.01: PostgreSQL image selectable, CI subset against PostgreSQL 9.6 (ROWS-165) |
 | 2026-11-05 | TEST-3.01, TEST-9.01 counts updated for the swap lock retries, the startup retry and the 503 handling |
+| 2026-11-05 | TEST-3.01, TEST-9.01 counts updated; TEST-8.01: CORS test spec `15-cors.md` and CorsRestrictedIT (ROWS-170) |

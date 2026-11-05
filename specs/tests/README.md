@@ -10,7 +10,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 1 |
 | `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases (any Content-Type), storage schema | 24 |
 | `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines, byte order marks, empty and duplicate labels | 53 |
-| `05-querying.md` | Query functionality: filters, pagination, regex modes, reserved `_callback` parameter (JSONP test cases retired), query string parsing (unencoded characters, malformed encodings, trimming, tunnel parameters) | 40 |
+| `05-querying.md` | Query functionality: filters, pagination, regex modes, reserved `_callback` parameter (JSONP test cases retired), query string parsing (unencoded characters, malformed encodings, trimming, tunnel parameters) | 41 |
 | `06-export.md` | JSON/CSV export endpoints | 17 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
 | `08-error-handling.md` | Error codes: 400, 404, 415, 423, 424, path parameters, upload content types, corrupt CSV, logging of unknown dataset IDs | 27 |
@@ -20,6 +20,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `12-connection-limits.md` | Connection budgets: FIFO waiting, wait timeouts (503), usage in `/status`, one connection per request, lock timeouts, health checks, startup without a reachable database, 503 responses (unit and integration tests) | 36 |
 | `13-deployment.md` | Command line and configuration location checks, access log (unit and integration tests) | 11 |
 | `14-http-compatibility.md` | Content negotiation without 406 and method tunnelling as in 1.x | 11 |
+| `15-cors.md` | CORS headers and preflight requests, rejection of origins that are not listed (TC-CORS-007 is in `09-rate-limiting.md`) | 11 |
 
 Test counts are the number of test case IDs per file; a heading that covers a range (e.g. `TC-CSV-017 to TC-CSV-022`) counts each ID, and test cases marked `[REMOVED]` are not counted.
 
@@ -141,7 +142,7 @@ Dataset creation and modification are asynchronous. Tests should:
 | Datasets List | 1 |
 | Dataset Lifecycle | 24 |
 | CSV Formats | 53 |
-| Querying | 40 |
+| Querying | 41 |
 | Export | 17 |
 | Metadata Endpoints | 11 |
 | Error Handling | 27 |
@@ -151,9 +152,10 @@ Dataset creation and modification are asynchronous. Tests should:
 | Connection Limits | 36 |
 | Deployment | 11 |
 | HTTP Compatibility | 11 |
-| **Total** | **322** |
+| CORS | 11 |
+| **Total** | **334** |
 
-Note: The specifications define 322 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 334 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 
