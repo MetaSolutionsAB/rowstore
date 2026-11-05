@@ -23,7 +23,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-3 Test Organization
 
-> **TEST-3.01** The test suite contains **42 `*IT.java` integration test classes** with **375 tests** and **23 `*Test.java` unit test classes** with **321 tests** (as executed by Maven Failsafe and Surefire, including the tests of nested classes). Integration test classes follow the Maven Failsafe `*IT.java` naming convention, unit test classes the Maven Surefire `*Test.java` convention; `mvn test` runs only the unit tests, `mvn verify` runs both.
+> **TEST-3.01** The test suite contains **43 `*IT.java` integration test classes** with **376 tests** and **24 `*Test.java` unit test classes** with **323 tests** (as executed by Maven Failsafe and Surefire, including the tests of nested classes). Integration test classes follow the Maven Failsafe `*IT.java` naming convention, unit test classes the Maven Surefire `*Test.java` convention; `mvn test` runs only the unit tests, `mvn verify` runs both.
 
 > **TEST-3.02** Tests within each class are executed **sequentially** using JUnit 5's `@Order` annotation. This is necessary because many tests depend on prior test state (e.g., a dataset created in test 1 is queried in test 2).
 
@@ -83,7 +83,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | `GET /dataset/{id}/html` | — | WebGuiIT |
 > | `GET /dataset/{id}/swagger` | — | SwaggerIT |
 > | CSV formats | [04-csv-formats.md](tests/04-csv-formats.md) | CsvParsingIT, CsvEmptyLineIT, CsvEmptyLineLegacyParserIT, CsvBomIT, CsvBomLegacyParserIT, DatasetEncodingIT, DatasetSemicolonIT, DatasetEmptyColumnIT, DatasetCorruptIT |
-> | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT |
+> | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT, DatasetLookupLoggingIT, PgDatasetLookupTest |
 > | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT, RateLimitAverageIT, RateLimitPartialConfigIT, RateLimitZeroValueIT, RateLimitClientIpIT (plus unit test TrustedProxyFilterTest) |
 > | Path parameters | [08-error-handling.md](tests/08-error-handling.md) | PathParameterIT |
 > | CORS | [15-cors.md](tests/15-cors.md) | CorsIT, CorsRestrictedIT, RateLimitClientIpIT (TC-CORS-007) |
@@ -127,3 +127,4 @@ Covers the Java integration test suite and its relationship to the framework-agn
 | 2026-11-05 | TEST-2.01: PostgreSQL image selectable, CI subset against PostgreSQL 9.6 (ROWS-165) |
 | 2026-11-05 | TEST-3.01, TEST-9.01 counts updated for the swap lock retries, the startup retry and the 503 handling |
 | 2026-11-05 | TEST-3.01, TEST-9.01 counts updated; TEST-8.01: CORS test spec `15-cors.md` and CorsRestrictedIT (ROWS-170) |
+| 2026-11-05 | TEST-3.01 counts updated from a full run (ROWS-169, ROWS-170); TEST-8.01: tests of logging unknown dataset IDs |
