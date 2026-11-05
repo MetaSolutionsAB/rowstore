@@ -56,7 +56,6 @@ import java.sql.SQLException;
 import java.sql.Savepoint;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -64,7 +63,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -407,6 +405,7 @@ public class PgDataset implements Dataset {
 				// the column name of each cell position, null for a column whose label is empty (ETL-4.08)
 				String[] columns = new String[0];
 				Set<String> columnNames = new LinkedHashSet<>();
+				boolean hasLabel = false;
 				// indexes of columns renamed by an append, to be dropped right before the commit
 				List<String> staleIndexes = List.of();
 				String[] line;
@@ -512,10 +511,11 @@ public class PgDataset implements Dataset {
 								columnNames.add(column);
 							}
 						}
+						hasLabel = !columnNames.isEmpty();
 					} else {
 						JSONObject jsonLine = null;
 						try {
-							jsonLine = csvLineToJsonObject(line, columns);
+							jsonLine = csvLineToJsonObject(line, columns, hasLabel);
 						} catch (Exception e) {
 							log.error(e.getMessage());
 							log.error("Error occured when processing line {} of CSV: {}", lineCount, line);
@@ -1538,14 +1538,15 @@ public class PgDataset implements Dataset {
 	 *
 	 * @param line The row consisting of its cells' values.
 	 * @param columns The column name of each cell position of the CSV header, null for a column without label.
+	 * @param hasLabel Whether any column of the CSV header has a label.
 	 * @return Returns a JSON object consisting of key (column name) - value (cell value) pairs.
 	 * @throws JSONException
 	 */
-	private JSONObject csvLineToJsonObject(String[] line, String[] columns) throws JSONException {
+	private JSONObject csvLineToJsonObject(String[] line, String[] columns, boolean hasLabel) throws JSONException {
 		if (line.length > columns.length) {
 			throw new IllegalArgumentException("Amount of values per row must not be higher than amount of labels in first row of CSV file");
 		}
-		if (Arrays.stream(columns).allMatch(Objects::isNull)) {
+		if (!hasLabel) {
 			throw new IllegalArgumentException("The first row of the CSV file has no column with a label");
 		}
 
