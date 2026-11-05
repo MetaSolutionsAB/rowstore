@@ -24,12 +24,14 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.List;
+
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integration tests for the rejection of path parameters (";").
- * Specification: 08-error-handling.md, SEC-4.11
+ * Integration tests for the rejection of path parameters (";") and for encoded slashes in dataset IDs.
+ * Specification: 08-error-handling.md, SEC-4.11, QUERY-9.03
  */
 @DisplayName("Path Parameter Tests")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -93,6 +95,49 @@ class PathParameterIT extends BaseIntegrationTest {
         assertThat(status(path + "/info")).isEqualTo(200);
         assertThat(status(path + "?Name=a;b")).isEqualTo(200);
         assertThat(status(path + "%3Bx")).isEqualTo(404);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {
+            "/dataset/a%2Fb",
+            "/dataset/a%2fb",
+            "/dataset/a%5Cb",
+            "/dataset/a%5cb",
+            "/dataset/a%2Fb/info",
+            "/dataset/a%5Cb/info",
+            "/dataset/a%2Fb/export",
+            "/dataset/a%5Cb/export",
+            "/dataset/a%2Fb/aliases",
+            "/dataset/a%5Cb/aliases",
+            "/dataset/a%2Fb/json",
+            "/dataset/a%2Fb/html",
+            // no traversal: the encoded slashes stay part of the ID
+            "/dataset/x%2F..%2Fstatus",
+            "/dataset/x%5C..%5Cstatus",
+            "/dataset/%2E%2E%2Fstatus",
+            "/dataset/{ds}%2Finfo",
+            "/dataset/{ds}%5Cinfo",
+            "/dataset%2F{ds}",
+            "/actuator%2Fhealth"
+    })
+    @DisplayName("TC-ERROR-NEW1: Encoded slashes and backslashes in dataset paths return 404, as in 1.x")
+    void encodedSlashes_return404(String path) {
+        String fullPath = path.replace("{ds}", dataset.datasetId);
+        // a raw request, since REST Assured and java.net.URI would re-encode or normalize the path
+        TestUtils.RawResponse response = TestUtils.rawGet(getBaseUrl(), fullPath, "Accept: application/json");
+        assertThat(response.status()).as(fullPath).isEqualTo(404);
+    }
+
+    @Test
+    @DisplayName("TC-ERROR-NEW1: A DELETE with encoded slashes does not reach another dataset")
+    void encodedSlashes_deleteDoesNotTraverse() {
+        for (String path : new String[]{"/dataset/x%2F..%2F{ds}", "/dataset/x%5C..%5C{ds}", "/dataset/{ds}%2F",
+                "/dataset/x%2F..%2F{ds}/aliases"}) {
+            String fullPath = path.replace("{ds}", dataset.datasetId);
+            assertThat(TestUtils.rawRequest(getBaseUrl(), "DELETE", fullPath, List.of(), null).status())
+                    .as("DELETE " + fullPath).isEqualTo(404);
+        }
+        assertThat(status("/dataset/" + dataset.datasetId)).isEqualTo(200);
     }
 
 }
