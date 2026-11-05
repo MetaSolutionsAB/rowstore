@@ -28,6 +28,19 @@ stepdefinitions:
         - mvn verify -Dsurefire.skip=true
       services:
         - docker
+  - testpg96: &testpg96
+      name: Integration Test PostgreSQL 9.6
+      caches:
+        - maven
+        - docker
+      script:
+        - java -version
+        - mvn --version
+        - export TESTCONTAINERS_RYUK_DISABLED=true
+        # the oldest supported version (DEPL-4.01): the ITs whose SQL depends on the server version, about 5 minutes
+        - mvn verify -Dsurefire.skip=true -Drowstore.test.postgresImage=postgres:9.6-alpine -Dit.test=ColumnNameCleanupIT,DatasetReplaceIT,CsvBomIT,DatasetUtf8LifecycleIT,DatasetEmptyColumnIT
+      services:
+        - docker
   - deploy: &deploy
       name: Deploy
       script:
@@ -63,16 +76,19 @@ pipelines:
     - step: *build
     - parallel:
       - step: *testpg
+      - step: *testpg96
   branches:
     master:
       - step: *build
       - parallel:
         - step: *testpg
+        - step: *testpg96
       - step: *deploy
       - step: *dockerhub
     develop:
       - step: *build
       - parallel:
         - step: *testpg
+        - step: *testpg96
       - step: *deploy
       - step: *dockerhub

@@ -141,21 +141,31 @@ final class CsvBomTestCases {
     }
 
     /**
-     * Of the columns whose labels are equal after normalization, the first one keeps the label and the cells of the
-     * others are skipped, without shifting the following columns (ETL-4.09).
+     * Labels that are equal after normalization fail the load (ETL-4.09): a create, an append and a replace, which
+     * keep the previous data.
      */
-    void duplicateLabelsAfterNormalization_firstColumnKept() {
-        for (String header : new String[]{"id,ID,b", "id,id" + SHY + ",b", "id, id,b"}) {
-            TestUtils.DatasetUrls urls = TestUtils.createDatasetAndWait(
-                    bytes(header + "\n1,2,3\n4,5,6\n", StandardCharsets.UTF_8), csvSpec, jsonSpec);
+    void duplicateLabelsAfterNormalization_failLoad() {
+        for (String header : new String[]{"id,ID,b", "name, Name,b", "id,id" + SHY + ",b"}) {
+            Response response = TestUtils.createDataset(bytes(header + "\n1,2,3\n4,5,6\n", StandardCharsets.UTF_8), csvSpec);
+            response.then().statusCode(202);
             try {
-                given().spec(jsonSpec).get(urls.infoUrl).then().body("rowcount", equalTo(2));
-                assertThat(columnNames(urls.infoUrl)).as(header).containsExactlyInAnyOrder("id", "b");
-                assertThat(rows(urls.datasetUrl, "id", "1")).as(header).containsExactly(Map.of("id", "1", "b", "3"));
-                assertThat(rows(urls.datasetUrl, "b", "6")).as(header).containsExactly(Map.of("id", "4", "b", "6"));
+                TestUtils.waitForDatasetError(TestUtils.getInfoUrl(response), jsonSpec);
             } finally {
-                TestUtils.deleteDataset(urls.datasetUrl);
+                TestUtils.deleteDataset(TestUtils.getDatasetUrl(response));
             }
+        }
+        TestUtils.DatasetUrls urls = TestUtils.createDatasetAndWait(bytes("id,b\n1,3\n", StandardCharsets.UTF_8), csvSpec, jsonSpec);
+        try {
+            byte[] duplicates = bytes("id,id" + SHY + ",b\n4,5,6\n", StandardCharsets.UTF_8);
+            given().spec(csvSpec).body(duplicates).post(urls.datasetUrl).then().statusCode(202);
+            TestUtils.waitForDatasetError(urls.infoUrl, jsonSpec);
+            given().spec(csvSpec).body(duplicates).put(urls.datasetUrl).then().statusCode(202);
+            TestUtils.waitForDatasetError(urls.infoUrl, jsonSpec);
+            given().spec(jsonSpec).get(urls.infoUrl).then().body("rowcount", equalTo(1));
+            assertThat(columnNames(urls.infoUrl)).containsExactlyInAnyOrder("id", "b");
+            assertThat(rows(urls.datasetUrl, "b", "3")).containsExactly(Map.of("id", "1", "b", "3"));
+        } finally {
+            TestUtils.deleteDataset(urls.datasetUrl);
         }
     }
 

@@ -95,9 +95,9 @@ class CsvBomLegacyParserIT extends ConfigurableTestBase {
     }
 
     @Test
-    @DisplayName("TC-CSV-046: Legacy parser: of labels that are equal after normalization, the first column is kept and the others are skipped")
-    void duplicateLabelsAfterNormalization_firstColumnKept() {
-        testCases().duplicateLabelsAfterNormalization_firstColumnKept();
+    @DisplayName("TC-CSV-046: Legacy parser: labels that are equal after normalization fail the load")
+    void duplicateLabelsAfterNormalization_failLoad() {
+        testCases().duplicateLabelsAfterNormalization_failLoad();
     }
 
 }

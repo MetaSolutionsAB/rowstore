@@ -85,9 +85,9 @@ class CsvBomIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("TC-CSV-043: Of labels that are equal after normalization, the first column is kept and the others are skipped")
-    void duplicateLabelsAfterNormalization_firstColumnKept() {
-        testCases().duplicateLabelsAfterNormalization_firstColumnKept();
+    @DisplayName("TC-CSV-043: Labels that are equal after normalization fail the load")
+    void duplicateLabelsAfterNormalization_failLoad() {
+        testCases().duplicateLabelsAfterNormalization_failLoad();
     }
 
 }

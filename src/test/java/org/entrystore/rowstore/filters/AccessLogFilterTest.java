@@ -97,7 +97,7 @@ class AccessLogFilterTest {
         assertThat(lines()).containsExactly(
                 "127.0.0.1 \"GET /status \" 200  0 http://rowstore.example.com  ",
                 "127.0.0.1 \"POST /datasets \" 202  8 http://rowstore.example.com  ",
-                "127.0.0.1 \"POST /datasets \" 202  - http://rowstore.example.com  ");
+                "127.0.0.1 \"POST /datasets \" 202   http://rowstore.example.com  ");
     }
 
     @Test

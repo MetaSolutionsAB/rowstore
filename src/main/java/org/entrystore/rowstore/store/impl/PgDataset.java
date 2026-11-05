@@ -56,7 +56,6 @@ import java.sql.SQLException;
 import java.sql.Savepoint;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -64,7 +63,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -107,11 +105,12 @@ public class PgDataset implements Dataset {
 	private long[] statusRetryDelaysMillis = {1000, 5000, 15000, 30000, 45000};
 
 	/**
-	 * Maximum time an attempt to lock the data table for a replace waits, see lockDataTableForReplace(). Queries of the
-	 * data table that queue behind an attempt wait at most this long, which is less than the lock timeout of requests
-	 * (queryLockTimeout), so that they neither fail nor hold their connections for long (ETL-6.04).
+	 * Maximum time in seconds an attempt to lock the data table for a replace waits, see lockDataTableForReplace().
+	 * Queries of the data table that queue behind an attempt wait at most this long. If the lock timeout of requests
+	 * (queryLockTimeout) is longer or 0 (disabled), they neither fail nor hold their connections for long; if it is
+	 * shorter or equal, they may get 503, which is warned about at startup (ETL-6.04).
 	 */
-	static final String SWAP_LOCK_TIMEOUT = "3s";
+	static final int SWAP_LOCK_TIMEOUT_SECONDS = 3;
 
 	/**
 	 * Maximum time the attempts to lock the data table are retried, e.g., while a backup or a long export reads it. If
@@ -407,6 +406,7 @@ public class PgDataset implements Dataset {
 				// the column name of each cell position, null for a column whose label is empty (ETL-4.08)
 				String[] columns = new String[0];
 				Set<String> columnNames = new LinkedHashSet<>();
+				boolean hasLabel = false;
 				// indexes of columns renamed by an append, to be dropped right before the commit
 				List<String> staleIndexes = List.of();
 				String[] line;
@@ -447,26 +447,27 @@ public class PgDataset implements Dataset {
 						// We convert all column names to lower case,
 						// otherwise all queries must be case sensitive later
 						columns = new String[line.length];
-						Set<String> labels = new LinkedHashSet<>();
-						// column numbers of each label that occurs more than once, for logging
-						Map<String, List<Integer>> duplicates = new LinkedHashMap<>();
+						// the column numbers of each label
+						Map<String, List<Integer>> labelColumns = new LinkedHashMap<>();
 						for (int i = 0; i < line.length; i++) {
 							String l = ColumnNames.normalize(line[i]);
 							// columns keep their position, so that the cells of the following columns are not shifted
 							if (l.isEmpty()) {
 								log.info("Skipping column {} of the CSV header, its label is empty", i + 1);
-							} else if (!labels.add(l)) {
-								// the first column with the label keeps it, the cells of later ones are skipped (ETL-4.09)
-								int first = Arrays.asList(columns).indexOf(l) + 1;
-								duplicates.computeIfAbsent(l, k -> new ArrayList<>(List.of(first))).add(i + 1);
 							} else {
 								columns[i] = l;
+								labelColumns.computeIfAbsent(l, k -> new ArrayList<>()).add(i + 1);
 							}
 						}
+						Set<String> labels = labelColumns.keySet();
+						// labels that are equal after normalization fail the load (ETL-4.09)
+						List<String> duplicates = labelColumns.entrySet().stream().filter(e -> e.getValue().size() > 1)
+								.map(e -> "\"" + e.getKey() + "\" in columns " + e.getValue()).toList();
 						if (!duplicates.isEmpty()) {
-							log.warn("Labels occur more than once in the CSV header of dataset {}, only the first column of each is loaded: {}",
-									getId(), duplicates.entrySet().stream()
-											.map(e -> "\"" + e.getKey() + "\" in columns " + e.getValue()).toList());
+							log.error("Labels occur more than once in the CSV header of dataset {}: {}", getId(), duplicates);
+							log.info("Rolling back transaction");
+							conn.rollback();
+							return false;
 						}
 						if (append) {
 							// we must compare existing column names with new ones; they are read with the load's
@@ -511,10 +512,11 @@ public class PgDataset implements Dataset {
 								columnNames.add(column);
 							}
 						}
+						hasLabel = !columnNames.isEmpty();
 					} else {
 						JSONObject jsonLine = null;
 						try {
-							jsonLine = csvLineToJsonObject(line, columns);
+							jsonLine = csvLineToJsonObject(line, columns, hasLabel);
 						} catch (Exception e) {
 							log.error(e.getMessage());
 							log.error("Error occured when processing line {} of CSV: {}", lineCount, line);
@@ -982,12 +984,12 @@ public class PgDataset implements Dataset {
 	/**
 	 * Locks the data table exclusively for replacing it, within the load's transaction. The lock has to wait for
 	 * readers of the data table, e.g., a long streaming export, and while it waits, it blocks new queries of the
-	 * data table. Therefore every attempt waits at most {@link #SWAP_LOCK_TIMEOUT}, and a timed out attempt is retried
-	 * after a delay (short at first, then growing up to {@link #MAX_SWAP_RETRY_DELAY_MILLIS}), so that queries are never
-	 * blocked for longer than one attempt at a time, also while a reader holds the data table for a long time. If the
-	 * lock could not be acquired within {@link #SWAP_LOCK_WAIT_LIMIT_MILLIS} (e.g., behind a backup or a session left
-	 * idle in a transaction), the caller gives up instead of blocking the dataset indefinitely. The sessions holding
-	 * the data table are logged once the first, short delays are used up, then at most every
+	 * data table. Therefore every attempt waits at most {@link #SWAP_LOCK_TIMEOUT_SECONDS}, and a timed out attempt is
+	 * retried after a delay (short at first, then growing up to {@link #MAX_SWAP_RETRY_DELAY_MILLIS}), so that queries
+	 * are never blocked for longer than one attempt at a time, also while a reader holds the data table for a long
+	 * time. If the lock could not be acquired within {@link #SWAP_LOCK_WAIT_LIMIT_MILLIS} (e.g., behind a backup or a
+	 * session left idle in a transaction), the caller gives up instead of blocking the dataset indefinitely. The
+	 * sessions holding the data table are logged once the first, short delays are used up, then at most every
 	 * {@link #LOCK_HOLDERS_LOG_INTERVAL_MILLIS}, and when giving up.
 	 *
 	 * After the lock has been acquired, the attempt's lock_timeout stays in force until the end of the transaction.
@@ -1021,7 +1023,7 @@ public class PgDataset implements Dataset {
 		for (int attempt = 0; ; attempt++) {
 			Savepoint savepoint = conn.setSavepoint();
 			try (Statement stmt = conn.createStatement()) {
-				executeDdl(stmt, "SET LOCAL lock_timeout = '" + SWAP_LOCK_TIMEOUT + "'");
+				executeDdl(stmt, "SET LOCAL lock_timeout = '" + SWAP_LOCK_TIMEOUT_SECONDS + "s'");
 				executeDdl(stmt, "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
 				if (attempt > 0) {
 					log.info("Locked data table {} of dataset {} to {} after {} attempts in {} s", dataTable, getId(),
@@ -1055,7 +1057,7 @@ public class PgDataset implements Dataset {
 			if (attempt >= swapRetryDelaysMillis.length - 1 &&
 					(!holdersLogged || TimeUnit.NANOSECONDS.toMillis(now - lastHoldersLog) >= lockHoldersLogIntervalMillis)) {
 				logLockHolders(conn, "Retrying for up to " + TimeUnit.MILLISECONDS.toSeconds(swapLockWaitLimitMillis - elapsedMillis) +
-						" s (" + (attempt + 1) + " attempts so far, at most " + SWAP_LOCK_TIMEOUT + " each) to " + purpose +
+						" s (" + (attempt + 1) + " attempts so far, at most " + SWAP_LOCK_TIMEOUT_SECONDS + " s each) to " + purpose +
 						", data table " + dataTable + " of dataset " + getId() + " is held by");
 				holdersLogged = true;
 				lastHoldersLog = now;
@@ -1537,14 +1539,15 @@ public class PgDataset implements Dataset {
 	 *
 	 * @param line The row consisting of its cells' values.
 	 * @param columns The column name of each cell position of the CSV header, null for a column without label.
+	 * @param hasLabel Whether any column of the CSV header has a label.
 	 * @return Returns a JSON object consisting of key (column name) - value (cell value) pairs.
 	 * @throws JSONException
 	 */
-	private JSONObject csvLineToJsonObject(String[] line, String[] columns) throws JSONException {
+	private JSONObject csvLineToJsonObject(String[] line, String[] columns, boolean hasLabel) throws JSONException {
 		if (line.length > columns.length) {
 			throw new IllegalArgumentException("Amount of values per row must not be higher than amount of labels in first row of CSV file");
 		}
-		if (Arrays.stream(columns).allMatch(Objects::isNull)) {
+		if (!hasLabel) {
 			throw new IllegalArgumentException("The first row of the CSV file has no column with a label");
 		}
 

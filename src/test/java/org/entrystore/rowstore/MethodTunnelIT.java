@@ -24,6 +24,7 @@ import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.emptyString;
 
 /**
  * Integration tests for tunnelling the method of a POST request, as by the TunnelService of Restlet in 1.x.
@@ -97,6 +98,26 @@ class MethodTunnelIT extends BaseIntegrationTest {
             given().spec(csvSpec).body(CSV).post(urls.datasetUrl + "?method=PATCH").then().statusCode(400);
             given().spec(csvSpec).header("X-HTTP-Method-Override", "TRACE").body(CSV).post(urls.datasetUrl)
                     .then().statusCode(400);
+            assertThat(rowCount(urls)).isEqualTo(2);
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-TUNNEL-005: A cross-origin POST with a tunnelled method is refused with 403")
+    void post_tunnelFromForeignOrigin_isRefused() {
+        DatasetUrls urls = createDatasetAndWait(CSV);
+        try {
+            // a CORS simple request, as sent by an HTML form on another site without preflight
+            given().header("Origin", "https://evil.example.com").contentType("text/plain").body("x")
+                    .post(urls.datasetUrl + "?method=DELETE")
+                    .then().statusCode(403).body(emptyString());
+            given().header("Origin", "null").header("X-HTTP-Method-Override", "DELETE").contentType("text/plain")
+                    .body("x").post(urls.datasetUrl).then().statusCode(403);
+            given().header("Origin", "https://evil.example.com").spec(csvSpec).body(CSV)
+                    .post(urls.datasetUrl + "?method=PUT").then().statusCode(403);
+
             assertThat(rowCount(urls)).isEqualTo(2);
         } finally {
             deleteDataset(urls.datasetUrl);

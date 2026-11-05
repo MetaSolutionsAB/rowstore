@@ -8,9 +8,8 @@ RUN addgroup -S -g 10001 rowstore && adduser -S -u 10001 -G rowstore -h /srv/row
 
 WORKDIR /srv/rowstore
 
+# The jar stays owned by root (readable, but not writable for the service user)
 COPY target/rowstore-*.jar /srv/rowstore/rowstore.jar
-
-RUN chown -R rowstore:rowstore /srv/rowstore
 
 USER rowstore
 

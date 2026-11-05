@@ -155,9 +155,10 @@ Note: Characters like `é`, `Å`, `ä`, `ö`, `å`, `Ü` correctly converted fro
 - Body: Contents of `duplicate_cols.csv`
 
 **Expected Response:**
-- Status: `202` (accepted) or `400` (rejected)
+- Status: `202`
 
-Note: Behavior depends on implementation (last wins or error).
+**After Processing:**
+- `status` = 4 (ERROR), duplicate labels fail the load (ETL-4.09)
 
 ### TC-CSV-EDGE-003: Very long field value (>256 chars)
 
@@ -399,16 +400,18 @@ The index column written by pandas with `to_csv(encoding="utf-8-sig")` (ETL-4.08
 As TC-CSV-041 with the bodies `,a,b\n0,1,2\n1,3,4\n` and `a,<U+3000>,b\n1,x,2\n3,y,4\n` (a label of Unicode whitespace
 only is empty, ETL-4.04).
 
-### TC-CSV-043: Of labels that are equal after normalization, the first column is kept and the others are skipped
+### TC-CSV-043: Labels that are equal after normalization fail the load
 
-**Request (one per case):** `POST /datasets` with the headers `id,ID,b`, `id,id<SHY>,b` and `id, id,b`, each followed by
-the rows `1,2,3` and `4,5,6`.
+**Steps:**
+1. `POST /datasets` with each of the headers `id,ID,b`, `name, Name,b` and `id,id<SHY>,b`, followed by the rows
+   `1,2,3` and `4,5,6`
+2. Create a dataset from `id,b\n1,3\n`; `POST /dataset/{id}` (append) with `id,id<SHY>,b\n4,5,6\n`; then `PUT
+   /dataset/{id}` (replace) with the same file
 
 **Assertions:**
-1. The status becomes AVAILABLE (3) and `rowcount` = 2 (ETL-4.09)
-2. `columnnames` are exactly `id`, `b`
-3. `?id=1` returns exactly `{id: 1, b: 3}`, `?b=6` exactly `{id: 4, b: 6}` (the cells of the second column are
-   skipped, the third column is not shifted)
+1. Each load of step 1 ends with status ERROR (4) (ETL-4.09)
+2. The append and the replace each end with status ERROR (4); the dataset keeps `rowcount` = 1, the `columnnames` `id`,
+   `b`, and `?b=3` returns exactly `{id: 1, b: 3}`
 
 ### TC-CSV-044 to TC-CSV-046: Empty and duplicate labels with the legacy parser
 

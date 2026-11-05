@@ -32,7 +32,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-3.05** `_callback` — Reserved parameter kept for compatibility with 1.x clients. It is accepted and ignored: it is not treated as a column filter and the response is plain JSON (JSONP wrapping was removed in 2.0, see [QUERY-3.03](#query-3-special-parameters)). Like other non-pagination parameters, it is carried over to the `prev`/`next` URLs ([QUERY-6.02](#query-6-pagination)).
 
-> **QUERY-3.06** `media`, `charset`, `encoding` and `language` — Parameters of the TunnelService of Restlet in 1.x, which consumed them for content negotiation ([API-4.05](03-api.md#api-4-content-negotiation)). They are not column filters and not carried over to the `prev`/`next` URLs, unless the dataset has a column of that name, in which case they filter like any column (in 1.x, such a filter was dropped silently and all rows were returned).
+> **QUERY-3.06** `media`, `charset`, `encoding` and `language` — Parameters of the TunnelService of Restlet in 1.x, which consumed them for content negotiation ([API-4.05](03-api.md#api-4-content-negotiation)). They are not column filters and not carried over to the `prev`/`next` URLs, unless the dataset has a column of that name, in which case they filter it (in 1.x, such a filter was dropped silently and all rows were returned). On `/dataset/{id}`, a `media` value that is a media type or file extension still replaces the `Accept` header as well (e.g. `?media=html` redirects to `/dataset/{id}/html`); `/dataset/{id}/json` ignores the `Accept` header and can be used to filter such a column.
 
 ## QUERY-4 Regex Modes
 
@@ -48,7 +48,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-4.04** The heuristic detection checks for the presence of these characters: `` ^ $ ( | [ * + { ? / ``. This is implemented in `DatasetUtil.isRegExpString()`.
 
-> **QUERY-4.05** Regular expressions are passed to PostgreSQL without further validation, as in 1.x; their length and structure are not restricted (see [SEC-4.08](07-security.md#sec-4-input-validation), removed). PostgreSQL's regex engine does not backtrack catastrophically like backtracking engines; the run time of a query is limited by `querytimeout` ([QUERY-7.01](#query-7-query-timeout)). An invalid regular expression returns **400 Bad Request**.
+> **QUERY-4.05** Regular expressions are passed to PostgreSQL without further validation, as in 1.x; their length and structure are not restricted (see [SEC-4.08](07-security.md#sec-4-input-validation), removed). PostgreSQL's regex engine does not backtrack catastrophically like backtracking engines; the run time of a query is limited by `querytimeout` ([QUERY-7.01](#query-7-query-timeout)) only if it is configured; by default, there is no limit (ROWS-118). An invalid regular expression returns **400 Bad Request**.
 
 ## QUERY-5 SQL Construction
 
@@ -85,7 +85,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-9.02** Non-numeric `_limit` or `_offset` values return **400 Bad Request**.
 
-> **QUERY-9.03** The characters `` ^ | [ ] { } \ " < > ` `` are accepted unencoded in the query string, as in 1.x (Jetty), since browsers and tools such as curl send them unencoded, e.g. in `?name=^Ber` (`server.tomcat.relaxed-query-chars`). Non-ASCII characters must be percent-encoded (as browsers do); Tomcat rejects them unencoded with 400.
+> **QUERY-9.03** The characters `` ^ | [ ] { } \ " < > ` `` are accepted unencoded in the query string, as in 1.x (Jetty), since browsers and tools such as curl send them unencoded, e.g. in `?name=^Ber` (`server.tomcat.relaxed-query-chars`). Non-ASCII characters must be percent-encoded (as browsers do); Tomcat rejects them unencoded with 400. In the request path, these characters are not relaxed (unencoded, Tomcat rejects them with 400). An encoded slash or backslash (`%2F`, `%5C`) in a dataset ID is passed through undecoded and remains part of the ID, so e.g. `/dataset/a%2Fb` and `/dataset/x%2F..%2Fstatus` return 404 for the unknown dataset, as in 1.x (Tomcat's default is 400).
 
 > **QUERY-9.04** A query string that cannot be decoded, e.g. because of a malformed percent-encoding such as `?column=100%` or `?column=%zz`, returns **400 Bad Request** (`ParameterParsingFilter`). Tomcat skips such parameters, so the filter would otherwise be dropped silently and non-matching rows returned. In 1.x, such queries returned 0 rows or 500.
 
@@ -115,3 +115,5 @@ Covers the read path from query parameter parsing through SQL execution to respo
 | 2026-10-21 | Added QUERY-3.05: `_callback` accepted and ignored instead of rejected with 400 (ROWS-147) |
 | 2026-10-23 | Added QUERY-2.03 (trimming, ROWS-157), QUERY-3.06 (tunnel parameters, ROWS-158), QUERY-4.05 (no regex validation, ROWS-153), QUERY-9.03 (unencoded characters, ROWS-151), QUERY-9.04 (malformed encodings, ROWS-152) |
 | 2026-10-23 | QUERY-3.04 removed, the `format` parameter was never implemented (ROWS-168) |
+| 2026-11-05 | QUERY-3.06: `media` still selects the representation on `/dataset/{id}`; QUERY-4.05: run time only limited if `querytimeout` is configured |
+| 2026-11-05 | QUERY-9.03: `%2F` and `%5C` in dataset IDs return 404, path characters are not relaxed (ROWS-151) |

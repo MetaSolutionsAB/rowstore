@@ -4,7 +4,7 @@
 
 Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configuration.md#cfg-1-file-format)) and for how database settings are applied to the data sources ([CFG-4](../06-configuration.md#cfg-4-database-configuration), [CFG-5](../06-configuration.md#cfg-5-read-replica-configuration)).
 
-- TC-CFG-* and TC-DS-* are unit tests (`RowStoreConfigTest`, `DataSourceConfigTest`); they need neither Docker nor a running server.
+- TC-CFG-* and TC-DS-* are unit tests (`RowStoreConfigTest`, `DataSourceConfigTest`, `PgRowStoreServerVersionTest`); they need neither Docker nor a running server.
 - TC-POOL-* are integration tests (`ConnectionPoolIT`) against an in-process server with `connectionPoolMax=3`, `ssl=false`, `socketTimeout=60` and a separate `queryDatabase` pointing to the same container. TC-POOL-006 to TC-POOL-008 inspect the DataSource beans and are skipped against an external instance. TC-POOL-001 to TC-POOL-005 (status, lifecycle, query and HikariCP metrics with a pool) are defined in the test class.
 
 ## Test Cases
@@ -88,6 +88,15 @@ Tests for parsing and validating `rowstore.json` (see [CFG-1.02](../06-configura
 1. `sslmode` is `disable` for `ssl=false`, `require` for `ssl=true` and `prefer` when `ssl` is not set
 2. Driver timeouts are 60 / 7 / 8 seconds
 3. `readOnly` is true and `readOnlyMode` is `always`
+
+### TC-DS-002: A pooled data source is created without a reachable database and without leak detection
+
+**Input:** Config with a separate `queryDatabase` with `connectionPoolMax` = 4 that points to a port where no database listens (`localhost:1`); `database` without pool.
+
+**Assertions:**
+1. The query data source is a HikariCP pool, created without connecting (`initializationFailTimeout` -1, ARCH-7.07, ARCH-7.08)
+2. Leak detection is disabled (threshold 0)
+3. The maximum pool size is 4 and the pool is read-only
 
 ### TC-DS-003: PostgreSQL older than 9.6 prevents the startup
 

@@ -68,6 +68,9 @@ mvn verify -Dit.test=StatusIT#getStatus_returnsValidStructure
 
 # Run integration tests against the oldest supported PostgreSQL version (DEPL-4.01; default image postgres:16-alpine)
 mvn verify -Drowstore.test.postgresImage=postgres:9.6-alpine
+
+# The subset that CI runs against PostgreSQL 9.6 (step "Integration Test PostgreSQL 9.6" in bitbucket-pipelines.yml, about 5 minutes)
+mvn verify -Dsurefire.skip=true -Drowstore.test.postgresImage=postgres:9.6-alpine -Dit.test=ColumnNameCleanupIT,DatasetReplaceIT,CsvBomIT,DatasetUtf8LifecycleIT,DatasetEmptyColumnIT
 ```
 
 To run tests against an external RowStore instance (skips Testcontainers):
@@ -106,6 +109,7 @@ All packages are below `org.entrystore.rowstore` in `src/main/java`.
 - `RowStoreConfigLoader` - Bridges `rowstore.json` into Spring: loads the file and exposes it as a `RowStoreConfig` bean (not `application.properties`); configuration failures are `RowStoreConfigException`s, reported without stack trace by `RowStoreConfigFailureAnalyzer` (CFG-1.03)
 - `DataSourceConfig` - Creates the primary and the read-only query `DataSource` programmatically from `rowstore.json` (`PGSimpleDataSource` by default, HikariCP when `connectionPoolMax` > 0) and runs Flyway migrations programmatically (Spring's DataSource and Flyway auto-configuration are disabled); at startup, `StartupRetry` waits for a database that is not reachable yet (ARCH-7.08)
 - `CorsConfig` - CORS filter (`FilterRegistrationBean`) with origins from `cors.allowedorigins`
+- `TomcatConfig` - Passes encoded slashes and backslashes (`%2F`, `%5C`) in paths through undecoded, so that they are part of the dataset ID (404) instead of rejected by Tomcat (QUERY-9.03)
 - `DatabaseExceptionHandler` - Maps database connectivity failures in controllers to 503 with `Retry-After` (instead of 404/500)
 - `RowStoreHealthIndicator` - Actuator health check of both databases within the query budgets (UP, BUSY if all connections are in use, DOWN if unreachable), dataset count, active and queued ETL processes, connection usage; replaces the disabled Actuator `db` indicator
 - `CustomErrorController` - Error responses for `/error`
@@ -158,11 +162,11 @@ completed run is recorded in `maintenance_tasks` (ETL-11.07).
 3. `CorsFilter` - CORS headers, also on responses of the filters below (e.g. 429)
 4. `ParameterParsingFilter` - Rejects requests whose query string Tomcat could not decode (e.g. `?col=100%`) with 400, instead of dropping the parameter
 5. `TrustedProxyFilter` - Takes the client address from `X-Forwarded-For`: by default the last entry, written by the connecting peer (the reverse proxy); with `trustedproxies`, only for listed peers, walked from the right
-6. `TunnelFilter` - Restlet-compatible tunnel of 1.x: `media` query parameter replaces `Accept`; `method` parameter or `X-HTTP-Method-Override` replaces the method of POST requests (only POST, SEC-9.05)
+6. `TunnelFilter` - Restlet-compatible tunnel of 1.x: `media` query parameter replaces `Accept`; `method` parameter or `X-HTTP-Method-Override` replaces the method of POST requests (only POST, and only without `Origin` or from the `baseurl` origin or a listed CORS origin, SEC-9.05)
 7. `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
 
 **Utilities** (`util/`):
-- `DatasetUtil` - Dataset URL building, charset detection, byte order mark skipping, regex heuristics and safety checks
+- `DatasetUtil` - Dataset URL building, charset detection, byte order mark skipping, regex heuristics
 - `ColumnNames` - Normalization of CSV labels and stored column names (lowercase, strip, byte order marks and soft hyphens removed)
 - `Hashing` - Hash helpers
 
@@ -209,9 +213,11 @@ Behaviour that is easy to break or to rely on by mistake:
   Never put a `return` into a `finally` block that could swallow an exception.
 - **`CSVReader.readNext()` returning `null` is not the end of the file.** `RFC4180Parser` returns `null` for an empty
   line; the end of the file is reached when `getLinesRead()` no longer advances (ETL-4.05).
-- **SQL must work on PostgreSQL 9.6** (DEPL-4.01, checked at startup). CI runs PostgreSQL 16, so newer features slip
-  through unnoticed, e.g. `jsonb - text[]` (10), `starts_with()` (11), `DROP DATABASE ... WITH (FORCE)` (13), also in
-  test helpers. Run the affected ITs with `-Drowstore.test.postgresImage=postgres:9.6-alpine`.
+- **SQL must work on PostgreSQL 9.6** (DEPL-4.01, checked at startup). CI runs the full suite on PostgreSQL 16 and only
+  a subset on 9.6 (loads, replaces, the column name cleanup), so newer features slip through unnoticed elsewhere, e.g.
+  `jsonb - text[]` (10), `starts_with()` (11), `DROP DATABASE ... WITH (FORCE)` (13), also in test helpers. Run the
+  affected ITs with `-Drowstore.test.postgresImage=postgres:9.6-alpine`, and add ITs of new version-dependent SQL to
+  the 9.6 subset in `bitbucket-pipelines.yml`.
 - **The client address is `getRemoteAddr()`.** `TrustedProxyFilter` resolves it from `X-Forwarded-For`; never read
   that header elsewhere, and keep `server.forward-headers-strategy=none` (SEC-5.05, DEPL-1.04).
 - **Query strings reach Tomcat raw.** Clients send `^ | [ ] { } \` unencoded (`server.tomcat.relaxed-query-chars`), and
