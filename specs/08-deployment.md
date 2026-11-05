@@ -116,7 +116,7 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 >
 > `/status?jvm` and the Actuator endpoints are served on the application port and must not be publicly reachable ([SEC-9.03](07-security.md#sec-9-reverse-proxy-contract)).
 
-> **DEPL-5.04** While the database is not reachable at startup, RowStore waits for it and does not listen on its port ([ARCH-7.08](01-system-architecture.md#arch-7-database-connection-limits)): health checks fail to connect until the database is reachable, and an orchestrator should not restart the instance only because it does not answer yet during that time (e.g., use a generous start period). Responses with 503 because the database is busy or unavailable carry `Retry-After` ([ARCH-7.09](01-system-architecture.md#arch-7-database-connection-limits)).
+> **DEPL-5.04** While the database is not reachable at startup, RowStore waits for it without a time limit and does not listen on its port ([ARCH-7.08](01-system-architecture.md#arch-7-database-connection-limits)): the HTTP port is opened only after the database is reachable (unlike 1.7, which answered `/status` with `datasets` -1 meanwhile), so health and liveness checks fail to connect until then. An orchestrator should not restart the instance only because it does not answer yet during that time: give health checks a generous start period (e.g., a Kubernetes `startupProbe` with a high `failureThreshold`, or `start_period` of a Docker health check). Only connectivity failures are waited for; authentication and configuration errors (e.g., wrong password, missing database) fail the startup immediately, also with a connection pool. Responses with 503 because the database is busy or unavailable carry `Retry-After` ([ARCH-7.09](01-system-architecture.md#arch-7-database-connection-limits)).
 
 ## DEPL-6 Logging
 
@@ -152,3 +152,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 | 2026-10-20 | Added DEPL-1.05 (reverse proxy required, SEC-9); DEPL-1.04 and DEPL-5.03 notes updated |
 | 2026-10-21 | DEPL-5.01: `queuedEtlProcesses` (API-3.15) |
 | 2026-10-23 | DEPL-5.04: waiting for the database at startup, Retry-After (ROWS-160, ROWS-167) |
+| 2026-11-05 | DEPL-5.04: port opened only after the database is reachable, unlimited wait, start period of health checks, fast failure of authentication and configuration errors |

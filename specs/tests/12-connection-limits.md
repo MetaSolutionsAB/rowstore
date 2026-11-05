@@ -323,8 +323,12 @@ times with a `SQLException` with SQL state `08001` (wrapped), then succeeds.
 
 **Assertions:**
 1. SQL states `08001`, `57P03`, `57P01` and `53300`, `SQLTransientConnectionException`,
-   `CannotGetJdbcConnectionException` and a `ConnectException` cause are connectivity failures
+   `CannotGetJdbcConnectionException` and a `ConnectException` cause (without SQL states), and a
+   `SQLTransientConnectionException` of a pool with SQL state `08001` and a cause with `08001` are connectivity failures
 2. SQL states `28P01` and `42P01` and other exceptions are not
+3. The first SQL state in the cause chain decides, also behind a connection pool: a `SQLTransientConnectionException`
+   with SQL state `28P01` and a cause with `28P01` (wrong password), and a `CannotGetJdbcConnectionException` with a
+   cause with SQL state `3D000` (missing database) or `53100` (disk full) are not connectivity failures
 
 ### TC-CONN-033: An interruption while waiting for the database fails the startup
 

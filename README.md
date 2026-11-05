@@ -307,7 +307,7 @@ In the worst case, one instance opens per database `maxQueryConnections + maxExp
 
 With `connectionPoolMax` > 0, connections are pooled with HikariCP and idle connections are kept; the budgets apply on top of the pool, which should be at least as large as the sum of the budgets of its database (a warning is logged at startup otherwise). Since 1.x never pooled the connections of `database` (and those of `queryDatabase` only if `connectionPoolInit` was greater than 0 as well), a warning is logged at startup when 2.0 pools connections that 1.x did not, e.g. because a `connectionPoolMax` from a 1.x configuration is now effective.
 
-If the database is not reachable at startup (e.g. during a restart or failover of the cluster), RowStore waits for it: the schema migration and the startup maintenance are retried with a delay of 1 second, doubled up to 60 seconds, without limit, and each attempt is logged at WARN level. Meanwhile RowStore does not listen on its port. Other errors, e.g. wrong credentials or a failing migration, still end the startup.
+If the database is not reachable at startup (e.g. during a restart or failover of the cluster), RowStore waits for it: the schema migration and the startup maintenance are retried with a delay of 1 second, doubled up to 60 seconds, without limit, and each attempt is logged at WARN level. Meanwhile RowStore does not listen on its port, so health checks need a generous start period (e.g. a Kubernetes `startupProbe`). Other errors, e.g. wrong credentials, a missing database or a failing migration, still end the startup, also with a connection pool.
 
 ## Connection Pooling with PgBouncer
 
