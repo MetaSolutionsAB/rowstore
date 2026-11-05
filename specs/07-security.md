@@ -71,7 +71,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-6.01** Cross-Origin Resource Sharing (CORS) is implemented via Spring's `CorsFilter`. Allowed origins are configurable via `cors.allowedorigins` in `rowstore.json` (default: `["*"]`, allowing all origins). The filter adds `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`, and `Access-Control-Allow-Headers` headers, and handles preflight `OPTIONS` requests. It runs before `RateLimitFilter`, so `429` responses also carry the CORS headers and expose `Retry-After`.
 
-> **SEC-6.02** If `cors.allowedorigins` does not allow all origins, a request with an `Origin` header that is not listed (including `Origin: null`) is rejected with **403** (1.x ignored `Origin`). Requests whose `Origin` matches the scheme, host and port that RowStore sees are same-origin and not checked; behind a TLS-terminating reverse proxy these differ from the browser's (e.g. `http://host:8282` vs. `https://host`), so the public origin of web pages that send `POST`, `PUT` or `DELETE` requests to RowStore must be listed.
+> **SEC-6.02** If `cors.allowedorigins` does not allow all origins, a request with an `Origin` header that is not listed (including `Origin: null`) is rejected with **403** and the body `Invalid CORS request`, whatever its method (1.x ignored `Origin`). Requests whose `Origin` matches the scheme, host and port that RowStore sees are same-origin and not checked; behind a TLS-terminating reverse proxy these differ from the browser's (e.g. `http://host:8282` vs. `https://host`), since forwarding headers such as `X-Forwarded-Proto` are not evaluated (SEC-5.05), so the public origin of web pages that send `POST`, `PUT` or `DELETE` requests to RowStore must be listed.
 
 ## SEC-7 JSONP
 
@@ -127,3 +127,4 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 | 2026-10-21 | SEC-5.06: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); SEC-5.05 and SEC-9.04 accordingly |
 | 2026-10-23 | SEC-4.04: uploads without Content-Type accepted (ROWS-156); SEC-4.08 removed (ROWS-153); added SEC-9.05 (method tunnel, ROWS-158) |
 | 2026-10-23 | Added SEC-6.02 (403 for origins that are not listed, ROWS-168) |
+| 2026-11-05 | SEC-6.02: body of the 403, forwarding headers not evaluated (ROWS-168) |
