@@ -53,6 +53,19 @@ class PgRowStoreSessionSqlTest {
         }
     }
 
+    @Test
+    @DisplayName("TC-CONN-NEW1: A query lock timeout that is set, but not longer than a swap lock attempt, is warned about")
+    void lockTimeoutNotLongerThanSwapLockAttempt() {
+        assertThat(PgRowStore.isQueryLockTimeoutTooShort(database(new JSONObject().put("queryLockTimeout", 3)))).isTrue();
+        // default: half of the wait timeout
+        assertThat(PgRowStore.isQueryLockTimeoutTooShort(database(new JSONObject().put("connectionWaitTimeout", 6)))).isTrue();
+        assertThat(PgRowStore.isQueryLockTimeoutTooShort(database(new JSONObject().put("connectionWaitTimeout", 7)))).isFalse();
+        assertThat(PgRowStore.isQueryLockTimeoutTooShort(database(new JSONObject().put("queryLockTimeout", 4)))).isFalse();
+        assertThat(PgRowStore.isQueryLockTimeoutTooShort(database(new JSONObject()))).isFalse();
+        // no lock timeout, queries wait for the attempt
+        assertThat(PgRowStore.isQueryLockTimeoutTooShort(database(new JSONObject().put("queryLockTimeout", 0)))).isFalse();
+    }
+
     private static RowStoreConfig.Database database(JSONObject settings) {
         JSONObject db = new JSONObject(settings.toString())
                 .put("host", "localhost")

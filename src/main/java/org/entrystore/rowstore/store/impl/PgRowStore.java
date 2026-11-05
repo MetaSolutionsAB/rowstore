@@ -152,8 +152,10 @@ public class PgRowStore implements RowStore {
 		// every ETL job holds at most one load connection, so loads never wait for a load connection
 		loadSlots = addBudget("database", "load", datasource, etlProcessor.getMaxEtlProcesses(), primaryDb, false);
 		checkPoolSize(primaryDb, "database");
+		checkQueryLockTimeout(primaryDb, "database");
 		if (separateQueryDatabase) {
 			checkPoolSize(queryDb, "queryDatabase");
+			checkQueryLockTimeout(queryDb, "queryDatabase");
 		}
 		primaryProbe = probe(primaryQuerySlots, primaryDb);
 		queryProbe = separateQueryDatabase ? probe(querySlots, queryDb) : primaryProbe;
@@ -259,6 +261,28 @@ public class PgRowStore implements RowStore {
 			log.warn("connectionPoolMax {} of {} is lower than the sum of its connection limits {}, " +
 					"connections may have to wait for the pool", db.getConnectionPoolMax(), dbName, sum);
 		}
+	}
+
+	/**
+	 * Warns if the lock timeout of query connections of a database is set, but not longer than an attempt of a replace
+	 * to lock a data table (ETL-6.04), since queries of the dataset that arrive during such an attempt then may get 503.
+	 */
+	private static void checkQueryLockTimeout(RowStoreConfig.Database db, String dbName) {
+		if (isQueryLockTimeoutTooShort(db)) {
+			log.warn("queryLockTimeout of {} is {} ms, which is not longer than an attempt of a replace to lock a data " +
+					"table ({} s): queries of a dataset arriving during such an attempt may get HTTP 503; set queryLockTimeout " +
+					"(default half of connectionWaitTimeout) to more than {} s", dbName, db.getQueryLockTimeoutMillis(),
+					PgDataset.SWAP_LOCK_TIMEOUT_SECONDS, PgDataset.SWAP_LOCK_TIMEOUT_SECONDS);
+		}
+	}
+
+	/**
+	 * @return Returns whether the lock timeout of query connections is set (not 0), but not longer than an attempt to
+	 * lock a data table for a replace.
+	 */
+	static boolean isQueryLockTimeoutTooShort(RowStoreConfig.Database db) {
+		long lockTimeout = db.getQueryLockTimeoutMillis();
+		return lockTimeout > 0 && lockTimeout <= TimeUnit.SECONDS.toMillis(PgDataset.SWAP_LOCK_TIMEOUT_SECONDS);
 	}
 
 	/**
