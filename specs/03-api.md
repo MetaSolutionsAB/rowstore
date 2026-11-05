@@ -14,7 +14,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-1.02** JSON is the default response format for all API endpoints.
 
-> **API-1.03** Content negotiation is supported via the `Accept` header and the `format` query parameter. The `format` parameter takes precedence over the `Accept` header.
+> **API-1.03** Content negotiation is supported via the `Accept` header ([API-4.04](#api-4-content-negotiation)) and the `media` query parameter, which replaces the `Accept` header when present ([API-4.05](#api-4-content-negotiation)). There is no `format` parameter (API-4.02).
 
 > **API-1.04** [REMOVED] JSONP support via `_callback` parameter — replaced by CORS.
 
@@ -79,7 +79,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-4.01** The `Accept` header determines the response format. JSON is the default.
 
-> **API-4.02** The `format` query parameter overrides the `Accept` header when present.
+> **API-4.02** [REMOVED] The `format` query parameter overrides the `Accept` header when present — never implemented, neither in 1.x nor in 2.0: `format` is treated like any other query parameter, i.e. as a column filter (400 if the dataset has no such column). Use the `Accept` header or the `media` parameter ([API-4.05](#api-4-content-negotiation)).
 
 > **API-4.03** `GET /dataset/{id}` with `Accept: text/html` responds with a **303 See Other** redirect to `/dataset/{id}/html`.
 
@@ -139,7 +139,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 ## API-8 Server Header
 
-> **API-8.01** All responses include a `Server` header with value `RowStore` (configured via `server.server-header` in Spring Boot).
+> **API-8.01** All responses include a `Server` header with value `RowStore` (configured via `server.server-header` in Spring Boot). In 1.x, the value included the version (`RowStore/<version>`).
 
 ## API-9 Per-Dataset Swagger
 
@@ -174,5 +174,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-10-21 | API-3.14: connection budget usage in `/status`; API-6.05: connection wait timeouts yield 503 |
 | 2026-10-21 | API-3.15: `queuedEtlProcesses` in `/status` and health |
 | 2026-10-23 | API-3.03, API-3.05, API-3.06: uploads without Content-Type are accepted; API-3.09: alias bodies are read regardless of the Content-Type; API-3.10, API-3.12, API-4.04: no 406, fallback negotiation as in 1.x; API-4.05, API-4.06: `media` and method tunnel (ROWS-155, ROWS-156, ROWS-158) |
+| 2026-10-23 | Correction: `DELETE /dataset/{id}` returned 204 in 1.x as well (Restlet turned the empty 200 response into 204), API-3.07 is unchanged from 1.x; API-4.02 removed (never implemented); API-8.01: version no longer in the `Server` header (ROWS-168) |
+| 2026-11-05 | API-1.03: content negotiation via `Accept` and the `media` parameter, not `format` (ROWS-168) |
 | 2026-11-05 | API-4.04: `Vary: Accept` on negotiated responses (ROWS-155) |
 | 2026-11-05 | API-4.06: tunnel refused with 403 for untrusted origins; `method` stays a query parameter (ROWS-158) |

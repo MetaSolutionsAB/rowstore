@@ -115,7 +115,7 @@ Current limitations relevant to this area.
 | ARCH-4.01 | Single Maven module — executable JAR |
 | ARCH-4.02 | [REMOVED] standalone/jetty — replaced by Spring Boot embedded server |
 | ARCH-4.03 | [REMOVED] standalone/common — replaced by Spring Boot embedded server |
-| ARCH-5.01 | Filter chain: PathParameterFilter → CorsFilter → TrustedProxyFilter → RateLimitFilter → DispatcherServlet → Controllers |
+| ARCH-5.01 | Filter chain: AccessLogFilter → PathParameterFilter → CorsFilter → ParameterParsingFilter → TrustedProxyFilter → TunnelFilter → RateLimitFilter → DispatcherServlet → Controllers |
 | ARCH-5.02 | Read path: GET → controller → PgDataset.query → PostgreSQL |
 | ARCH-5.03 | Write path: POST CSV → temp file → EtlProcessor.submit → virtual thread → PgDataset.populate |
 | ARCH-6.01 | Why JSONB (schemaless, per-column indexing) |
@@ -160,7 +160,7 @@ Current limitations relevant to this area.
 |----|-------------|
 | API-1.01 | RESTful resource-oriented design |
 | API-1.02 | JSON default response format |
-| API-1.03 | Content negotiation via Accept header and format param |
+| API-1.03 | Content negotiation via Accept header and media param |
 | API-1.04 | [REMOVED] JSONP via _callback param — replaced by CORS |
 | API-2.01 | Base URL from config, used in response links |
 | API-3.01 | GET /status — service status, exempt from rate limiting |
@@ -179,7 +179,7 @@ Current limitations relevant to this area.
 | API-3.14 | GET /status — additive `connections` field with budget usage |
 | API-3.15 | GET /status and health — additive `queuedEtlProcesses` field (queued, not started ETL jobs) |
 | API-4.01 | Accept header determines response format |
-| API-4.02 | format param overrides Accept header |
+| API-4.02 | [REMOVED] format param overrides Accept header — never implemented |
 | API-4.03 | Accept: text/html redirects 303 to /html |
 | API-4.04 | No 406: single-representation resources ignore Accept, fallback by top-level type as in 1.x |
 | API-4.05 | media query parameter replaces the Accept header (Restlet tunnel) |
@@ -251,7 +251,7 @@ Current limitations relevant to this area.
 | QUERY-3.01 | _limit: default 100, max from querymaxlimit |
 | QUERY-3.02 | _offset: default 0, negatives corrected to 0 |
 | QUERY-3.03 | [REMOVED] _callback: JSONP function name — JSONP removed |
-| QUERY-3.04 | format: response format override |
+| QUERY-3.04 | [REMOVED] format: response format override — never implemented |
 | QUERY-3.05 | _callback: reserved, accepted and ignored (no JSONP wrapping) |
 | QUERY-3.06 | media, charset, encoding, language: tunnel params, not filters unless a column has the name |
 | QUERY-4.01 | disabled: exact match only (=) |
@@ -275,6 +275,7 @@ Current limitations relevant to this area.
 |----|-------------|
 | CFG-1.01 | JSON configuration file format |
 | CFG-1.02 | Startup fails on invalid config; error names the offending key |
+| CFG-1.03 | Missing, unreadable or invalid config: one error message, no stack trace, exit code 1 |
 | CFG-2.01 | Resolution: Spring property → env var → classpath |
 | CFG-2.02 | Schemes: file, http, https |
 | CFG-3.01 | baseurl (String, required) |
@@ -288,6 +289,7 @@ Current limitations relevant to this area.
 | CFG-3.09 | maxuploadsize (long bytes, default 104857600) |
 | CFG-3.10 | cors.allowedorigins (JSON array, default ["*"]) |
 | CFG-3.11 | trustedproxies (IPs/CIDR ranges; default: trust the connecting peer; [] trusts nobody) |
+| CFG-3.12 | accesslog (boolean, default true) |
 | CFG-4.01 | database object: type, host, port, database, user, password |
 | CFG-4.02 | ssl (boolean, optional) → sslmode require/disable, prefer when not set |
 | CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1: no pool) |
@@ -305,6 +307,7 @@ Current limitations relevant to this area.
 | CFG-7.02 | --server.port — listen port (default 8282) |
 | CFG-7.03 | [REMOVED] -l/--log-level — CLI log level override |
 | CFG-7.04 | [REMOVED] --connector-params — Jetty connector params |
+| CFG-7.05 | Only --name=value arguments; 1.x options prevent the startup and name their replacement |
 | CFG-8.01 | ROWSTORE_CONFIG_URI env var |
 | CFG-8.02 | [REMOVED] ROWSTORE_CONNECTOR_PARAMS — Jetty connector params |
 | CFG-9.01 | Annotated example config |
@@ -336,6 +339,7 @@ Current limitations relevant to this area.
 | SEC-5.05 | Client address: X-Forwarded-For only from trusted proxies; last entry by default, walked right to left with a list |
 | SEC-5.06 | Trusted proxy default: the connecting peer, last X-Forwarded-For entry; empty array trusts nobody |
 | SEC-6.01 | CORS: configurable allowed origins via cors.allowedorigins |
+| SEC-6.02 | 403 for origins that are not listed; public origin must be listed behind TLS proxies |
 | SEC-7.01 | [REMOVED] JSONP via _callback param — replaced by CORS |
 | SEC-8.01 | Temp files: deleteOnExit + explicit deletion |
 | SEC-9.01 | Always behind a reverse proxy, never directly reachable |
@@ -353,20 +357,26 @@ Current limitations relevant to this area.
 | DEPL-1.03 | Spring Boot standard properties (--server.port, etc.) |
 | DEPL-1.04 | [REMOVED] HTTP/2 and useForwardedForHeader — Jetty-specific |
 | DEPL-1.05 | Reverse proxy required, contract in SEC-9 |
+| DEPL-1.06 | Context path of former WAR deployments, templates read from the JAR |
 | DEPL-2.01 | Docker image: metasolutions/rowstore |
 | DEPL-2.02 | Dockerfile in the RowStore repository |
 | DEPL-2.03 | Docker tags: version, major.minor, develop |
+| DEPL-2.04 | Image runs as non-root user rowstore (10001), ROWSTORE_CONFIG_URI, JAVA_OPTS |
 | DEPL-3.01 | Pipeline: build → test → deploy + Docker Hub |
 | DEPL-3.02 | Branch strategy: master, develop, other |
 | DEPL-3.03 | Artifacts: executable JAR + SHA256 + GPG |
 | DEPL-4.01 | PostgreSQL 9.6+, checked at startup |
 | DEPL-4.02 | Schema managed by Flyway (baselineOnMigrate) |
+| DEPL-4.03 | Database user needs CREATE on its schema |
+| DEPL-4.04 | Rollback to 1.7 and upgrading again |
 | DEPL-5.01 | GET /status: service, version, datasets, activeEtlProcesses, queuedEtlProcesses |
 | DEPL-5.02 | GET /status?jvm: memory, processors, heap |
 | DEPL-5.03 | Spring Boot Actuator: /actuator/health, /actuator/metrics, /actuator/info |
 | DEPL-5.04 | Not listening while waiting for the database at startup; Retry-After on 503 |
 | DEPL-6.01 | Log4j2, console only, dynamic level via config |
+| DEPL-6.02 | Access log per request in the 1.x format (AccessLogFilter) |
 | DEPL-7.01 | Graceful shutdown: EtlProcessor.shutdown() with awaitTermination |
+| DEPL-7.02 | Shutdown takes up to about 60 s; allow at least 70 s before kill |
 
 ### UIX — Web GUI
 
