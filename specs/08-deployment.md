@@ -39,7 +39,7 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 
 > **DEPL-2.02** The Dockerfile is maintained **in the RowStore repository** (root `Dockerfile`). It uses `eclipse-temurin:25-jre-alpine` as the base image and copies the pre-built JAR.
 
-> **DEPL-2.04** The image runs RowStore as the unprivileged user `rowstore` (UID and GID 10001), with the working directory `/srv/rowstore`. The configuration location is set as the environment variable `ROWSTORE_CONFIG_URI=file:///srv/rowstore/rowstore.json`, so arguments of `docker run` are passed to RowStore without replacing it. The entrypoint runs `exec java -XX:MaxRAMPercentage=75 $JAVA_OPTS -jar rowstore.jar "$@"`: JVM options are passed in `JAVA_OPTS` (as with the 1.x start script) and take precedence over the default heap of 75% of the container's memory limit, and java replaces the shell, so it receives the stop signal.
+> **DEPL-2.04** The image runs RowStore as the unprivileged user `rowstore` (UID and GID 10001), with the working directory `/srv/rowstore` (owned by `rowstore`; the jar is owned by root and not writable for `rowstore`). A mounted configuration must be readable for UID or GID 10001; if it is readable only by root or the host user, it is made readable for the group (`chgrp 10001 rowstore.json && chmod 0640 rowstore.json`), or the container is run as a user that can read it (`docker run --user <uid>`). The configuration location is set as the environment variable `ROWSTORE_CONFIG_URI=file:///srv/rowstore/rowstore.json`, so arguments of `docker run` are passed to RowStore without replacing it. The entrypoint runs `exec java -XX:MaxRAMPercentage=75 $JAVA_OPTS -jar rowstore.jar "$@"`: JVM options are passed in `JAVA_OPTS` (as with the 1.x start script) and take precedence over the default heap of 75% of the container's memory limit, and java replaces the shell, so it receives the stop signal.
 
 > **DEPL-2.03** Docker tags follow these conventions:
 > - Version-specific: `2.0`, `2.0-SNAPSHOT`
@@ -128,7 +128,7 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > ```
 > <client address> "<method> <path> <query>" <status> <response bytes> <request bytes> <scheme>://<host> <user agent> <referrer>
 > ```
-> The client address is resolved like by `TrustedProxyFilter` ([SEC-5.05](07-security.md#sec-5-rate-limiting)), also for requests rejected before it (e.g. path parameters, CORS). The response bytes are the bytes of the body written by Tomcat; the request bytes are the `Content-Length`, `0` without a body, `-` for a chunked body. Missing values are empty. A request that fails with an exception is logged with status 500. Disabled with `accesslog: false` ([CFG-3.12](06-configuration.md#cfg-3-application-options)).
+> The client address is resolved like by `TrustedProxyFilter` ([SEC-5.05](07-security.md#sec-5-rate-limiting)), also for requests rejected before it (e.g. path parameters, CORS). The response bytes are the bytes of the body written by Tomcat, also for streamed responses such as exports (unlike 1.x, which logged the declared size of the response entity and left the field empty if it was unknown); the request bytes are the `Content-Length`, `0` without a body, and empty for a chunked body of unknown size, as in 1.x. Missing values are empty. As in 1.x, every request is logged, including requests to `/actuator/**` such as health probes (`/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`), so frequent probes add lines to the log. A request that fails with an exception is logged with status 500. Disabled with `accesslog: false` ([CFG-3.12](06-configuration.md#cfg-3-application-options)).
 
 ## DEPL-7 Shutdown
 
@@ -163,4 +163,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 | 2026-10-20 | Added DEPL-1.05 (reverse proxy required, SEC-9); DEPL-1.04 and DEPL-5.03 notes updated |
 | 2026-10-21 | DEPL-5.01: `queuedEtlProcesses` (API-3.15) |
 | 2026-10-23 | DEPL-5.04: waiting for the database at startup, Retry-After (ROWS-160, ROWS-167) |
-| 2026-10-23 | DEPL-1.02: arguments checked (CFG-7.05); added DEPL-2.04 (image user, `JAVA_OPTS`, heap, config location), DEPL-6.02 (access log), DEPL-7.02 (stop timeout); DEPL-7.01: queued jobs discarded at shutdown (ROWS-161, ROWS-162, ROWS-163, ROWS-166) |
+| 2026-10-23 | DEPL-1.02: arguments checked (CFG-7.05); added DEPL-2.04 (image user, readable configuration, `JAVA_OPTS`, heap, config location), DEPL-6.02 (access log of every request), DEPL-7.02 (stop timeout); DEPL-7.01: queued jobs discarded at shutdown (ROWS-161, ROWS-162, ROWS-163, ROWS-166) |

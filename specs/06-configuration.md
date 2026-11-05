@@ -127,7 +127,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-7.02** `--server.port=<PORT>` — HTTP listen port. Default: `8282`. Standard Spring Boot property.
 
-> **CFG-7.03** [REMOVED] `-l, --log-level` — CLI log level override. Use Spring Boot properties or Log4j2 configuration instead.
+> **CFG-7.03** [REMOVED] `-l, --log-level` — CLI log level override. The log level is set with `loglevel` in rowstore.json ([CFG-3.04](#cfg-3-application-options)); it is applied to the root logger when the configuration is loaded and overrides `logging.level.root`.
 
 > **CFG-7.04** [REMOVED] `--connector-params` — Jetty connector parameters. Jetty has been replaced by embedded Tomcat.
 
@@ -221,4 +221,4 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-10-21 | CFG-4.02: sslmode prefer when `ssl` is not set (as in 1.7); CFG-3.09: no unlimited upload size |
 | 2026-10-21 | CFG-3.11: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); CFG-6.03 accordingly |
 | 2026-10-23 | CFG-4.03: warning when pooling where 1.x did not (ROWS-167) |
-| 2026-10-23 | Added CFG-1.03 (configuration failures without stack trace), CFG-3.12 (`accesslog`), CFG-7.05 (unsupported arguments); CFG-2.02: file paths; CFG-8.02: warning if set (ROWS-161, ROWS-166) |
+| 2026-10-23 | Added CFG-1.03 (configuration failures without stack trace), CFG-3.12 (`accesslog`), CFG-7.05 (unsupported arguments); CFG-2.02: file paths; CFG-7.03: `loglevel` replaces `-l`; CFG-8.02: warning if set (ROWS-161, ROWS-166) |

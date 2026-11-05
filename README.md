@@ -73,7 +73,7 @@ A database must be used by only one RowStore instance at a time. Uploads are que
 
 Besides the REST API, the same port serves the Spring Boot Actuator endpoints (`/actuator/health`, `/actuator/info`, `/actuator/metrics`), the OpenAPI documentation (`/v3/api-docs`, `/swagger-ui.html`) and JVM details (`/status?jvm`). They are meant for operators only and must be blocked by the reverse proxy, see [Security](#security). `/actuator/health` checks the database and, if configured, the query database: a database is reported as `UP`, as `BUSY` if all its connections are in use (it is reachable, so the health stays UP), or as `DOWN` if it cannot be reached, which makes the health DOWN.
 
-RowStore logs one line per request (access log, logger `org.entrystore.rowstore.LogService`) in the format of 1.x, after the response is complete: `<client address> "<method> <path> <query>" <status> <response bytes> <request bytes> <scheme>://<host> <user agent> <referrer>`, e.g. `203.0.113.7 "GET /dataset/1b4f… name=Bo" 200 1234 0 https://rowstore.example.com curl/8.5.0 `. The client address is resolved from `X-Forwarded-For` like for rate limiting (`trustedproxies`), missing values are empty. Set `"accesslog": false` to turn it off.
+RowStore logs one line per request (access log, logger `org.entrystore.rowstore.LogService`) in the format of 1.x, after the response is complete: `<client address> "<method> <path> <query>" <status> <response bytes> <request bytes> <scheme>://<host> <user agent> <referrer>`, e.g. `203.0.113.7 "GET /dataset/1b4f… name=Bo" 200 1234 0 https://rowstore.example.com curl/8.5.0 `. The client address is resolved from `X-Forwarded-For` like for rate limiting (`trustedproxies`), missing values are empty. Every request is logged, including `/actuator/health*` probes. Set `"accesslog": false` to turn it off.
 
 #### Shutdown
 
@@ -89,7 +89,7 @@ docker run -p 8282:8282 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json --
 
 - Arguments after the image name are passed to RowStore, e.g. `--server.port=9000`; the configuration is still read from `/srv/rowstore/rowstore.json`.
 - JVM options are passed with the environment variable `JAVA_OPTS`, e.g. `-e JAVA_OPTS="-Xmx2g -Duser.timezone=Europe/Stockholm"`. By default, the maximum heap is 75% of the container's memory limit (`-XX:MaxRAMPercentage=75`); options in `JAVA_OPTS` take precedence.
-- RowStore runs as the unprivileged user `rowstore` (UID and GID 10001). The mounted configuration must be readable for it; uploads are buffered in `/tmp` of the container.
+- RowStore runs as the unprivileged user `rowstore` (UID and GID 10001). The mounted configuration must be readable for it; if it is readable only by root or the host user, make it readable for the group 10001 (`chgrp 10001 rowstore.json && chmod 0640 rowstore.json`) or run the container as a user that can read it (`docker run --user <uid> ...`). Uploads are buffered in `/tmp` of the container.
 
 To build the image yourself, build the JAR first (the `Dockerfile` copies `target/rowstore-*.jar`):
 
