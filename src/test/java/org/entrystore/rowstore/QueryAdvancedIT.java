@@ -293,7 +293,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
     @Test
     @Order(14)
-    @DisplayName("TC-QUERY-NEW1: queryTime field present and valid")
+    @DisplayName("TC-QUERY-025: queryTime field present and valid")
     void queryTime_presentAndValid() {
         given()
                 .spec(jsonSpec)

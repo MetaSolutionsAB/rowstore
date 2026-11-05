@@ -62,7 +62,7 @@ Tests for query functionality including filters, pagination, and regex modes. Th
 - Status: `200`
 - Body contains `queryTime` field >= 0
 
-### TC-QUERY-NEW1: queryTime field present and valid
+### TC-QUERY-025: queryTime field present and valid
 
 Spec: API-5.01
 
