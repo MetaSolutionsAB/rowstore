@@ -8,14 +8,14 @@ load fails or the database is unreachable, atomic replaces, the cleanup of colum
 tables and aliases of deleted datasets.
 See [04-etl-pipeline.md](../04-etl-pipeline.md) (ETL-6, ETL-8, ETL-10, ETL-11, ETL-12).
 
-TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027, TC-ETL-028, TC-ETL-051, TC-ETL-054, TC-ETL-055, TC-ETL-NEW1 and TC-ETL-NEW2 are unit tests (`EtlProcessorTest`,
+TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027, TC-ETL-028, TC-ETL-051, TC-ETL-054, TC-ETL-055, TC-ETL-080 and TC-ETL-081 are unit tests (`EtlProcessorTest`,
 `PgDatasetPopulateTest`, `PgDatasetSwapLockTest`) that use fakes instead of a database. TC-ETL-010 to TC-ETL-014
 and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026, TC-ETL-029 and TC-ETL-053 integration tests of
 replaces (`DatasetReplaceIT`). TC-ETL-030, TC-ETL-070 and TC-ETL-071 are unit tests (`EtlProcessorTest`), TC-ETL-031 to TC-ETL-037,
 TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-073 and TC-ETL-074 are integration tests of the column name cleanup
 (`ColumnNameCleanupIT`), TC-ETL-038 to TC-ETL-044, TC-ETL-048 and TC-ETL-072 unit tests of the cleaning rule
 (`ColumnNamesTest`), TC-ETL-047 a unit test of the cleanup's stop condition (`PgRowStoreConnectionFailureTest`), and
-TC-ETL-075 to TC-ETL-078 and TC-ETL-NEW3 integration tests of deletions (`DatasetDeleteIT`), and TC-ETL-079 an integration test of
+TC-ETL-075 to TC-ETL-078 and TC-ETL-082 integration tests of deletions (`DatasetDeleteIT`), and TC-ETL-079 an integration test of
 deletions with a single ETL permit (`DatasetDeleteSingleEtlIT`, own RowStore instance with `maxetlprocesses` 1).
 
 ## Prerequisites
@@ -180,7 +180,7 @@ with SQL state `55P03`.
 **Assertions:**
 1. The delays after the attempts 1, 4, 5, 6, 7 and 101 are 1, 5, 10, 20, 30 and 30 seconds
 
-### TC-ETL-NEW1: An attempt to drop a deleted dataset's tables waits up to 3 seconds for the lock, a timed out attempt is retried
+### TC-ETL-080: An attempt to drop a deleted dataset's tables waits up to 3 seconds for the lock, a timed out attempt is retried
 
 **Setup:** As TC-ETL-027, with delays of 7 ms; the data table exists, the shadow table does not; the first
 `LOCK TABLE` fails with SQL state `55P03`.
@@ -195,9 +195,9 @@ with SQL state `55P03`.
 2. The second attempt locks the data table the same way, drops the shadow table and the data table
    (`DROP TABLE IF EXISTS`), commits, and returns -1 (no further attempt)
 
-### TC-ETL-NEW2: A drop attempt that fails for another reason is retried until the wait limit, unless the failure cannot pass
+### TC-ETL-081: A drop attempt that fails for another reason is retried until the wait limit, unless the failure cannot pass
 
-**Setup:** As TC-ETL-NEW1, with a wait limit of 30 minutes.
+**Setup:** As TC-ETL-080, with a wait limit of 30 minutes.
 
 **Assertions:**
 1. An attempt that gets no load connection (`SQLTransientConnectionException`) returns the delay 7
@@ -531,7 +531,7 @@ See API-3.07, DOM-2.04 and ETL-12.
 2. The leftover table is dropped; the `_copy` table and the data tables of the rows of step 3 still exist, and the
    dataset still returns its rows
 
-### TC-ETL-NEW3: A leftover table that cannot be dropped at startup is skipped, the other leftover tables are dropped
+### TC-ETL-082: A leftover table that cannot be dropped at startup is skipped, the other leftover tables are dropped
 
 **Steps:**
 1. Create two tables `data_<32 hex digits>` and two tables `data_<32 hex digits>_new`, none of them referenced by a

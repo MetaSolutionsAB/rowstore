@@ -151,7 +151,7 @@ class PgDatasetSwapLockTest {
     }
 
     @Test
-    @DisplayName("TC-ETL-NEW1: An attempt to drop a deleted dataset's tables waits up to 3 seconds for the lock, a timed out attempt is retried")
+    @DisplayName("TC-ETL-080: An attempt to drop a deleted dataset's tables waits up to 3 seconds for the lock, a timed out attempt is retried")
     void dropAttempt_waitsForLockWithShortTimeout_andIsRetried() {
         PgDataset dataset = newDataset();
         dataset.setSwapRetryDelays(7, 7, 7);
@@ -172,7 +172,7 @@ class PgDatasetSwapLockTest {
     }
 
     @Test
-    @DisplayName("TC-ETL-NEW2: A drop attempt that fails for another reason is retried until the wait limit, unless the failure cannot pass")
+    @DisplayName("TC-ETL-081: A drop attempt that fails for another reason is retried until the wait limit, unless the failure cannot pass")
     void dropAttemptFailure_isRetriedUntilWaitLimit_unlessItCannotPass() {
         PgDataset dataset = newDataset();
         dataset.setSwapRetryDelays(7, 7, 7);

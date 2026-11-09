@@ -182,7 +182,7 @@ class DatasetDeleteIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("TC-ETL-NEW3: A leftover table that cannot be dropped at startup is skipped, the other leftover tables are dropped")
+    @DisplayName("TC-ETL-082: A leftover table that cannot be dropped at startup is skipped, the other leftover tables are dropped")
     void leftoverTableThatCannotBeDropped_isSkipped_othersAreDropped() throws SQLException {
         PgRowStore rowStore = RowStoreTestEnvironment.getInstance().getBean(PgRowStore.class);
         String blocked = dataTable(UUID.randomUUID().toString());
