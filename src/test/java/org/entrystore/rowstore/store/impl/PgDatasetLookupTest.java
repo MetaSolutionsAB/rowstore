@@ -25,6 +25,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,6 +33,7 @@ import org.springframework.jdbc.core.RowMapper;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -77,6 +79,17 @@ class PgDatasetLookupTest {
                 .isSameAs(denied);
     }
 
+    @Test
+    @DisplayName("TC-ERROR-024: An invalid data table name in the datasets table is a server fault, not an unknown dataset")
+    void invalidDataTableName_isServerFault() {
+        String id = UUID.randomUUID().toString();
+        Map<String, Object> corrupt = Map.of("id", UUID.fromString(id), "status", 3,
+                "created", new Timestamp(System.currentTimeMillis()), "data_table", "data_x; DROP TABLE datasets");
+        assertThatThrownBy(() -> new PgDataset(rowStore(new FakeJdbcTemplate(null, null, corrupt)), id))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining(id);
+    }
+
     private static RowStore rowStore(JdbcTemplate jdbcTemplate) {
         RowStoreConfig config = new RowStoreConfig(new JSONObject()
                 .put("baseurl", "http://localhost/")
@@ -98,16 +111,22 @@ class PgDatasetLookupTest {
     }
 
     /**
-     * Resolves no aliases and finds no datasets, or fails the alias resolution or the loading of the dataset with
-     * the given exceptions.
+     * Resolves no aliases and finds no datasets (or the given dataset row), or fails the alias resolution or the
+     * loading of the dataset with the given exceptions.
      */
     private static final class FakeJdbcTemplate extends JdbcTemplate {
         private final DataAccessException aliasFailure;
         private final DataAccessException datasetFailure;
+        private final Map<String, Object> datasetRow;
 
         FakeJdbcTemplate(DataAccessException aliasFailure, DataAccessException datasetFailure) {
+            this(aliasFailure, datasetFailure, null);
+        }
+
+        FakeJdbcTemplate(DataAccessException aliasFailure, DataAccessException datasetFailure, Map<String, Object> datasetRow) {
             this.aliasFailure = aliasFailure;
             this.datasetFailure = datasetFailure;
+            this.datasetRow = datasetRow;
         }
 
         @Override
@@ -122,6 +141,9 @@ class PgDatasetLookupTest {
         public Map<String, Object> queryForMap(String sql, Object... args) {
             if (datasetFailure != null) {
                 throw datasetFailure;
+            }
+            if (datasetRow != null) {
+                return datasetRow;
             }
             throw new EmptyResultDataAccessException(1);
         }
