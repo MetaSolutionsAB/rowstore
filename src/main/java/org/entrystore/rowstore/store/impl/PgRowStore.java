@@ -415,8 +415,9 @@ public class PgRowStore implements RowStore {
 	 * {@link PgDatasets#DATA_TABLE_PATTERN} that no row of the datasets table references, e.g., because RowStore stopped
 	 * before the background drop after a deletion (ETL-12.01) succeeded. Called at startup, before requests are
 	 * served. A dataset's registry row and its data table are created in one transaction (PgDatasets#createDataset()),
-	 * so the data table of an existing dataset is never without its row. A table that cannot be dropped within
-	 * queryLockTimeout, e.g., because a backup reads it, is skipped until the next startup.
+	 * so the data table of an existing dataset is never without its row. A table that cannot be dropped, e.g.,
+	 * because a backup reads it for longer than {@link PgDataset#SWAP_LOCK_TIMEOUT_SECONDS}, is skipped until the next
+	 * startup (see {@link #dropTableAtStartup(String, String)}).
 	 *
 	 * @return Returns the names of the dropped tables.
 	 */
@@ -436,7 +437,7 @@ public class PgRowStore implements RowStore {
 	 */
 	private List<String> dropLeftoverDataTablesOrThrow() {
 		List<String> dropped = new ArrayList<>();
-		// the referenced names are computed once and anti-joined (a CTE is materialized once, also in PostgreSQL 9.6)
+		// the referenced names are computed as one set and anti-joined with the tables, not looked up per table
 		List<String> tables = jdbcTemplate.queryForList(
 				"WITH referenced AS (" + PgDatasets.REFERENCED_TABLE_NAMES + ") " +
 						"SELECT t.tablename::text FROM pg_tables t LEFT JOIN referenced r ON r.name = t.tablename::text " +
@@ -456,12 +457,14 @@ public class PgRowStore implements RowStore {
 	/**
 	 * Drops a table at startup in its own transaction, whose lock timeout is {@link PgDataset#SWAP_LOCK_TIMEOUT_SECONDS}
 	 * regardless of queryLockTimeout (which may be 0), so that a table held by a reader, e.g., a backup with pg_dump,
-	 * does not block the startup. Such a table is skipped until the next startup (logged at ERROR level).
+	 * does not block the startup. Such a table, or one that cannot be dropped for another reason (e.g., missing
+	 * privileges or a dependent view), is skipped until the next startup (logged at ERROR level), so that the other
+	 * tables are still dropped.
 	 *
 	 * @param description What the table is, for logging (e.g., "leftover data table").
-	 * @return Returns true if the table was dropped (or did not exist), false if it was locked or a statement timeout
-	 * occurred.
-	 * @throws DataAccessException If the database could not be accessed for another reason.
+	 * @return Returns true if the table was dropped (or did not exist), false if it was skipped.
+	 * @throws DataAccessException If the database is not reachable ({@link StartupRetry#isConnectivityFailure(Throwable)}),
+	 * so that the startup retries the step.
 	 */
 	private boolean dropTableAtStartup(String table, String description) {
 		try {
@@ -482,9 +485,16 @@ public class PgRowStore implements RowStore {
 				return null;
 			});
 			return true;
-		} catch (TransientDataAccessResourceException e) {
-			log.error("Unable to drop {} {} within {} s, it is in use (e.g., by a backup); it will be dropped at the next " +
-					"start: {}", description, table, PgDataset.SWAP_LOCK_TIMEOUT_SECONDS, e.getMessage());
+		} catch (DataAccessException e) {
+			if (StartupRetry.isConnectivityFailure(e)) {
+				throw e;
+			}
+			if (e instanceof TransientDataAccessResourceException) {
+				log.error("Unable to drop {} {} within {} s, it is in use (e.g., by a backup); it will be dropped at the " +
+						"next start: {}", description, table, PgDataset.SWAP_LOCK_TIMEOUT_SECONDS, e.getMessage());
+			} else {
+				log.error("Unable to drop {} {}, skipping it until the next start: {}", description, table, e.getMessage());
+			}
 			return false;
 		}
 	}
