@@ -174,7 +174,7 @@ Retired: the same check as TC-QUERY-005, which now has its details.
 **Expected Response:**
 - Status: `200`
 - `prev` link present (with `_offset=2`)
-- `next` absent when offset+limit >= resultCount
+- `next` absent when offset+limit > resultCount (QUERY-6.02; with offset+limit = resultCount, `next` links to an empty page)
 
 ### TC-QUERY-014: [REMOVED] Format parameter
 
@@ -271,6 +271,24 @@ Spec: QUERY-3.06
 1. `/dataset/{id}?Name=McLoud&media=json&charset=utf-8&language=sv&encoding=identity` → `200`, exactly McLoud
 2. `/dataset/{id}?media=json&charset=utf-8&_limit=2&_offset=2` → `200`, 2 results, `prev` and `next` contain neither `media` nor `charset`
 3. A dataset with a column `language` (`language,n` / `sv,1` / `en,2`): `?language=sv` → `200`, exactly the row with `n` = `1`
+
+### TC-QUERY-025: An exactly full last page links to an empty page
+
+Spec: QUERY-6.02
+
+**Requests** (dataset with 5 rows):
+1. `/dataset/{id}?_limit=5` → `200`, 5 results, `next` with `_offset=5`, no `prev`
+2. `/dataset/{id}?_limit=5&_offset=5` → `200`, no results, no `next`, `prev` with `_offset=0`
+
+### TC-QUERY-026: No prev link when the offset is smaller than the limit
+
+Spec: QUERY-6.02
+
+**Request:** `/dataset/{id}?_limit=2&_offset=1` (dataset with 5 rows)
+
+**Expected Response:**
+- Status: `200`
+- 2 results, no `prev`, `next` with `_offset=3`
 
 ## JSONP Callback Tests
 
