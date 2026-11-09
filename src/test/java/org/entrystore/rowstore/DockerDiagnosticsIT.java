@@ -18,7 +18,7 @@ package org.entrystore.rowstore;
 
 import org.junit.jupiter.api.Test;
 import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.io.File;
 
@@ -114,7 +114,7 @@ class DockerDiagnosticsIT {
         System.out.println("=== PostgreSQL Container Test ===");
         System.out.println("Starting PostgreSQL container...");
 
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine")) {
+        try (PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:15-alpine")) {
             postgres.start();
 
             System.out.println("Container started successfully!");
