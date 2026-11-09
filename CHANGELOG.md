@@ -32,9 +32,9 @@ RowStore 2.0 is a rewrite of the application layer on Spring Boot. The REST API 
 
 [ROWS-107](https://metasolutions.atlassian.net/browse/ROWS-107) Documentation truth pass for 2.0: README, CLAUDE.md and CHANGELOG
 
-[ROWS-168](https://metasolutions.atlassian.net/browse/ROWS-168) Correct and complete the 2.0 upgrade notes and specs after the PR #4 review
-
 [ROWS-143](https://metasolutions.atlassian.net/browse/ROWS-143) Dependency vulnerability scan before 2.0: Spring Boot 4.1.2 (from 3.5.10; Spring Framework 7.0, Tomcat 11.0, Jackson 3.1), PostgreSQL JDBC 42.7.14, Log4j 2.25.5, Guava 33.8.0, springdoc 3.2.0
+
+[ROWS-168](https://metasolutions.atlassian.net/browse/ROWS-168) Correct and complete the 2.0 upgrade notes and specs after the PR #4 review
 
 ### Bug
 

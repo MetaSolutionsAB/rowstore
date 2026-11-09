@@ -27,7 +27,7 @@ import org.testcontainers.DockerClientFactory;
 import java.util.List;
 
 /**
- * JUnit 5 extension that starts a RowStore test environment whose "cors.allowedorigins" lists only
+ * JUnit Jupiter extension that starts a RowStore test environment whose "cors.allowedorigins" lists only
  * {@link #ALLOWED_ORIGIN}, so that other origins are rejected (SEC-6.02).
  *
  * Usage:
