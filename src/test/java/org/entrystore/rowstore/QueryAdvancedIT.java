@@ -171,11 +171,11 @@ class QueryAdvancedIT extends BaseIntegrationTest {
         .when()
                 .get(datasetUrl);
 
-        assertThat(response.getStatusCode()).isEqualTo(200);
-
-        // Should return all results (using default limit)
-        int resultCount = response.jsonPath().getInt("results.size()");
-        assertThat(resultCount).isGreaterThan(0);
+        // the default limit of 100 returns all 5 rows
+        response.then()
+                .statusCode(200)
+                .body("limit", equalTo(100))
+                .body("results", hasSize(5));
     }
 
     @Test
@@ -188,8 +188,11 @@ class QueryAdvancedIT extends BaseIntegrationTest {
         .when()
                 .get(datasetUrl);
 
-        // Negative limit is accepted and treated as default limit
-        assertThat(response.getStatusCode()).isEqualTo(200);
+        // Negative limit is accepted and treated as default limit, which returns all 5 rows
+        response.then()
+                .statusCode(200)
+                .body("limit", equalTo(100))
+                .body("results", hasSize(5));
     }
 
     @Test
@@ -203,9 +206,10 @@ class QueryAdvancedIT extends BaseIntegrationTest {
                 .get(datasetUrl);
 
         // Negative offset is accepted and corrected to 0
-        assertThat(response.getStatusCode()).isEqualTo(200);
-        int offset = response.jsonPath().getInt("offset");
-        assertThat(offset).isEqualTo(0);
+        response.then()
+                .statusCode(200)
+                .body("offset", equalTo(0))
+                .body("results", hasSize(5));
     }
 
     @Test

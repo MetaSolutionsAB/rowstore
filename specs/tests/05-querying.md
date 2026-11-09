@@ -112,26 +112,28 @@ Retired: the same check as TC-QUERY-005, which now has its details.
 - URL: `/dataset/{id}?_limit=0`
 
 **Expected Response:**
-- Status: `200` or `400`
-- If 200: empty results or treated as default
+- Status: `200`
+- The default limit is used: `limit` is `100`, and all 5 rows are returned
 
 ### TC-QUERY-008: Negative limit
 
 **Request:**
 - Method: `GET`
-- URL: `/dataset/{id}?_limit=-1`
+- URL: `/dataset/{id}?_limit=-5`
 
 **Expected Response:**
-- Status: `200` or `400`
+- Status: `200`
+- The default limit is used: `limit` is `100`, and all 5 rows are returned
 
 ### TC-QUERY-009: Negative offset
 
 **Request:**
 - Method: `GET`
-- URL: `/dataset/{id}?_offset=-1`
+- URL: `/dataset/{id}?_offset=-5`
 
 **Expected Response:**
-- Status: `200` (treated as 0) or `400`
+- Status: `200`
+- The offset is corrected to 0: `offset` is `0`, and all 5 rows are returned
 
 ### TC-QUERY-010: Non-numeric limit
 
@@ -177,6 +179,10 @@ Retired: the same check as TC-QUERY-005, which now has its details.
 ### TC-QUERY-014: [REMOVED] Format parameter
 
 Retired: the `format` parameter was never implemented (API-4.02, QUERY-3.04 removed).
+
+### TC-QUERY-017: [REMOVED] Middle page has both prev and next links
+
+Retired: this ID was only used in `QueryAdvancedIT`, never in this specification; the test is TC-QUERY-012. Not to be reused.
 
 ### TC-QUERY-018: Reserved _callback parameter is ignored
 
