@@ -227,6 +227,41 @@ Spec: SEC-4.04
 **Expected Response:**
 - Status: `415`
 
+### TC-ERROR-022: Unknown and malformed dataset IDs return 404 without log messages at WARN or ERROR level
+
+Spec: API-6.06
+
+Integration test (`DatasetLookupLoggingIT`).
+
+**Setup:** The log of the in-process server is captured (skipped against an external instance). Requests are sent raw, without re-encoding by the client.
+
+**Assertions:**
+1. `GET` of `/dataset/not-a-uuid`, `/dataset/wp-login.php`, `/dataset/a%2Fb`, `/dataset/%C3%A5%C3%A4%C3%B6`, `/dataset/{random UUID}` (also in upper case, and with its last character replaced by `x`), and of `/json`, `/info`, `/export`, `/aliases`, `/swagger`, `/html` below `/dataset/{random UUID}` return `404`
+2. `DELETE /dataset/{random UUID}` returns `404`
+3. None of these requests produces a log message at WARN or ERROR level in the threads that handle the requests (the access log records them at INFO level); messages of other threads, e.g., of ETL jobs left by earlier tests, are not considered
+
+### TC-ERROR-023: Database failures while looking up a dataset are not treated as unknown datasets
+
+Spec: API-6.05, API-6.06
+
+Unit test (`PgDatasetLookupTest`) with a fake database.
+
+**Assertions:**
+1. A connectivity failure while resolving the alias or while loading the dataset propagates (503)
+2. An alias rejected by the database with a data exception (SQL state class `22`, e.g. an invalid byte sequence) is an unknown dataset (404)
+3. Another database error while loading the dataset (e.g. missing privileges, `42501`) propagates (500)
+
+### TC-ERROR-024: An invalid data table name in the datasets table is a server fault, not an unknown dataset
+
+Spec: API-6.06
+
+Unit test (`PgDatasetLookupTest`) with a fake database.
+
+**Input:** A row of the datasets table whose `data_table` does not match the data table name pattern (e.g. `data_x; DROP TABLE datasets`).
+
+**Assertions:**
+1. Loading the dataset throws `DataIntegrityViolationException` (500) whose message names the dataset ID, instead of an exception that means an unknown dataset (404)
+
 ## Corrupt CSV Error Handling
 
 These tests are in `DatasetCorruptIT.java`.

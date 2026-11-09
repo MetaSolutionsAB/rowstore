@@ -133,6 +133,8 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-6.05** A database connectivity failure (e.g., the database is unreachable, no connection became available within the wait timeout, or a short operation waited longer than its lock timeout or `querytimeout`, ARCH-7.03) that occurs while handling a request, such as looking up a dataset, results in **503 Service Unavailable** with an empty body, not in 404. 404 is returned only if no dataset or alias with the given identifier exists or the identifier is not a valid UUID or alias. Other unexpected database errors result in 500. Streamed responses (export) whose status has already been sent are not affected.
 
+> **API-6.06** A request for an unknown or malformed dataset identifier (neither an existing dataset nor an alias, e.g., `/dataset/not-a-uuid` or an unknown UUID) is a client error: it is answered with 404 and recorded by the access log ([DEPL-6.02](08-deployment.md#depl-6-logging)), and logged at DEBUG level at most, never at WARN or ERROR level, so that scanners guessing URLs cannot flood the log. An alias that the database rejects as invalid input (SQL state class `22`, e.g., an invalid byte sequence) is an unknown dataset as well. Database failures while looking up a dataset are not client errors and are logged and answered as in [API-6.05](#api-6-error-response-conventions). An invalid data table name in the datasets table of an existing dataset is a server fault: it is logged at ERROR level and answered with 500 (1.x: 404).
+
 ## API-7 JSONP Support
 
 > **API-7.01** [REMOVED] JSONP support has been removed. Cross-origin access is now provided via CORS headers. See [SEC-6.01](07-security.md#sec-6-cors).
@@ -178,3 +180,5 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-11-05 | API-1.03: content negotiation via `Accept` and the `media` parameter, not `format` (ROWS-168) |
 | 2026-11-05 | API-4.04: `Vary: Accept` on negotiated responses (ROWS-155) |
 | 2026-11-05 | API-4.06: tunnel refused with 403 for untrusted origins; `method` stays a query parameter (ROWS-158) |
+| 2026-11-05 | Added API-6.06: unknown and malformed dataset IDs are not logged at WARN or ERROR level (ROWS-169) |
+| 2026-11-09 | API-6.06: an invalid data table name in the datasets table answers 500 instead of 404 (ROWS-169) |

@@ -39,6 +39,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -146,6 +147,12 @@ public class PgDataset implements Dataset {
 	 * SQL state of a lock that could not be acquired within lock_timeout.
 	 */
 	private static final String LOCK_NOT_AVAILABLE = PgRowStore.LOCK_NOT_AVAILABLE;
+
+	/**
+	 * Class of the SQL states of data exceptions, e.g., an invalid byte sequence (22021) or a null character in a
+	 * string (22P05), with which the database rejects invalid input.
+	 */
+	private static final String DATA_EXCEPTION_CLASS = "22";
 
 	protected PgDataset(RowStore rowstore, String id) {
 		if (rowstore == null) {
@@ -1331,7 +1338,8 @@ public class PgDataset implements Dataset {
 	 *
 	 * @throws IllegalStateException If there is no dataset with this ID.
 	 * @throws IllegalArgumentException If the ID is not a valid UUID.
-	 * @throws DataAccessException If the database could not be queried, e.g., because it is unreachable.
+	 * @throws DataAccessException If the database could not be queried, e.g., because it is unreachable, or if the
+	 * datasets table contains an invalid data table name for the dataset (DataIntegrityViolationException, 500).
 	 */
 	private void initFromDb() {
 		initFromDb(rowstore.getJdbcTemplate());
@@ -1342,6 +1350,7 @@ public class PgDataset implements Dataset {
 	 */
 	private void initFromDb(JdbcTemplate jdbcTemplate) {
 		long before = System.currentTimeMillis();
+		String loadedTable;
 		try {
 			log.debug("Loading dataset {} from database", getId());
 			Map<String, Object> row = jdbcTemplate.queryForMap(
@@ -1349,19 +1358,13 @@ public class PgDataset implements Dataset {
 			this.canonicalId = row.get("id").toString();
 			this.status = (int) row.get("status");
 			this.created = (java.sql.Timestamp) row.get("created");
-			String loadedTable = (String) row.get("data_table");
-			if (loadedTable != null) {
-				loadedTable = loadedTable.trim();
-				validateDataTableName(loadedTable);
-			}
-			this.dataTable = loadedTable;
+			loadedTable = (String) row.get("data_table");
 		} catch (EmptyResultDataAccessException e) {
 			throw new IllegalStateException("Unable to initialize Dataset object from database");
 		} catch (DataAccessException e) {
 			Throwable cause = e.getCause();
 			if (cause instanceof SQLException se && "22P02".equalsIgnoreCase(se.getSQLState())) {
-				// invalid UUID input, treated like an unknown dataset
-				log.info(se.getMessage().replaceFirst("ERROR: ", ""));
+				// invalid UUID input, treated like an unknown dataset (404, ROWS-169); logged by the caller
 				throw new IllegalArgumentException(e);
 			}
 			// any other failure must not be mistaken for an unknown dataset; connectivity failures
@@ -1375,6 +1378,17 @@ public class PgDataset implements Dataset {
 		} finally {
 			log.debug("Loading dataset took {} ms", System.currentTimeMillis() - before);
 		}
+		if (loadedTable != null) {
+			loadedTable = loadedTable.trim();
+			try {
+				validateDataTableName(loadedTable);
+			} catch (IllegalArgumentException e) {
+				// a corrupt row in the datasets table is a server fault, not an unknown dataset (500, API-6.06)
+				log.error("Dataset {} has an invalid data table name in the datasets table", getId());
+				throw new DataIntegrityViolationException("Invalid data table name of dataset " + getId(), e);
+			}
+		}
+		this.dataTable = loadedTable;
 	}
 
 	/**
@@ -1499,7 +1513,12 @@ public class PgDataset implements Dataset {
 			// unvalidated user input, which may be rejected by the database (e.g., invalid byte sequences).
 			throw e;
 		} catch (DataAccessException e) {
-			log.error(e.getMessage());
+			if (e.getCause() instanceof SQLException se && se.getSQLState() != null && se.getSQLState().startsWith(DATA_EXCEPTION_CLASS)) {
+				// the alias was rejected by the database, e.g., because of an invalid byte sequence (404, ROWS-169)
+				log.debug("Alias rejected by the database: {}", se.getMessage());
+			} else {
+				log.error(e.getMessage());
+			}
 			return null;
 		} finally {
 			log.debug("Resolving alias took {} ms", System.currentTimeMillis() - before);
