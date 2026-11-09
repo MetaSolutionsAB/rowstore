@@ -63,7 +63,13 @@ import java.util.zip.ZipInputStream;
  * The body is decoded while the controllers read it, so that {@code maxuploadsize} limits the decoded bytes, which
  * protects against decompression bombs. Corrupt compressed data is reported as {@link MalformedContentException}
  * while reading, which the controllers answer with 400. The decoded request hides the Content-Encoding and
- * Content-Length headers, which describe the encoded body. Requests without a body are passed on unchanged.
+ * Content-Length headers, which describe the encoded body. The decoders are closed when the request has been
+ * handled, which releases their native memory.
+ * <p>
+ * Only the bodies of POST and PUT requests (the method after {@link TunnelFilter}) are decoded, since RowStore reads
+ * no other request bodies; other requests and requests with {@code Content-Length: 0} are passed on unchanged. A body
+ * of unknown length (neither Content-Length nor Transfer-Encoding, e.g., with HTTP/2) may be empty or not; an empty
+ * body stays empty after decoding.
  * <p>
  * Runs after the CORS filter, so that 415 responses carry CORS headers, and after the rate limit, so that rejected
  * requests are not inspected. The body is only read by the controllers, so the order relative to the other filters
@@ -84,7 +90,7 @@ public class RequestDecodingFilter implements Filter {
 			throws IOException, ServletException {
 		HttpServletRequest request = (HttpServletRequest) servletRequest;
 		List<String> codings = codings(request);
-		if (codings.isEmpty() || !hasBody(request)) {
+		if (codings.isEmpty() || !hasReadBody(request)) {
 			chain.doFilter(servletRequest, servletResponse);
 			return;
 		}
@@ -95,7 +101,12 @@ public class RequestDecodingFilter implements Filter {
 				return;
 			}
 		}
-		chain.doFilter(new DecodedRequest(request, codings), servletResponse);
+		DecodedRequest decodedRequest = new DecodedRequest(request, codings);
+		try {
+			chain.doFilter(decodedRequest, servletResponse);
+		} finally {
+			decodedRequest.closeBody();
+		}
 	}
 
 	/**
@@ -119,14 +130,18 @@ public class RequestDecodingFilter implements Filter {
 	}
 
 	/**
-	 * @return Returns whether the request has a body: a Content-Length above 0 or a chunked body.
+	 * @return Returns whether the request may have a body that RowStore reads: a POST or PUT request whose
+	 * Content-Length is not 0 (a body of unknown length may be empty, which the decoder detects).
 	 */
-	private static boolean hasBody(HttpServletRequest request) {
-		return request.getContentLengthLong() > 0 || request.getHeader(HttpHeaders.TRANSFER_ENCODING) != null;
+	private static boolean hasReadBody(HttpServletRequest request) {
+		String method = request.getMethod();
+		return ("POST".equals(method) || "PUT".equals(method)) && request.getContentLengthLong() != 0;
 	}
 
 	/**
 	 * Wraps a stream into the decoders of the given codings, applied in reverse order. An empty stream stays empty.
+	 * Closing the returned stream closes all decoders and the encoded stream. If decoding fails here, the decoders
+	 * created so far are closed.
 	 *
 	 * @throws IOException If the start of the encoded data could not be read or is not valid for its coding.
 	 */
@@ -134,28 +149,60 @@ public class RequestDecodingFilter implements Filter {
 		InputStream stream = encoded;
 		for (String coding : codings.reversed()) {
 			PushbackInputStream pushback = new PushbackInputStream(stream, 1);
-			int first = pushback.read();
-			if (first == -1) {
-				// no body: nothing to decode, as for an empty body without Content-Encoding
-				return InputStream.nullInputStream();
-			}
-			pushback.unread(first);
-			stream = switch (coding) {
-				case "gzip", "x-gzip" -> new GZIPInputStream(pushback);
-				case "deflate" -> new InflaterInputStream(pushback);
-				case "deflate-no-wrap" -> new InflaterInputStream(pushback, new Inflater(true));
-				case "zip" -> {
-					ZipInputStream zip = new ZipInputStream(pushback);
-					if (zip.getNextEntry() == null) {
-						throw new IOException("The zip archive has no entry");
-					}
-					yield zip;
+			try {
+				int first = pushback.read();
+				if (first == -1) {
+					// no body: nothing to decode, as for an empty body without Content-Encoding
+					return pushback;
 				}
-				case IDENTITY -> pushback;
-				default -> throw new IllegalArgumentException("Unsupported coding: " + coding);
-			};
+				pushback.unread(first);
+				stream = switch (coding) {
+					case "gzip", "x-gzip" -> new GZIPInputStream(pushback);
+					case "deflate" -> new InflaterInputStream(pushback);
+					case "deflate-no-wrap" -> rawInflaterInputStream(pushback);
+					case "zip" -> {
+						ZipInputStream zip = new ZipInputStream(pushback);
+						if (zip.getNextEntry() == null) {
+							zip.close();
+							throw new IOException("The zip archive has no entry");
+						}
+						yield zip;
+					}
+					case IDENTITY -> pushback;
+					default -> throw new IllegalArgumentException("Unsupported coding: " + coding);
+				};
+			} catch (IOException | RuntimeException e) {
+				closeQuietly(pushback);
+				throw e;
+			}
 		}
 		return stream;
+	}
+
+	/**
+	 * @return Returns a stream that inflates raw deflate data and ends its inflater when it is closed, which an
+	 * InflaterInputStream with an inflater of the caller does not do.
+	 */
+	private static InputStream rawInflaterInputStream(InputStream in) {
+		Inflater inflater = new Inflater(true);
+		return new InflaterInputStream(in, inflater) {
+			@Override
+			public void close() throws IOException {
+				try {
+					super.close();
+				} finally {
+					inflater.end();
+				}
+			}
+		};
+	}
+
+	private static void closeQuietly(InputStream stream) {
+		try {
+			stream.close();
+		} catch (IOException e) {
+			log.debug("Unable to close request body: {}", e.getMessage());
+		}
 	}
 
 	/**
@@ -178,7 +225,8 @@ public class RequestDecodingFilter implements Filter {
 
 		private final List<String> codings;
 
-		private DecodingInputStream inputStream;
+		// the decoded body, read through getInputStream() or getReader()
+		private DecodingInputStream body;
 
 		private BufferedReader reader;
 
@@ -192,23 +240,36 @@ public class RequestDecodingFilter implements Filter {
 			if (reader != null) {
 				throw new IllegalStateException("getReader() has already been called for this request");
 			}
-			if (inputStream == null) {
-				inputStream = new DecodingInputStream(super.getInputStream(), codings);
-			}
-			return inputStream;
+			return body();
 		}
 
 		@Override
 		public BufferedReader getReader() throws IOException {
 			if (reader == null) {
-				if (inputStream != null) {
+				if (body != null) {
 					throw new IllegalStateException("getInputStream() has already been called for this request");
 				}
 				String encoding = getCharacterEncoding();
 				Charset charset = encoding != null ? Charset.forName(encoding) : StandardCharsets.ISO_8859_1;
-				reader = new BufferedReader(new InputStreamReader(new DecodingInputStream(super.getInputStream(), codings), charset));
+				reader = new BufferedReader(new InputStreamReader(body(), charset));
 			}
 			return reader;
+		}
+
+		private DecodingInputStream body() throws IOException {
+			if (body == null) {
+				body = new DecodingInputStream(super.getInputStream(), codings);
+			}
+			return body;
+		}
+
+		/**
+		 * Closes the decoders of the body, if it has been read, which releases their native memory.
+		 */
+		void closeBody() {
+			if (body != null) {
+				closeQuietly(body);
+			}
 		}
 
 		@Override
@@ -298,9 +359,19 @@ public class RequestDecodingFilter implements Filter {
 			}
 		}
 
+		/**
+		 * Closes the decoders (ending their inflaters) and the request body.
+		 */
 		@Override
 		public void close() throws IOException {
-			source.close();
+			finished = true;
+			try {
+				if (decoded != null) {
+					decoded.close();
+				}
+			} finally {
+				source.close();
+			}
 		}
 
 		@Override

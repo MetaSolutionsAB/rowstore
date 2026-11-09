@@ -16,6 +16,8 @@
 
 package org.entrystore.rowstore.filters;
 
+import jakarta.servlet.ReadListener;
+import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import org.entrystore.rowstore.ContentCodings;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +28,7 @@ import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -84,9 +87,59 @@ class RequestDecodingFilterTest {
 
     @Test
     void passesRequestWithoutBodyUnchanged() throws Exception {
-        MockHttpServletRequest request = request("br", null);
+        MockHttpServletRequest request = request("br", new byte[0]);
 
         assertThat(filter(request, 200)).isSameAs(request);
+    }
+
+    @ParameterizedTest(name = "[{index}] {0}")
+    @ValueSource(strings = {"GET", "HEAD", "DELETE", "OPTIONS"})
+    void passesRequestsOfMethodsWithoutReadBodyUnchanged(String method) throws Exception {
+        MockHttpServletRequest request = request("br", CSV);
+        request.setMethod(method);
+
+        assertThat(filter(request, 200)).isSameAs(request);
+    }
+
+    @ParameterizedTest(name = "[{index}] {0}")
+    @ValueSource(strings = {"POST", "PUT"})
+    void decodesBodyOfUnknownLength(String method) throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest(method, "/dataset/x") {
+            @Override
+            public int getContentLength() {
+                return -1;
+            }
+
+            @Override
+            public long getContentLengthLong() {
+                return -1;
+            }
+        };
+        request.setContent(ContentCodings.encode(CSV, "gzip"));
+        request.addHeader("Content-Encoding", "gzip");
+
+        assertThat(filter(request, 200).getInputStream().readAllBytes()).isEqualTo(CSV);
+    }
+
+    @ParameterizedTest(name = "[{index}] {0}")
+    @ValueSource(strings = {"gzip", "deflate", "deflate-no-wrap", "zip", "gzip, deflate-no-wrap"})
+    void closesDecodersWhenRequestIsHandled(String contentEncoding) throws Exception {
+        TrackingInputStream source = new TrackingInputStream(ContentCodings.encode(CSV, contentEncoding));
+        MockHttpServletRequest request = new MockHttpServletRequest("PUT", "/dataset/x") {
+            @Override
+            public ServletInputStream getInputStream() {
+                return source;
+            }
+        };
+        request.addHeader("Content-Encoding", contentEncoding);
+        request.addHeader("Transfer-Encoding", "chunked");
+        byte[][] read = new byte[1][];
+
+        new RequestDecodingFilter().doFilter(request, new MockHttpServletResponse(),
+                (req, res) -> read[0] = req.getInputStream().readNBytes(5));
+
+        assertThat(read[0]).isEqualTo(Arrays.copyOf(CSV, 5));
+        assertThat(source.closed).isTrue();
     }
 
     @Test
@@ -151,11 +204,49 @@ class RequestDecodingFilterTest {
     }
 
     @Test
-    void emptyBodyStaysEmpty() throws Exception {
+    void emptyBodyOfUnknownLengthStaysEmpty() throws Exception {
         MockHttpServletRequest request = request("gzip", null);
-        request.addHeader("Transfer-Encoding", "chunked");
 
         assertThat(filter(request, 200).getInputStream().readAllBytes()).isEmpty();
+    }
+
+    /**
+     * A request body that records whether it has been closed.
+     */
+    private static final class TrackingInputStream extends ServletInputStream {
+
+        private final ByteArrayInputStream data;
+
+        private boolean closed;
+
+        TrackingInputStream(byte[] data) {
+            this.data = new ByteArrayInputStream(data);
+        }
+
+        @Override
+        public int read() {
+            return data.read();
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+        }
+
+        @Override
+        public boolean isFinished() {
+            return data.available() == 0;
+        }
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        @Override
+        public void setReadListener(ReadListener readListener) {
+        }
+
     }
 
     private static MockHttpServletRequest request(String contentEncoding, byte[] body) {

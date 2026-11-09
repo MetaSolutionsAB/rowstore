@@ -23,6 +23,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
@@ -160,6 +161,43 @@ class CompressedUploadIT extends BaseIntegrationTest {
         } finally {
             deleteDataset(urls.datasetUrl);
         }
+    }
+
+    @Test
+    @DisplayName("TC-ENCODING-008: An upload that is empty after decoding, or without body and Content-Length, is rejected with 400")
+    void emptyBody_isRejectedWith400() throws IOException {
+        DatasetUrls urls = createDatasetAndWait(CSV);
+        try {
+            List<String> before = TestUtils.getDatasetsList(jsonSpec);
+            byte[] emptyGzip = ContentCodings.encode(new byte[0], "gzip");
+            String path = URI.create(urls.datasetUrl).getPath();
+
+            upload("PUT", urls.datasetUrl, "gzip", emptyGzip).then().statusCode(400);
+            upload("POST", urls.datasetUrl, "gzip", emptyGzip).then().statusCode(400);
+            upload("POST", "/datasets", "gzip", emptyGzip).then().statusCode(400);
+            // HTTP/1.0 without Content-Length: the body is empty, its length unknown to the controller
+            for (String method : List.of("PUT", "POST")) {
+                assertThat(TestUtils.rawRequest(getBaseUrl(), method, path, List.of("Content-Type: text/csv"), null)
+                        .status()).as(method).isEqualTo(400);
+                assertThat(TestUtils.rawRequest(getBaseUrl(), method, path,
+                        List.of("Content-Type: text/csv", "Content-Encoding: gzip"), null).status()).as(method).isEqualTo(400);
+            }
+
+            assertThat(TestUtils.getDatasetsList(jsonSpec)).containsExactlyInAnyOrderElementsOf(before);
+            given().spec(jsonSpec).get(urls.infoUrl).then().body("status", equalTo(ETL_STATUS_AVAILABLE));
+            assertThat(rows(urls.datasetUrl)).extracting(row -> row.get("name")).containsExactly("A1", "A2");
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ENCODING-009: The body of a request other than POST and PUT is not decoded or rejected")
+    void otherMethods_areNotDecoded() {
+        TestUtils.RawResponse response = TestUtils.rawRequest(getBaseUrl(), "GET", "/datasets",
+                List.of("Content-Encoding: br"), OTHER_CSV);
+
+        assertThat(response.status()).isEqualTo(200);
     }
 
     private Response upload(String method, String path, String contentEncoding, byte[] body) {

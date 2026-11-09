@@ -39,7 +39,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.Arrays;
 import java.util.UUID;
 
 /**
@@ -170,10 +169,9 @@ public class DatasetUtil {
 	public static Charset detectCharset(File f) throws IOException {
 		byte[] data;
 		try (InputStream is = Files.newInputStream(f.toPath())) {
-			byte[] tmpData = new byte[524288]; // we try to read up to 512 kB
-			int byteCount = is.read(tmpData);
-			data = Arrays.copyOf(tmpData, byteCount);
-			log.debug("Read " + byteCount + " bytes from " + f.getAbsolutePath() + " to detect charset");
+			// up to 512 kB; an empty file yields no bytes (and the fallback UTF-8)
+			data = is.readNBytes(524288);
+			log.debug("Read " + data.length + " bytes from " + f.getAbsolutePath() + " to detect charset");
 		}
 
 		UniversalDetector detector = new UniversalDetector(null);

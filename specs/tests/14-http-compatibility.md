@@ -209,7 +209,22 @@ less than 4096 bytes.
 3. No dataset was created; the existing dataset is AVAILABLE with its previous row count
 4. `PUT /dataset/{id}` with a compressed CSV whose decoded size is below the limit → `202`, then AVAILABLE
 
+### TC-ENCODING-008: An upload that is empty after decoding, or without body and Content-Length, is rejected with 400
+
+1. `PUT /dataset/{id}`, `POST /dataset/{id}` and `POST /datasets` with a gzip stream of an empty file and
+   `Content-Encoding: gzip` → `400`
+2. `PUT` and `POST /dataset/{id}` as HTTP/1.0 requests without body and without `Content-Length`, with and without
+   `Content-Encoding: gzip` → `400` (sent with `TestUtils.rawRequest()`, since REST Assured always sends
+   `Content-Length`)
+3. No dataset was created; the dataset is AVAILABLE with its rows `A1`, `A2`
+
+### TC-ENCODING-009: The body of a request other than POST and PUT is not decoded or rejected
+
+1. `GET /datasets` with `Content-Encoding: br` and a CSV body → `200` (as in 1.x)
+
 Unit tests (`RequestDecodingFilterTest`, `DatasetUtilTempFileTest`, without IDs) cover the codings of stacked and
 repeated header lines, the hidden `Content-Encoding` and `Content-Length` headers, `getReader()`, 415 for unsupported
-codings, requests without a body, malformed data reported as `MalformedContentException`, failures of reading the
-request passed on as they are, and the deletion of the temp file when writing it fails.
+codings, requests with `Content-Length: 0` and methods other than POST and PUT passed on unchanged, bodies of unknown
+length, malformed data reported as `MalformedContentException`, failures of reading the request passed on as they
+are, the closing of the decoders and the request body when the request has been handled, the deletion of the temp
+file when writing it fails, and the charset detection of an empty file.

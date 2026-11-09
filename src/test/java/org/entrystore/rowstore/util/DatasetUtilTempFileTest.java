@@ -32,6 +32,7 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -43,7 +44,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Unit tests for {@link DatasetUtil#writeTempFile(InputStream, long)}: the temp file of an upload that cannot be
  * written completely is deleted. The path of the temp file is taken from the log, since the method throws instead of
- * returning it.
+ * returning it. Also checks that the charset detection of an empty temp file does not fail.
  * Specification: ETL-9.01, ETL-9.02
  */
 @DisplayName("DatasetUtil Temp File Tests")
@@ -106,6 +107,17 @@ class DatasetUtilTempFileTest {
 
         assertThatThrownBy(() -> DatasetUtil.writeTempFile(failing, 100)).isSameAs(failure);
         assertThat(tempFile()).doesNotExist();
+    }
+
+    @Test
+    void charsetOfEmptyFile_isUtf8() throws IOException {
+        // e.g., an upload that is empty after decoding its Content-Encoding; this threw NegativeArraySizeException
+        Path empty = Files.createTempFile("RowStoreTest", ".csv");
+        try {
+            assertThat(DatasetUtil.detectCharset(empty.toFile())).isEqualTo(StandardCharsets.UTF_8);
+        } finally {
+            Files.delete(empty);
+        }
     }
 
     private Path tempFile() {

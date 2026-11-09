@@ -256,6 +256,11 @@ public class DatasetController {
 				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
 			}
 
+			// an empty body without Content-Length (e.g., chunked) or a body that is empty after decoding (API-3.17)
+			if (tmpFile.length() == 0) {
+				return ResponseEntity.badRequest().build();
+			}
+
 			if (dataset.getStatus() != EtlStatus.PROCESSING) {
 				dataset.setStatus(EtlStatus.ACCEPTED_DATA);
 			}
