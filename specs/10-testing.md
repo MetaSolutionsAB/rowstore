@@ -90,11 +90,12 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | Configuration and data sources | [10-configuration.md](tests/10-configuration.md) | ConnectionPoolIT (plus unit tests RowStoreConfigTest, DataSourceConfigTest) |
 > | Connection limits | [12-connection-limits.md](tests/12-connection-limits.md) | ConnectionLimitIT, ConnectionLimitSingleSlotIT, ConnectionLimitHealthIT (plus unit tests LimitedDataSourceTest, RowStoreConfigConnectionLimitsTest, PgRowStoreSessionSqlTest) |
 > | Deployment | [13-deployment.md](tests/13-deployment.md) | AccessLogIT (plus unit tests RowStoreApplicationTest, RowStoreConfigLoaderTest, AccessLogFilterTest) |
+> | HTTP compatibility (content negotiation, method tunnel, `Range`) | [14-http-compatibility.md](tests/14-http-compatibility.md) | ContentNegotiationIT, MethodTunnelIT, RangeRequestIT |
 > | ETL processing | [11-etl-processing.md](tests/11-etl-processing.md) | EtlProcessingIT, DatasetReplaceIT, ColumnNameCleanupIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest, PgDatasetSwapLockTest, ColumnNamesTest, DatasetUtilBomReaderTest, PgRowStoreConnectionFailureTest) |
 
 ## TEST-9 Framework-Agnostic Specs
 
-> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **335 test cases** across 15 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
+> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **338 test cases** across 15 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
 
 ## Known Limitations
 
@@ -129,3 +130,4 @@ Covers the Java integration test suite and its relationship to the framework-agn
 | 2026-11-05 | TEST-3.01, TEST-9.01 counts updated; TEST-8.01: CORS test spec `15-cors.md` and CorsRestrictedIT (ROWS-170) |
 | 2026-11-05 | TEST-3.01 counts updated from a full run (ROWS-169, ROWS-170); TEST-8.01: tests of logging unknown dataset IDs |
 | 2026-11-09 | TEST-2.01: versions of the test stack with Spring Boot 4.1 (ROWS-143) |
+| 2026-11-09 | TEST-3.01, TEST-9.01 counts updated for the pagination and `Range` test cases; TEST-8.01 row for HTTP compatibility (ROWS-177) |

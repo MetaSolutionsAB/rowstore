@@ -1,7 +1,7 @@
 # Test Specification: HTTP Compatibility with 1.x
 
-Content negotiation and method tunnelling as in RowStore 1.x (Restlet). Implemented in `ContentNegotiationIT.java`
-and `MethodTunnelIT.java`; the negotiation rules are also covered by `ContentNegotiationTest.java` and
+Content negotiation and method tunnelling as in RowStore 1.x (Restlet), and the handling of `Range` requests.
+Implemented in `ContentNegotiationIT.java`, `MethodTunnelIT.java` and `RangeRequestIT.java`; the negotiation rules are also covered by `ContentNegotiationTest.java` and
 `TunnelFilterTest.java` (unit tests).
 
 ## Content Negotiation
@@ -109,3 +109,17 @@ Spec: API-4.06, SEC-9.05
 2. `POST /dataset/{id}` with `Origin: null`, `X-HTTP-Method-Override: DELETE`, `Content-Type: text/plain` → `403`
 3. `POST /dataset/{id}?method=PUT` with `Origin: https://evil.example.com` and CSV → `403`
 4. The dataset still has its 2 rows
+
+## Range Requests
+
+### TC-RANGE-001: Range is ignored
+
+Spec: API-10.01
+
+**Requests** with `Range: bytes=0-9`: `/dataset/{id}`, `/dataset/{id}/json`, `/dataset/{id}/info`,
+`/dataset/{id}/export`, `/datasets`, `/status`; and `/dataset/{id}/export` with the open-ended `Range: bytes=5-`
+
+**Expected Response:**
+- Status: `200` (not `206`)
+- No `Accept-Ranges` and no `Content-Range` header
+- The full body; for the export, the same body as without `Range`

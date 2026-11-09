@@ -272,6 +272,24 @@ Spec: QUERY-3.06
 2. `/dataset/{id}?media=json&charset=utf-8&_limit=2&_offset=2` → `200`, 2 results, `prev` and `next` contain neither `media` nor `charset`
 3. A dataset with a column `language` (`language,n` / `sv,1` / `en,2`): `?language=sv` → `200`, exactly the row with `n` = `1`
 
+### TC-QUERY-025: An exactly full last page links to an empty page
+
+Spec: QUERY-6.02
+
+**Requests** (dataset with 5 rows):
+1. `/dataset/{id}?_limit=5` → `200`, 5 results, `next` with `_offset=5`, no `prev`
+2. `/dataset/{id}?_limit=5&_offset=5` → `200`, no results, no `next`, `prev` with `_offset=0`
+
+### TC-QUERY-026: No prev link when the offset is smaller than the limit
+
+Spec: QUERY-6.02
+
+**Request:** `/dataset/{id}?_limit=2&_offset=1` (dataset with 5 rows)
+
+**Expected Response:**
+- Status: `200`
+- 2 results, no `prev`, `next` with `_offset=3`
+
 ## JSONP Callback Tests
 
 JSONP support has been removed (API-7.01, QUERY-3.03), so these test cases, which expected wrapped responses as in 1.x, are retired. `_callback` is accepted and ignored (QUERY-3.05, see TC-QUERY-018 to TC-QUERY-020).
