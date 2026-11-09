@@ -35,6 +35,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.SQLExceptionTranslator;
 import org.springframework.stereotype.Service;
@@ -44,6 +45,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLNonTransientConnectionException;
 import java.sql.SQLTransientConnectionException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -398,8 +400,7 @@ public class PgRowStore implements RowStore {
 				"SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename ~ ?",
 				String.class, "^" + PgDatasets.SHADOW_TABLE_PATTERN + "$");
 		for (String table : tables) {
-			if (table.matches(PgDatasets.SHADOW_TABLE_PATTERN)) {
-				jdbcTemplate.execute("DROP TABLE IF EXISTS " + table);
+			if (table.matches(PgDatasets.SHADOW_TABLE_PATTERN) && dropTableAtStartup(table, "leftover shadow table")) {
 				dropped.add(table);
 			}
 		}
@@ -435,28 +436,55 @@ public class PgRowStore implements RowStore {
 	 */
 	private List<String> dropLeftoverDataTablesOrThrow() {
 		List<String> dropped = new ArrayList<>();
-		// data_table is CHAR(37), compared trimmed
 		List<String> tables = jdbcTemplate.queryForList(
 				"SELECT t.tablename::text FROM pg_tables t WHERE t.schemaname = current_schema() AND t.tablename ~ ? " +
-						"AND NOT EXISTS (SELECT 1 FROM " + PgDatasets.DATASETS_TABLE_NAME + " d " +
-						"WHERE trim(d.data_table) = t.tablename::text)",
+						"AND NOT " + PgDatasets.referencedByDataset("t.tablename::text"),
 				String.class, "^" + PgDatasets.DATA_TABLE_PATTERN + "$");
 		for (String table : tables) {
-			if (!table.matches(PgDatasets.DATA_TABLE_PATTERN)) {
-				continue;
-			}
-			try {
-				jdbcTemplate.execute("DROP TABLE IF EXISTS " + table);
+			if (table.matches(PgDatasets.DATA_TABLE_PATTERN) && dropTableAtStartup(table, "leftover data table")) {
 				dropped.add(table);
-			} catch (TransientDataAccessResourceException e) {
-				// lock or statement timeout
-				log.error("Unable to drop leftover data table {}, it will be dropped at the next start: {}", table, e.getMessage());
 			}
 		}
 		if (!dropped.isEmpty()) {
 			log.warn("Dropped {} leftover data table(s) of deleted datasets: {}", dropped.size(), dropped);
 		}
 		return dropped;
+	}
+
+	/**
+	 * Drops a table at startup in its own transaction, whose lock timeout is {@link PgDataset#SWAP_LOCK_TIMEOUT_SECONDS}
+	 * regardless of queryLockTimeout (which may be 0), so that a table held by a reader, e.g., a backup with pg_dump,
+	 * does not block the startup. Such a table is skipped until the next startup (logged at ERROR level).
+	 *
+	 * @param description What the table is, for logging (e.g., "leftover data table").
+	 * @return Returns true if the table was dropped (or did not exist), false if it was locked or a statement timeout
+	 * occurred.
+	 * @throws DataAccessException If the database could not be accessed for another reason.
+	 */
+	private boolean dropTableAtStartup(String table, String description) {
+		try {
+			jdbcTemplate.execute((ConnectionCallback<Void>) conn -> {
+				conn.setAutoCommit(false);
+				try (Statement stmt = conn.createStatement()) {
+					stmt.execute("SET LOCAL lock_timeout = '" + PgDataset.SWAP_LOCK_TIMEOUT_SECONDS + "s'");
+					stmt.execute("DROP TABLE IF EXISTS " + table);
+					conn.commit();
+				} catch (SQLException | RuntimeException e) {
+					try {
+						conn.rollback();
+					} catch (SQLException e1) {
+						e.addSuppressed(e1);
+					}
+					throw e;
+				}
+				return null;
+			});
+			return true;
+		} catch (TransientDataAccessResourceException e) {
+			log.error("Unable to drop {} {} within {} s, it is in use (e.g., by a backup); it will be dropped at the next " +
+					"start: {}", description, table, PgDataset.SWAP_LOCK_TIMEOUT_SECONDS, e.getMessage());
+			return false;
+		}
 	}
 
 	@EventListener(ApplicationReadyEvent.class)

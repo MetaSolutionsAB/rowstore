@@ -144,22 +144,37 @@ class DatasetDeleteIT extends BaseIntegrationTest {
         DatasetUrls urls = createDatasetAndWait(csv("A", 3));
         String leftover = dataTable(UUID.randomUUID().toString());
         String otherTable = leftover + "_copy";
+        // rows as 1.x may have stored them: without a data table name, and with the name in upper case, which 1.x
+        // served, since PostgreSQL folds unquoted identifiers to lower case
+        String nullNameId = UUID.randomUUID().toString();
+        String upperCaseNameId = UUID.randomUUID().toString();
         try (Connection db = openDatabaseConnection()) {
             execute(db, "CREATE TABLE " + leftover + " (rownr BIGSERIAL PRIMARY KEY, data JSONB NOT NULL)");
             execute(db, "CREATE TABLE " + otherTable + " (id INT)");
+            execute(db, "INSERT INTO datasets VALUES ('" + nullNameId + "', 3, now(), NULL)");
+            execute(db, "CREATE TABLE " + dataTable(nullNameId) + " (rownr SERIAL PRIMARY KEY, data JSONB NOT NULL)");
+            execute(db, "INSERT INTO datasets VALUES ('" + upperCaseNameId + "', 3, now(), '" +
+                    dataTable(upperCaseNameId).toUpperCase() + "')");
+            execute(db, "CREATE TABLE " + dataTable(upperCaseNameId) + " (rownr SERIAL PRIMARY KEY, data JSONB NOT NULL)");
             try {
                 // invoked by PgRowStore's constructor at startup
                 List<String> dropped = RowStoreTestEnvironment.getInstance().getBean(PgRowStore.class)
                         .dropLeftoverDataTables();
 
-                assertThat(dropped).contains(leftover).doesNotContain(otherTable, dataTable(urls.datasetId));
+                assertThat(dropped).contains(leftover).doesNotContain(otherTable, dataTable(urls.datasetId),
+                        dataTable(nullNameId), dataTable(upperCaseNameId));
                 assertThat(tableExists(db, leftover)).isFalse();
                 assertThat(tableExists(db, otherTable)).isTrue();
+                assertThat(tableExists(db, dataTable(nullNameId))).isTrue();
+                assertThat(tableExists(db, dataTable(upperCaseNameId))).isTrue();
                 assertThat(given().spec(jsonSpec).get(urls.datasetUrl).then().statusCode(200)
                         .extract().jsonPath().getList("results.name", String.class)).containsExactly("A1", "A2", "A3");
             } finally {
+                execute(db, "DELETE FROM datasets WHERE id IN ('" + nullNameId + "', '" + upperCaseNameId + "')");
                 execute(db, "DROP TABLE IF EXISTS " + leftover);
                 execute(db, "DROP TABLE IF EXISTS " + otherTable);
+                execute(db, "DROP TABLE IF EXISTS " + dataTable(nullNameId));
+                execute(db, "DROP TABLE IF EXISTS " + dataTable(upperCaseNameId));
             }
         } finally {
             deleteDataset(urls.datasetUrl);

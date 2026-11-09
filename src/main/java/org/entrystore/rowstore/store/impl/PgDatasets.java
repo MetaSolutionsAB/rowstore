@@ -36,8 +36,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.RejectedExecutionException;
 
 /**
  * A PostgreSQL-specific implementation of the Datasets interface.
@@ -150,7 +148,7 @@ public class PgDatasets implements Datasets {
 	/**
 	 * Deletes the dataset's row in the datasets table and its aliases in one transaction on the query budget of the
 	 * primary database, and then submits a job of the dataset to the ETL processor that drops its data table (see
-	 * {@link PgDataset#dropTablesOfDeletedDataset()}). The transaction takes only row locks, so it does not wait for
+	 * {@link PgDataset#dropTablesInBackground()}). The transaction takes only row locks, so it does not wait for
 	 * readers of the data table; it waits at most queryLockTimeout for a concurrent change of the dataset's row (e.g.,
 	 * a status change or an alias update), and its statements are limited by querytimeout. The status condition is
 	 * part of the DELETE, so an upload accepted concurrently either sets ACCEPTED_DATA first (LOCKED) or finds no
@@ -254,24 +252,25 @@ public class PgDatasets implements Datasets {
 	}
 
 	/**
-	 * Submits the drop of the data table of a deleted dataset as a job of the dataset (ETL-12.01), so that it runs
-	 * after the dataset's earlier jobs and never concurrently with one of them. If the job cannot run because RowStore
+	 * Submits the drop of the data table of a deleted dataset as jobs of the dataset (ETL-12.01), so that they run
+	 * after the dataset's earlier jobs and never concurrently with one of them. If they cannot run because RowStore
 	 * is shutting down, the table is dropped at the next startup (ETL-12.03).
 	 */
 	private void submitDropOfDataTable(String id, String dataTable) {
-		PgDataset dataset = new PgDataset(rowstore, id, EtlStatus.ERROR, null, dataTable);
-		try {
-			rowstore.getEtlProcessor().runExclusively(dataset, dataset::dropTablesOfDeletedDataset)
-					.whenComplete((result, e) -> {
-						if (e instanceof CancellationException) {
-							log.error("Data table {} of deleted dataset {} was not dropped, RowStore is shutting down; " +
-									"it will be dropped at the next start", dataTable, id);
-						}
-					});
-		} catch (RejectedExecutionException e) {
-			log.error("Unable to drop data table {} of deleted dataset {}, RowStore is shutting down; it will be " +
-					"dropped at the next start", dataTable, id);
-		}
+		new PgDataset(rowstore, id, EtlStatus.ERROR, null, dataTable).dropTablesInBackground();
+	}
+
+	/**
+	 * Returns an SQL condition that is true if a row of the datasets table references a data table, given as an SQL
+	 * expression of type text that is used twice (e.g., a parameter {@code CAST(? AS text)}, which then has to be set
+	 * twice). A data table is referenced by the stored name (trimmed, since data_table is CHAR(37), and in lower case,
+	 * since PostgreSQL folds unquoted identifiers, so that 1.x served stored names in upper case) and by the name
+	 * derived from the dataset's ID (DOM-6.01), which is the table of a dataset whose data_table is NULL or invalid.
+	 * Tables referenced either way must never be dropped as leftovers (ETL-12.01, ETL-12.03).
+	 */
+	static String referencedByDataset(String tableExpression) {
+		return "EXISTS (SELECT 1 FROM " + DATASETS_TABLE_NAME + " d WHERE lower(trim(d.data_table)) = " + tableExpression +
+				" OR 'data_' || replace(d.id::text, '-', '') = " + tableExpression + ")";
 	}
 
 	/**
