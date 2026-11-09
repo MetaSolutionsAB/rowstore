@@ -97,7 +97,7 @@ class ContentNegotiationIT extends BaseIntegrationTest {
     @NullSource
     @ValueSource(strings = {"*/*", "*/*;q=0.8", "image/png", "image/gif, */*; q=.2", "application/xml, */*;q=0.5",
             "text/html, application/json", "text/html;q=0.9, application/json", "garbage",
-            "application/json;q=1;foo=bar, text/html;q=0.5", "application/json;q=2, text/html"})
+            "application/json;q=1;foo=bar, text/html;q=0.5", "application/json;q=2, text/html", ";"})
     @DisplayName("TC-CONNEG-007: The dataset resource responds with JSON without a better match for HTML, as in 1.x")
     void datasetResource_noBetterMatchForHtml_respondsWithJson(String accept) {
         RawResponse response = get("/dataset/{ds}", accept);
@@ -118,7 +118,8 @@ class ContentNegotiationIT extends BaseIntegrationTest {
             "text/html, */*                                         | text/csv",
             "text/plain;q=0.5, */*;q=0.2                            | text/csv",
             "text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2   | text/csv",
-            "text/html, application/json;q=0.9                      | application/json"
+            "text/html, application/json;q=0.9                      | application/json",
+            ";                                                      | application/json"
     })
     @DisplayName("TC-CONNEG-003: The export selects JSON or CSV as in 1.x")
     void export_selectsRepresentation(String accept, String expected) {

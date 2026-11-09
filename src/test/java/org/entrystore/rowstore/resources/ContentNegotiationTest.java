@@ -132,7 +132,20 @@ class ContentNegotiationTest {
             "application/json;q=1.5, text/html                                 | application/json | application/json",
             "application/json;q=abc, text/html                                 | application/json | application/json",
             "text/plain, application/json;q=2, application/xml                 | text/html        | text/csv",
-            "text/html, application/json;q=2                                   | text/html        | text/csv"
+            "text/html, application/json;q=2                                   | text/html        | text/csv",
+            // empty ranges between commas are skipped, parameters without media type end the reading
+            "text/html, ,                                                      | text/html        | text/csv",
+            ",text/html                                                        | text/html        | text/csv",
+            ";                                                                 | application/json | application/json",
+            "text/html,;                                                       | text/html        | text/csv",
+            ";,text/html                                                       | application/json | application/json",
+            ";q=0.5, text/html                                                 | application/json | application/json",
+            // quoted parameter values
+            "text/html;foo=\"x;q=2\"                                            | text/html        | text/csv",
+            "text/html;foo=\"x;q=2\", application/json;q=0.5                    | application/json | application/json",
+            "text/html;foo=\"a,b\", application/json;q=0.5                      | application/json | application/json",
+            "text/html;q=\"0.9\", application/json;q=0.5                        | text/html        | application/json",
+            "text/html;q=\"0.4\", application/json;q=0.5                        | application/json | application/json"
     })
     @DisplayName("Dataset resource: JSON or HTML; export: JSON or CSV")
     void select(String accept, String dataset, String export) {
@@ -145,7 +158,8 @@ class ContentNegotiationTest {
     @ParameterizedTest(name = "[{index}] Accept: {0} and Accept: {1} -> {2}")
     @CsvSource(delimiter = '|', value = {
             "image/png               | text/html   | text/html",
-            "application/json;q=2    | text/html   | application/json"
+            "application/json;q=2    | text/html   | application/json",
+            ";                       | text/html   | application/json"
     })
     @DisplayName("Several Accept headers are read in order, an invalid quality ends the reading")
     void select_severalAcceptHeaders(String first, String second, String expected) {

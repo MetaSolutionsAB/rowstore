@@ -41,7 +41,7 @@ Spec: API-3.10, API-4.04
 
 | Accept | Content-Type |
 |--------|--------------|
-| (none), `*/*`, `application/xml`, `text/csv;q=0.5, application/json`, `text/html, application/json;q=0.9` | `application/json` |
+| (none), `*/*`, `application/xml`, `text/csv;q=0.5, application/json`, `text/html, application/json;q=0.9`, `;` | `application/json` |
 | `text/csv`, `text/html`, `text/plain`, `text/html, */*`, `text/plain;q=0.5, */*;q=0.2`, `text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2` | `text/csv` |
 
 ### TC-CONNEG-004: The HTML view is always served as text/html
@@ -75,7 +75,8 @@ Spec: API-4.01, API-4.04
 **Requests:** `GET /dataset/{id}` without Accept header and with `*/*`, `*/*;q=0.8`, `image/png`,
 `image/gif, */*; q=.2`, `application/xml, */*;q=0.5`, `text/html, application/json`,
 `text/html;q=0.9, application/json`, `garbage` (unparseable), `application/json;q=1;foo=bar, text/html;q=0.5`
-(accept extension) and `application/json;q=2, text/html` (invalid quality ends the reading)
+(accept extension), `application/json;q=2, text/html` (invalid quality ends the reading) and `;` (empty media type
+ends the reading)
 
 **Expected Response:**
 - Status: `200`, Content-Type `application/json`, `resultCount` 5
