@@ -125,7 +125,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-7.01** `--rowstore.config.uri=<URI>` — Configuration file URI (Spring Boot property). Example: `--rowstore.config.uri=file:///etc/rowstore/config.json`.
 
-> **CFG-7.02** `--server.port=<PORT>` — HTTP listen port. Default: `8282`. Standard Spring Boot property.
+> **CFG-7.02** `--server.port=<PORT>` — HTTP listen port. Default: `8282`; the Docker image sets `8080` with the environment variable `SERVER_PORT` ([DEPL-2.05](08-deployment.md#depl-2-docker)), which `--server.port` overrides. Standard Spring Boot property.
 
 > **CFG-7.03** [REMOVED] `-l, --log-level` — CLI log level override. The log level is set with `loglevel` in rowstore.json ([CFG-3.04](#cfg-3-application-options)); it is applied to the root logger when the configuration is loaded and overrides `logging.level.root`.
 
@@ -223,3 +223,4 @@ Covers the JSON configuration file format, all application and database options,
 | 2026-10-23 | CFG-4.03: warning when pooling where 1.x did not (ROWS-167) |
 | 2026-10-23 | Added CFG-1.03 (configuration failures without stack trace), CFG-3.12 (`accesslog`), CFG-7.05 (unsupported arguments); CFG-2.02: file paths; CFG-7.03: `loglevel` replaces `-l`; CFG-8.02: warning if set (ROWS-161, ROWS-166) |
 | 2026-11-05 | CFG-4.08: startup warning for a lock timeout of 3 seconds or less (ETL-6.04) |
+| 2026-11-09 | CFG-7.02: port 8080 in the Docker image (DEPL-2.05, ROWS-176) |

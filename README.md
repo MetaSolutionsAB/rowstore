@@ -83,13 +83,14 @@ On SIGTERM (e.g. `docker stop`), RowStore stops accepting requests and lets runn
 
 ### Docker
 
-The Docker image `metasolutions/rowstore:<version>` (Docker Hub) is built from the `Dockerfile` in this repository and reads its configuration from `/srv/rowstore/rowstore.json` (environment variable `ROWSTORE_CONFIG_URI`):
+The Docker image `metasolutions/rowstore:<version>` (Docker Hub) is built from the `Dockerfile` in this repository and reads its configuration from `/srv/rowstore/rowstore.json` (environment variable `ROWSTORE_CONFIG_URI`). Like the 1.x images, it listens on port 8080 (environment variable `SERVER_PORT`; the JAR itself defaults to 8282):
 
 ```
-docker run -p 8282:8282 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json --stop-timeout 70 metasolutions/rowstore:<version>
+docker run -p 8080:8080 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json --stop-timeout 70 metasolutions/rowstore:<version>
 ```
 
-- Arguments after the image name are passed to RowStore, e.g. `--server.port=9000`; the configuration is still read from `/srv/rowstore/rowstore.json`.
+- Arguments after the image name are passed to RowStore, e.g. `--server.port=9000`, which takes precedence over port 8080; the configuration is still read from `/srv/rowstore/rowstore.json`.
+- Tags: `<version>` (e.g. `2.0.0`) for every build, `<major.minor>` (e.g. `2.0`) and `latest` for the latest release, `develop` for the latest development build. `latest` moved from 1.7 to 2.0 with the 2.0 release; pull `1.7` to stay on 1.x. The 1.x images were built in a separate repository and run `bin/rowstore --port 8080` as root.
 - JVM options are passed with the environment variable `JAVA_OPTS`, e.g. `-e JAVA_OPTS="-Xmx2g -Duser.timezone=Europe/Stockholm"`. By default, the maximum heap is 75% of the container's memory limit (`-XX:MaxRAMPercentage=75`); options in `JAVA_OPTS` take precedence.
 - RowStore runs as the unprivileged user `rowstore` (UID and GID 10001). The mounted configuration must be readable for it; if it is readable only by root or the host user, make it readable for the group 10001 (`chgrp 10001 rowstore.json && chmod 0640 rowstore.json`) or run the container as a user that can read it (`docker run --user <uid> ...`). Uploads are buffered in `/tmp` of the container.
 
@@ -437,7 +438,7 @@ RowStore provides a public REST API for data retrieval (`GET` and `HEAD` request
 The reverse proxy MUST:
 
 - authenticate all requests with methods other than `GET` and `HEAD`;
-- deny public access to `/actuator` and `/actuator/**`, `/swagger-ui.html` and `/swagger-ui/**`, `/v3/api-docs` and `/v3/api-docs/**` (including `/v3/api-docs.yaml`), and `/status?jvm` (any `/status` request with a `jvm` parameter; plain `/status` is public). In RowStore 2.0 these are served on the application port (8282), so blocking them at the proxy is the only protection. RowStore rejects request paths containing `;` with 400 (path parameters would otherwise bypass such path rules, e.g. `/v3;x/api-docs`); the proxy should reject them as well, as defence in depth;
+- deny public access to `/actuator` and `/actuator/**`, `/swagger-ui.html` and `/swagger-ui/**`, `/v3/api-docs` and `/v3/api-docs/**` (including `/v3/api-docs.yaml`), and `/status?jvm` (any `/status` request with a `jvm` parameter; plain `/status` is public). In RowStore 2.0 these are served on the application port (8282, or 8080 in the Docker image), so blocking them at the proxy is the only protection. RowStore rejects request paths containing `;` with 400 (path parameters would otherwise bypass such path rules, e.g. `/v3;x/api-docs`); the proxy should reject them as well, as defence in depth;
 - set `X-Forwarded-For` (append the client address or replace the header with it) and, if `trustedproxies` is configured, be listed there (see [Configuration](#properties)), so that the per-client rate limit applies to the real client and cannot be influenced by clients.
 
 A `POST` request can be tunnelled to `PUT` or `DELETE` with the query parameter `method` or the header `X-HTTP-Method-Override` (see [REST API](#rest-api)). Since the proxy authenticates `POST` like `PUT` and `DELETE`, this does not open the private API. A proxy that authorizes methods differently (e.g. allows `POST` to more users than `DELETE`) must reject or strip the `method` parameter and the `X-HTTP-Method-Override` header of `POST` requests. `GET` and `HEAD` requests are never tunnelled.

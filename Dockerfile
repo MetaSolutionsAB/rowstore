@@ -20,7 +20,11 @@ ENV ROWSTORE_CONFIG_URI=file:///srv/rowstore/rowstore.json
 # default heap of 75% of the container memory
 ENV JAVA_OPTS=""
 
-EXPOSE 8282
+# Port 8080 as in the 1.x images (the JAR's own default is 8282); --server.port=<port> passed to "docker run" takes
+# precedence over this environment variable
+ENV SERVER_PORT=8080
+
+EXPOSE 8080
 
 # Arguments of "docker run" are passed to RowStore (e.g. --server.port=9000). The shell is replaced by java, so that
 # java receives the stop signal; give it at least 70 seconds to stop (docker stop -t 70, stop_grace_period: 70s)

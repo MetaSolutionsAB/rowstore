@@ -43,10 +43,16 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 
 > **DEPL-2.04** The image runs RowStore as the unprivileged user `rowstore` (UID and GID 10001), with the working directory `/srv/rowstore` (owned by `rowstore`; the jar is owned by root and not writable for `rowstore`). A mounted configuration must be readable for UID or GID 10001; if it is readable only by root or the host user, it is made readable for the group (`chgrp 10001 rowstore.json && chmod 0640 rowstore.json`), or the container is run as a user that can read it (`docker run --user <uid>`). The configuration location is set as the environment variable `ROWSTORE_CONFIG_URI=file:///srv/rowstore/rowstore.json`, so arguments of `docker run` are passed to RowStore without replacing it. The entrypoint runs `exec java -XX:MaxRAMPercentage=75 $JAVA_OPTS -jar rowstore.jar "$@"`: JVM options are passed in `JAVA_OPTS` (as with the 1.x start script) and take precedence over the default heap of 75% of the container's memory limit, and java replaces the shell, so it receives the stop signal.
 
-> **DEPL-2.03** Docker tags follow these conventions:
-> - Version-specific: `2.0`, `2.0-SNAPSHOT`
-> - Major.minor shorthand
-> - `develop` — Latest development build
+> **DEPL-2.03** Docker tags follow these conventions (pushed by the Docker Hub step of the pipeline, DEPL-3.02):
+> - Version-specific: the version in `VERSION.txt`, e.g. `2.0.0`, `2.0-SNAPSHOT` (master and develop)
+> - Major.minor shorthand, e.g. `2.0` (master)
+> - `latest` — Latest release (master), see DEPL-2.05
+> - `develop` — Latest development build (develop)
+
+> **DEPL-2.05** The image is a drop-in replacement for the 1.x images, which were built in the separate `docker` repository (directory `rowstore/`), ran `bin/rowstore --port 8080` as root and exposed 8080:
+> - **Port:** the image listens on **8080** like the 1.x images (`ENV SERVER_PORT=8080`, `EXPOSE 8080`); `--server.port=<port>` passed to `docker run` takes precedence over the environment variable. The JAR's own default port stays 8282 (DEPL-1.02).
+> - **Tags:** the 2.0 images are pushed to the same repository `metasolutions/rowstore` as the 1.x images. The Docker Hub step also tags and pushes `latest` on master, so `latest` moves from 1.7 to 2.0 with the 2.0 release; deployments that stay on 1.x pull `1.7` (or `1.7.0`). The `docker` repository builds 1.x images only: its `build.sh` refuses versions 2.0 and later, also without an argument once `latest.version` is 2.0 or later.
+> - An existing 1.x container definition works with the 2.0 image after changing only the tag, as long as the configuration is readable for UID or GID 10001 (DEPL-2.04) and contains no options that 2.0 rejects (CFG-7.05).
 
 ## DEPL-3 CI/CD
 
@@ -58,8 +64,8 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > ```
 
 > **DEPL-3.02** Branch strategy:
-> - **master**: Full pipeline — build, test, deploy, Docker push (release tags)
-> - **develop**: Full pipeline — build, test, deploy, Docker push (`develop` tag)
+> - **master**: Full pipeline — build, test, deploy, Docker push (`<version>`, `<major.minor>` and `latest` tags)
+> - **develop**: Full pipeline — build, test, deploy, Docker push (`<version>` and `develop` tags)
 > - **Other branches**: Build and test only (no deploy, no Docker push)
 
 > **DEPL-3.03** Deploy artifacts:
@@ -176,3 +182,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 | 2026-11-05 | DEPL-3.01, DEPL-4.01: CI runs a subset of the integration tests against PostgreSQL 9.6 (ROWS-165) |
 | 2026-11-05 | DEPL-5.04: port opened only after the database is reachable, unlimited wait, start period of health checks, fast failure of authentication and configuration errors |
 | 2026-11-09 | DEPL-4.04: data tables of deleted datasets and removed aliases after a rollback to 1.7 (ROWS-174) |
+| 2026-11-09 | Added DEPL-2.05 (image listens on 8080 like the 1.x images, `latest` pushed on master, `docker` repository builds 1.x only); DEPL-2.03 and DEPL-3.02: tags per branch, `latest` (ROWS-176) |
