@@ -65,7 +65,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 ## QUERY-6 Pagination
 
-> **QUERY-6.01** Total result count is obtained via the `count(*) OVER()` PostgreSQL window function, which computes the count across the full result set while returning only the current page.
+> **QUERY-6.01** Total result count is obtained via the `count(*) OVER()` PostgreSQL window function, which computes the count across the full result set while returning only the current page. The count is read from the returned rows, so an offset beyond the last match returns `resultCount` 0 (as in 1.x).
 
 > **QUERY-6.02** The response envelope includes `prev` and `next` URLs when applicable. These URLs preserve the original query parameters and adjust `_limit` and `_offset`:
 > - `next`: present when `offset + limit < resultCount`
@@ -117,3 +117,4 @@ Covers the read path from query parameter parsing through SQL execution to respo
 | 2026-10-23 | QUERY-3.04 removed, the `format` parameter was never implemented (ROWS-168) |
 | 2026-11-05 | QUERY-3.06: `media` still selects the representation on `/dataset/{id}`; QUERY-4.05: run time only limited if `querytimeout` is configured |
 | 2026-11-05 | QUERY-9.03: `%2F` and `%5C` in dataset IDs return 404, path characters are not relaxed (ROWS-151) |
+| 2026-11-09 | QUERY-6.01: `resultCount` is 0 for an offset beyond the last match, as in 1.x (ROWS-170) |

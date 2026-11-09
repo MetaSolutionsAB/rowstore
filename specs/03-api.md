@@ -106,7 +106,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 > - `results`: Array of JSONB row objects
 > - `limit`: Applied limit value
 > - `offset`: Applied offset value
-> - `resultCount`: Total matching rows (from window function)
+> - `resultCount`: Total matching rows (from window function); 0 if the offset is beyond the last match (as in 1.x, QUERY-6.01)
 > - `queryTime`: Execution time in milliseconds
 > - `prev`/`next`: Pagination URLs (null if not applicable)
 
@@ -182,3 +182,4 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-11-05 | API-4.06: tunnel refused with 403 for untrusted origins; `method` stays a query parameter (ROWS-158) |
 | 2026-11-05 | Added API-6.06: unknown and malformed dataset IDs are not logged at WARN or ERROR level (ROWS-169) |
 | 2026-11-09 | API-6.06: an invalid data table name in the datasets table answers 500 instead of 404 (ROWS-169) |
+| 2026-11-09 | API-3.04: `resultCount` is 0 for an offset beyond the last match (ROWS-170) |

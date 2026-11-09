@@ -2,7 +2,7 @@
 
 This specification suite is the canonical reference for the RowStore system. It documents the **current state** of the software (version 2.0-SNAPSHOT, branch `develop`) and serves all four user personas: data publishers, API consumers, operators/admins, and embedded viewers.
 
-The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (323 test cases across 14 files) are preserved alongside these specs.
+The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (335 test cases across 15 files) are preserved alongside these specs.
 
 ## Reading Paths by Persona
 
@@ -400,7 +400,7 @@ Current limitations relevant to this area.
 |----|-------------|
 | TEST-1.01 | Integration tests verifying REST API end-to-end |
 | TEST-2.01 | JUnit 5, REST Assured, Testcontainers, Awaitility, AssertJ |
-| TEST-3.01 | 42 IT classes with 372 tests, 24 unit test classes with 324 tests |
+| TEST-3.01 | 43 IT classes with 376 tests, 24 unit test classes with 324 tests |
 | TEST-3.02 | Sequential execution within classes |
 | TEST-4.01 | Default profile (regexpqueries=full) |
 | TEST-4.02 | regex-disabled profile |
@@ -410,7 +410,7 @@ Current limitations relevant to this area.
 | TEST-6.01 | Awaitility polling for async ETL |
 | TEST-7.01 | 12+ CSV test files covering encodings and edge cases |
 | TEST-8.01 | Endpoint × test spec coverage matrix |
-| TEST-9.01 | specs/tests/: 323 test cases, 14 files |
+| TEST-9.01 | specs/tests/: 335 test cases, 15 files |
 
 ### USR — User Stories
 

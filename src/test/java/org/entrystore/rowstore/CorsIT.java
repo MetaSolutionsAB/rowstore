@@ -31,6 +31,7 @@ import static org.hamcrest.Matchers.notNullValue;
 /**
  * Integration tests for CORS support.
  * Verifies that the CORS filter is properly configured for cross-origin requests.
+ * Specification: specs/tests/15-cors.md
  */
 @DisplayName("CORS Tests")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)

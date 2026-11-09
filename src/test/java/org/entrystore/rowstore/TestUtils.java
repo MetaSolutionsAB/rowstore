@@ -58,7 +58,11 @@ public final class TestUtils {
     public static final int ETL_STATUS_AVAILABLE = 3;
     public static final int ETL_STATUS_ERROR = 4;
 
-    public static final Duration POLL_INTERVAL = Duration.ofMillis(2500);
+    /**
+     * Interval (and initial delay) of polling the status of a dataset. Loads of the small test files take well under a
+     * second, so a short interval keeps the waits short; polling /info is cheap.
+     */
+    public static final Duration POLL_INTERVAL = Duration.ofMillis(100);
     public static final Duration MAX_WAIT = Duration.ofSeconds(15);
 
     private TestUtils() {}

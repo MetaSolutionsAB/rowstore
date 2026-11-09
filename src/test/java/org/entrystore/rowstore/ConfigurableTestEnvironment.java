@@ -259,6 +259,12 @@ public class ConfigurableTestEnvironment {
                 jsonConfig.put("trustedproxies", config.trustedProxies);
             }
 
+            if (config.allowedOrigins != null) {
+                JSONObject cors = new JSONObject();
+                cors.put("allowedorigins", config.allowedOrigins);
+                jsonConfig.put("cors", cors);
+            }
+
             // Database configuration
             JSONObject database = new JSONObject();
             database.put("type", "postgresql");
@@ -349,6 +355,7 @@ public class ConfigurableTestEnvironment {
         private final int socketTimeout;
         private final boolean separateQueryDatabase;
         private final List<String> trustedProxies;
+        private final List<String> allowedOrigins;
 
         private Configuration(Builder builder) {
             this.regexpQueries = builder.regexpQueries;
@@ -370,6 +377,7 @@ public class ConfigurableTestEnvironment {
             this.socketTimeout = builder.socketTimeout;
             this.separateQueryDatabase = builder.separateQueryDatabase;
             this.trustedProxies = builder.trustedProxies;
+            this.allowedOrigins = builder.allowedOrigins;
         }
 
         public String getRegexpQueries() {
@@ -389,11 +397,11 @@ public class ConfigurableTestEnvironment {
          */
         public String getCacheKey() {
             return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,legacyParser=%b," +
-                            "socketTimeout=%d,queryDb=%b,trustedProxies=%s," +
+                            "socketTimeout=%d,queryDb=%b,trustedProxies=%s,allowedOrigins=%s," +
                             "maxEtl=%d,maxQueryConnections=%d,maxExportConnections=%d,connectionWaitTimeout=%d,queryDatabasePort=%d",
                     regexpQueries, rateLimitEnabled, rateLimitTimeRange,
                     rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitRequestsClientIp, rateLimitType,
-                    connectionPoolMax, legacyParser, socketTimeout, separateQueryDatabase, trustedProxies,
+                    connectionPoolMax, legacyParser, socketTimeout, separateQueryDatabase, trustedProxies, allowedOrigins,
                     maxEtlProcesses, maxQueryConnections, maxExportConnections, connectionWaitTimeout, queryDatabasePort);
         }
 
@@ -426,6 +434,7 @@ public class ConfigurableTestEnvironment {
         private int socketTimeout = -1;
         private boolean separateQueryDatabase = false;
         private List<String> trustedProxies = null;
+        private List<String> allowedOrigins = null;
 
         public Builder regexpQueries(String regexpQueries) {
             this.regexpQueries = regexpQueries;
@@ -528,6 +537,14 @@ public class ConfigurableTestEnvironment {
          */
         public Builder trustedProxies(List<String> trustedProxies) {
             this.trustedProxies = trustedProxies;
+            return this;
+        }
+
+        /**
+         * Sets "cors.allowedorigins"; null (the default) omits the "cors" block so that all origins are allowed.
+         */
+        public Builder allowedOrigins(List<String> allowedOrigins) {
+            this.allowedOrigins = allowedOrigins;
             return this;
         }
 
