@@ -15,7 +15,8 @@ replaces (`DatasetReplaceIT`). TC-ETL-030, TC-ETL-070 and TC-ETL-071 are unit te
 TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-073 and TC-ETL-074 are integration tests of the column name cleanup
 (`ColumnNameCleanupIT`), TC-ETL-038 to TC-ETL-044, TC-ETL-048 and TC-ETL-072 unit tests of the cleaning rule
 (`ColumnNamesTest`), TC-ETL-047 a unit test of the cleanup's stop condition (`PgRowStoreConnectionFailureTest`), and
-TC-ETL-075 to TC-ETL-078 integration tests of deletions (`DatasetDeleteIT`).
+TC-ETL-075 to TC-ETL-078 integration tests of deletions (`DatasetDeleteIT`), and TC-ETL-079 an integration test of
+deletions with a single ETL permit (`DatasetDeleteSingleEtlIT`, own RowStore instance with `maxetlprocesses` 1).
 
 ## Prerequisites
 
@@ -23,7 +24,7 @@ TC-ETL-075 to TC-ETL-078 integration tests of deletions (`DatasetDeleteIT`).
 - Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013, TC-ETL-014, TC-ETL-020 to TC-ETL-026, TC-ETL-029 and TC-ETL-053
   additionally require direct database access (superuser) and are skipped when testing an external instance; so do
   TC-ETL-031 to TC-ETL-037, TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-073 and TC-ETL-074, which also call into the RowStore application (TC-ETL-035 additionally starts separate
-  RowStore instances on a separate database), and TC-ETL-075, TC-ETL-077 and TC-ETL-078 (TC-ETL-077 calls into the
+  RowStore instances on a separate database), and TC-ETL-075, TC-ETL-077 to TC-ETL-079 (TC-ETL-077 calls into the
   RowStore application, TC-ETL-078 starts a separate RowStore instance on a separate database)
 
 ## Test Data
@@ -493,11 +494,15 @@ See API-3.07, DOM-2.04 and ETL-12.
 **Steps:**
 1. Create a dataset from CSV `A` (3 rows) and wait until it is available
 2. Create a table `data_<32 hex digits>` without a row in `datasets`, and a table `data_<32 hex digits>_copy`
-3. Call `PgRowStore.dropLeftoverDataTables()` (which runs at startup)
+3. Insert two rows into `datasets` as 1.x may have stored them, each with a data table `data_<id without hyphens>`:
+   one with `data_table` NULL, one with `data_table` in upper case (`DATA_<...>`)
+4. Call `PgRowStore.dropLeftoverDataTables()` (which runs at startup)
 
 **Assertions:**
-1. The returned table names contain the leftover table, but neither the `_copy` table nor the dataset's data table
-2. The leftover table is dropped, the `_copy` table still exists, and the dataset still returns its rows
+1. The returned table names contain the leftover table, but neither the `_copy` table, nor the dataset's data table,
+   nor the data tables of the two rows of step 3
+2. The leftover table is dropped; the `_copy` table and the data tables of the rows of step 3 still exist, and the
+   dataset still returns its rows
 
 ### TC-ETL-078: The upgrade of a 1.x database removes aliases and data tables of deleted datasets
 
@@ -514,6 +519,23 @@ See API-3.07, DOM-2.04 and ETL-12.
    existing dataset is kept
 2. Before step 3, `/dataset/orphan` returns `404`; setting the aliases returns `204`, and `/dataset/orphan/json`
    returns the rows of the existing dataset
+
+### TC-ETL-079: While the drop of a deleted dataset's table waits for a reader, uploads of other datasets are loaded
+
+**Setup:** A separate RowStore instance with `maxetlprocesses` 1.
+
+**Steps:**
+1. Create datasets A and B and wait until they are available
+2. In an open transaction, read A's data table (holds an `ACCESS SHARE` lock like a long export or `pg_dump`)
+3. `DELETE` A and wait until an attempt to drop its data table waits for the lock
+4. `PUT` a CSV with the rows `C1`, `C2` to B
+5. End the transaction of step 2
+
+**Assertions:**
+1. The DELETE returns `204`
+2. B becomes available with the rows `C1`, `C2` while A's data table still exists (the waiting drop holds the only
+   ETL permit at most for one attempt of 3 seconds)
+3. Within 60 seconds after step 5, A's data table no longer exists
 
 ## Exclusive tasks (unit test)
 

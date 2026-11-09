@@ -90,7 +90,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | Configuration and data sources | [10-configuration.md](tests/10-configuration.md) | ConnectionPoolIT (plus unit tests RowStoreConfigTest, DataSourceConfigTest) |
 > | Connection limits | [12-connection-limits.md](tests/12-connection-limits.md) | ConnectionLimitIT, ConnectionLimitSingleSlotIT, ConnectionLimitHealthIT (plus unit tests LimitedDataSourceTest, RowStoreConfigConnectionLimitsTest, PgRowStoreSessionSqlTest) |
 > | Deployment | [13-deployment.md](tests/13-deployment.md) | AccessLogIT (plus unit tests RowStoreApplicationTest, RowStoreConfigLoaderTest, AccessLogFilterTest) |
-> | ETL processing | [11-etl-processing.md](tests/11-etl-processing.md) | EtlProcessingIT, DatasetReplaceIT, DatasetDeleteIT, ColumnNameCleanupIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest, PgDatasetSwapLockTest, ColumnNamesTest, DatasetUtilBomReaderTest, PgRowStoreConnectionFailureTest) |
+> | ETL processing | [11-etl-processing.md](tests/11-etl-processing.md) | EtlProcessingIT, DatasetReplaceIT, DatasetDeleteIT, DatasetDeleteSingleEtlIT, ColumnNameCleanupIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest, PgDatasetSwapLockTest, ColumnNamesTest, DatasetUtilBomReaderTest, PgRowStoreConnectionFailureTest) |
 
 ## TEST-9 Framework-Agnostic Specs
 

@@ -246,9 +246,9 @@ Current limitations relevant to this area.
 | ETL-11.07 | Completed run recorded in maintenance_tasks, cleanup skipped at later startups |
 | ETL-11.08 | Only BOM and soft hyphens cleaned; whitespace and upper case of stored names kept |
 | ETL-11.09 | Stored names that clean to empty kept; ignored by appends |
-| ETL-12.01 | Data table of a deleted dataset dropped by a job of the dataset on the load budget with the swap lock strategy; INFO, ERROR on failure |
+| ETL-12.01 | Data table of a deleted dataset dropped by attempts as jobs of the dataset (3 s lock timeout, load budget), no permit or connection held between attempts; INFO, ERROR on failure |
 | ETL-12.02 | Status condition part of the DELETE; no load runs on a deleted dataset's tables |
-| ETL-12.03 | Startup drops data tables that no datasets row references (WARN) |
+| ETL-12.03 | Startup drops data tables that no datasets row references by lower-case stored or ID-derived name (WARN), 3 s lock timeout per table |
 | ETL-12.04 | Uploads and alias updates racing with a delete: 404, or load discarded with ERROR, no table touched |
 
 ### QUERY — Query Processing
