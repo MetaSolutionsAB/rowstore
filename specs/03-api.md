@@ -92,6 +92,12 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 >
 > The `Accept` headers are read as by Restlet's `PreferenceReader`: parameters before `q` belong to the media range, parameters after `q` are accept extensions and ignored (`application/json;q=1;foo=bar` matches JSON, `application/json;foo=bar` does not). A type without subtype (`text`, `text/`) is read as `text/*`. Semicolons and commas in quoted parameter values do not separate parameters or ranges, and a quoted quality is read without its quotes (`text/html;q="0.9"`). Unparseable ranges and empty ranges between commas are skipped. An invalid quality (not a number from 0 to 1, or `q` without value) and parameters without media type (e.g. `;q=0.5` or `;`) end the reading: the ranges before it are used, the following ones and further `Accept` headers are ignored (`text/html, application/json;q=2` → HTML; `application/json;q=2, text/html` → JSON).
 >
+> In 1.x, the order of the representations on equal scores was not fixed: it followed the order in which the JVM listed the annotated methods of the resource, so `text/html, application/json` could also select HTML. 2.0 always lists JSON first. For unusual `Accept` headers, the selection can still differ from 1.x:
+> - Media types are compared case-insensitively (`TEXT/HTML` selects HTML; 1.x selected JSON).
+> - Whitespace before a `;` that follows a parameter value (`*; charset=UTF-8 ;q=1`) and around `=` in the quality (`text/html;q= 0.5`) is read as RFC 9110 allows; Restlet dropped the quality or stopped reading there. A parameter without value (`text/html;a`), a `;` after the quality (`text/html;q=0.5;`) and a type followed by `;` alone (`text;`) are also read differently.
+> - Ranges that Spring cannot parse, e.g. `text/html;charset=bogus` or `text/html;;q=0.5`, are skipped; Restlet used them.
+> - Scores that differ by less than about 10⁻⁷ are not equal; Restlet added them to a floating-point sum in which they tied. This only occurs when both representations are matched by ranges with qualities below 0.01.
+>
 > Their responses, including error responses (e.g. 404), carry `Vary: Accept`, so that caches keep the representations apart.
 
 > **API-4.05** The query parameter `media` replaces the `Accept` header, as the TunnelService of Restlet did in 1.x, e.g., `/dataset/{id}/export?media=csv` for download links. Its value is a file extension (`json`, `csv`, `html`, `htm`, `txt`, `xml`) or a media type (e.g., `text/csv`); other values are ignored. Together with `charset`, `encoding` and `language`, which were consumed by the TunnelService as well, it is not a column filter, see [QUERY-3.06](05-querying.md#query-3-special-parameters).
@@ -200,3 +206,4 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-11-09 | API-4.01, API-4.04: selection rule of Restlet's flexible content negotiation; `/dataset/{id}` returns JSON without `Accept` and for `*/*`; `Accept` read as by Restlet (accept extensions, invalid quality, type without subtype) (ROWS-171) |
 | 2026-11-09 | Known Limitations: 1.x handled `PATCH` like `PUT`; 2.0 keeps returning 405 (ROWS-172) |
 | 2026-11-09 | Added API-3.16: `PUT`, `POST` and `DELETE` on `/dataset/{id}/json` as on `/dataset/{id}` (ROWS-172) |
+| 2026-11-09 | API-4.04: order of 1.x on equal scores, remaining differences from 1.x for unusual `Accept` headers (ROWS-171) |
