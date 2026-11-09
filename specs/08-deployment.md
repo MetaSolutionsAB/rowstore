@@ -57,6 +57,8 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > - **Writable `/tmp`:** Tomcat creates its work directory in `/tmp`, and the CA script writes the truststore copy there, so `/tmp` must be writable. With a read-only root filesystem (`docker run --read-only`, Kubernetes `readOnlyRootFilesystem: true`), a tmpfs or an `emptyDir` volume must be mounted at `/tmp` (`--tmpfs /tmp`); 1.x started without one.
 > - An existing 1.x container definition works with the 2.0 image after changing only the tag, as long as the configuration is readable for UID or GID 10001 (DEPL-2.04), `/tmp` is writable, and it passes no 1.x start-script command or arguments, such as `-c` (CFG-7.05).
 
+> **DEPL-2.06** The image does not trust the root CAs distrusted by the OpenJDK eMudhra advisory (https://openjdk.org/emudhra, CVE-2026-114820): emSign Root CA - G1, emSign Root CA - G2, emSign ECC Root CA - G3 and AAA Certificate Services. The build runs `src/main/docker/distrust-emudhra.sh` (shared with EntryStore, ENTRYSTORE-1276) as root, before switching to `rowstore`: it removes them by subject (not by alias, since Temurin's cacerts aliases differ from OpenJDK's) from the JDK truststore, deselects them in the Alpine system store (`/etc/ca-certificates.conf`, `update-ca-certificates`), which `USE_SYSTEM_CA_CERTS` imports into the JVM's truststore (DEPL-2.05), and fails the build if one of them is still trusted or a store cannot be read. The step stays after the base image ships the fix, as a guard against the roots coming back. Consequence: a configuration fetched from an `https://` URI (CFG-2.01) fails to load if the server's certificate chains to one of these roots. The same build step runs `apk --no-cache upgrade`, so the image gets the Alpine package fixes (e.g. zlib) published after the base image was built.
+
 ## DEPL-3 CI/CD
 
 > **DEPL-3.01** CI/CD uses Bitbucket Pipelines with this workflow:
@@ -191,3 +193,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 | 2026-11-09 | DEPL-2.04: jar copied with mode 0644 (`COPY --chmod`, BuildKit), not writable for group 0 (ROWS-176) |
 | 2026-11-09 | DEPL-2.03, DEPL-2.05, DEPL-3.02: `<major.minor>` and `latest` not pushed for versions with a `-` suffix (ROWS-176) |
 | 2026-11-09 | DEPL-2.05: writable `/tmp` required (tmpfs or `emptyDir` with a read-only root filesystem), 1.x arguments instead of options (CFG-7.05), `docker` repository guard planned rather than in place (ROWS-176) |
+| 2026-11-09 | Added DEPL-2.06 (eMudhra root CAs removed from the truststores at build time, CVE-2026-114820; `apk upgrade`) (ROWS-182) |

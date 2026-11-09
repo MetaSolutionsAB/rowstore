@@ -44,6 +44,9 @@ defaults to 8282. The Docker Hub step of `bitbucket-pipelines.yml` pushes `<vers
 `<major.minor>` and `latest` (master, only for versions without a `-` suffix; DEPL-2.03, DEPL-2.05); the 1.x images
 came from the separate `docker` repository.
 `main` rejects arguments that are not of the form `--name=value` (CFG-7.05), so 1.x options do not pass silently.
+The build runs `apk upgrade` and `src/main/docker/distrust-emudhra.sh` (shared with EntryStore, keep both copies in
+sync), which removes the eMudhra root CAs (CVE-2026-114820) from the JDK and Alpine truststores and fails the build if
+one is left (DEPL-2.06).
 
 Release versions are set with `./set-version.sh <version>`, which updates `pom.xml`, `VERSION.txt` and
 `src/main/resources/VERSION.txt` (served by `/status`).

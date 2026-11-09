@@ -5,8 +5,15 @@ FROM eclipse-temurin:25-jre-alpine
 LABEL org.opencontainers.image.authors="devops@metasolutions.se"
 LABEL se.metasolutions.service="rowstore"
 
-# RowStore runs as an unprivileged user with a fixed UID/GID, so that mounted files can be made readable for it
-RUN addgroup -S -g 10001 rowstore && adduser -S -u 10001 -G rowstore -h /srv/rowstore rowstore
+# As root, in one layer: apk upgrade patches the base image's packages (e.g. zlib) between Temurin releases;
+# distrust-emudhra.sh then removes the compromised eMudhra root CAs (CVE-2026-114820) from the JDK truststore and the
+# Alpine system store and fails the build if one is left (DEPL-2.06). RowStore runs as an unprivileged user with a
+# fixed UID/GID, so that mounted files can be made readable for it. The script is run with sh and removed again, so
+# that the COPY needs no --chmod
+COPY src/main/docker/distrust-emudhra.sh /tmp/distrust-emudhra.sh
+RUN apk --no-cache upgrade && \
+    sh /tmp/distrust-emudhra.sh && rm /tmp/distrust-emudhra.sh && \
+    addgroup -S -g 10001 rowstore && adduser -S -u 10001 -G rowstore -h /srv/rowstore rowstore
 
 WORKDIR /srv/rowstore
 
