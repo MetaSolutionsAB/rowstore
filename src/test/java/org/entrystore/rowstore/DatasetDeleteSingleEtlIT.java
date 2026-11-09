@@ -58,7 +58,7 @@ class DatasetDeleteSingleEtlIT extends ConfigurableTestBase {
 
     @Test
     @DisplayName("TC-ETL-079: While the drop of a deleted dataset's table waits for a reader, uploads of other datasets are loaded")
-    void dropWaitingForReader_doesNotBlockUploads() throws SQLException {
+    void dropWaitingForReader_doesNotBlockUploads() throws SQLException, InterruptedException {
         DatasetUrls deleted = createDatasetAndWait(csv("A", 3));
         DatasetUrls other = createDatasetAndWait(csv("B", 1));
         String dataTable = "data_" + deleted.datasetId.replace("-", "");
@@ -70,9 +70,9 @@ class DatasetDeleteSingleEtlIT extends ConfigurableTestBase {
             }
             try {
                 given().delete(deleted.datasetUrl).then().statusCode(204);
-                // the first attempt of the drop waits for the lock
-                await().atMost(MAX_WAIT).pollInterval(POLL_INTERVAL)
-                        .until(() -> lockWaiters(db, "LOCK TABLE " + dataTable) > 0);
+                // the first attempts of the drop (right away and after 1 s) find the data table in use
+                Thread.sleep(2000);
+                assertThat(lockWaiters(db, "LOCK TABLE " + dataTable)).as("attempts of the drop do not wait").isZero();
 
                 given().spec(csvSpec).body(csv("C", 2)).put(other.datasetUrl).then().statusCode(202);
                 waitForDatasetAvailable(other.infoUrl);

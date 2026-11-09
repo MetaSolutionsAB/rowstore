@@ -436,9 +436,11 @@ public class PgRowStore implements RowStore {
 	 */
 	private List<String> dropLeftoverDataTablesOrThrow() {
 		List<String> dropped = new ArrayList<>();
+		// the referenced names are computed once and anti-joined (a CTE is materialized once, also in PostgreSQL 9.6)
 		List<String> tables = jdbcTemplate.queryForList(
-				"SELECT t.tablename::text FROM pg_tables t WHERE t.schemaname = current_schema() AND t.tablename ~ ? " +
-						"AND NOT " + PgDatasets.referencedByDataset("t.tablename::text"),
+				"WITH referenced AS (" + PgDatasets.REFERENCED_TABLE_NAMES + ") " +
+						"SELECT t.tablename::text FROM pg_tables t LEFT JOIN referenced r ON r.name = t.tablename::text " +
+						"WHERE t.schemaname = current_schema() AND t.tablename ~ ? AND r.name IS NULL",
 				String.class, "^" + PgDatasets.DATA_TABLE_PATTERN + "$");
 		for (String table : tables) {
 			if (table.matches(PgDatasets.DATA_TABLE_PATTERN) && dropTableAtStartup(table, "leftover data table")) {

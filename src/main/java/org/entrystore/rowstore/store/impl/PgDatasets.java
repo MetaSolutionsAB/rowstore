@@ -243,10 +243,16 @@ public class PgDatasets implements Datasets {
 			aliases = ps.executeUpdate();
 		}
 		String dataTable = storedTable != null ? storedTable.trim() : null;
-		if (dataTable == null || !dataTable.matches(DATA_TABLE_PATTERN)) {
-			// a corrupt row (API-6.06); the table named after the ID is the only one the dataset can have had
+		if (dataTable == null) {
+			// possible in databases of 1.x; the table named after the ID is the only one the dataset can have had
 			dataTable = constructDataTableName(canonicalId);
-			log.error("Dataset {} has an invalid data table name in the datasets table, dropping {} instead", canonicalId, dataTable);
+			log.warn("Dataset {} has no data table name in the datasets table, dropping {}", canonicalId, dataTable);
+		} else if (!dataTable.matches(DATA_TABLE_PATTERN)) {
+			// a corrupt row (API-6.06)
+			String invalid = dataTable;
+			dataTable = constructDataTableName(canonicalId);
+			log.error("Dataset {} has an invalid data table name in the datasets table ({}), dropping {} instead",
+					canonicalId, invalid, dataTable);
 		}
 		return new Purge(PurgeResult.PURGED, canonicalId, dataTable, aliases);
 	}
@@ -272,6 +278,14 @@ public class PgDatasets implements Datasets {
 		return "EXISTS (SELECT 1 FROM " + DATASETS_TABLE_NAME + " d WHERE lower(trim(d.data_table)) = " + tableExpression +
 				" OR 'data_' || replace(d.id::text, '-', '') = " + tableExpression + ")";
 	}
+
+	/**
+	 * A query of the names of all data tables that rows of the datasets table reference, as in
+	 * {@link #referencedByDataset(String)}, in the column {@code name} (never NULL). Computed once, so that it can be
+	 * anti-joined against many tables, e.g., at startup.
+	 */
+	static final String REFERENCED_TABLE_NAMES = "SELECT lower(trim(data_table)) AS name FROM " + DATASETS_TABLE_NAME +
+			" WHERE data_table IS NOT NULL UNION SELECT 'data_' || replace(id::text, '-', '') FROM " + DATASETS_TABLE_NAME;
 
 	/**
 	 * @see Datasets#getDataset(String)

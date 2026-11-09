@@ -1093,6 +1093,27 @@ public class PgDataset implements Dataset {
 	}
 
 	/**
+	 * Locks tables exclusively within the caller's transaction if this is possible without waiting (NOWAIT), within a
+	 * savepoint that is rolled back if a table is in use.
+	 *
+	 * @return Returns true if the tables were locked, false if one of them is in use.
+	 * @throws SQLException If locking failed for another reason.
+	 */
+	private static boolean tryLockWithoutWaiting(Connection conn, List<String> tables) throws SQLException {
+		Savepoint savepoint = conn.setSavepoint();
+		try (Statement stmt = conn.createStatement()) {
+			executeDdl(stmt, "LOCK TABLE " + String.join(", ", tables) + " IN ACCESS EXCLUSIVE MODE NOWAIT");
+			return true;
+		} catch (SQLException e) {
+			if (!LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+				throw e;
+			}
+			conn.rollback(savepoint);
+			return false;
+		}
+	}
+
+	/**
 	 * The attempts to lock the data table for one purpose (ETL-6.04): when they started, the delays between them, the
 	 * wait limit, and the logging of the sessions holding the table.
 	 */
@@ -1100,14 +1121,27 @@ public class PgDataset implements Dataset {
 
 		private final String purpose;
 
+		/**
+		 * How long a single attempt waits, for logging.
+		 */
+		private final String attemptWait;
+
 		private final long start = System.nanoTime();
 
 		private long lastHoldersLog;
 
 		private boolean holdersLogged;
 
+		/**
+		 * For attempts that wait at most {@link #SWAP_LOCK_TIMEOUT_SECONDS} each.
+		 */
 		LockAttempts(String purpose) {
+			this(purpose, "at most " + SWAP_LOCK_TIMEOUT_SECONDS + " s each");
+		}
+
+		LockAttempts(String purpose, String attemptWait) {
 			this.purpose = purpose;
+			this.attemptWait = attemptWait;
 		}
 
 		long elapsedSeconds() {
@@ -1142,7 +1176,7 @@ public class PgDataset implements Dataset {
 			if (attempt >= swapRetryDelaysMillis.length - 1 &&
 					(!holdersLogged || TimeUnit.NANOSECONDS.toMillis(now - lastHoldersLog) >= lockHoldersLogIntervalMillis)) {
 				logLockHolders(conn, "Retrying for up to " + TimeUnit.MILLISECONDS.toSeconds(swapLockWaitLimitMillis - elapsedMillis) +
-						" s (" + (attempt + 1) + " attempts so far, at most " + SWAP_LOCK_TIMEOUT_SECONDS + " s each) to " + purpose +
+						" s (" + (attempt + 1) + " attempts so far, " + attemptWait + ") to " + purpose +
 						", data table " + dataTable + " of dataset " + getId() + " is held by");
 				holdersLogged = true;
 				lastHoldersLog = now;
@@ -1156,9 +1190,11 @@ public class PgDataset implements Dataset {
 	 * Drops the data table and the shadow table (if any) of a dataset whose row in the datasets table has been deleted,
 	 * in the background (ETL-12.01). Every attempt is a job of the dataset (EtlProcessor#runExclusively), so it never
 	 * runs concurrently with a load of the dataset, and uses its own connection of the load budget, never a query
-	 * connection. An attempt waits at most {@link #SWAP_LOCK_TIMEOUT_SECONDS} for the lock of the data table, like an
-	 * attempt of a replace (ETL-6.04). If it times out, e.g., behind an export that started before the deletion, the job
-	 * ends, and the next attempt is submitted as a new job after the delay of {@link #swapRetryDelay(int)}, so that
+	 * connection. Since nobody waits for the drop, an attempt locks the data table and the shadow table without waiting
+	 * (NOWAIT), unlike an attempt of a replace (ETL-6.04), and no other statement of it waits longer than
+	 * {@link #SWAP_LOCK_TIMEOUT_SECONDS} for a lock. If a table is in use, e.g., by an export that started before the
+	 * deletion, the job ends at once, and the next attempt is submitted as a new job after the delay of
+	 * {@link #swapRetryDelay(int)}, so that
 	 * neither an ETL permit nor a connection is held between the attempts, until {@link #SWAP_LOCK_WAIT_LIMIT_MILLIS} is
 	 * reached. Failures and giving up are logged at ERROR level; the startup drops what is left (ETL-12.03), also if the
 	 * ETL processor is shut down before the next attempt.
@@ -1208,20 +1244,32 @@ public class PgDataset implements Dataset {
 	long dropTablesOfDeletedDataset(int attempt) {
 		long before = System.currentTimeMillis();
 		if (attempt == 0) {
-			dropAttempts = new LockAttempts("drop it");
+			dropAttempts = new LockAttempts("drop it", "without waiting");
 		}
 		String shadowTable = PgDatasets.shadowTableName(dataTable);
 		try (Connection conn = rowstore.getLoadConnection()) {
 			conn.setAutoCommit(false);
 			try {
-				boolean exists;
-				try (PreparedStatement ps = conn.prepareStatement("SELECT to_regclass(?) IS NOT NULL")) {
+				try (Statement stmt = conn.createStatement()) {
+					// a backstop: no statement of the attempt waits long for a lock, the tables are locked without waiting
+					executeDdl(stmt, "SET LOCAL lock_timeout = '" + SWAP_LOCK_TIMEOUT_SECONDS + "s'");
+				}
+				List<String> tables = new ArrayList<>();
+				try (PreparedStatement ps = conn.prepareStatement("SELECT to_regclass(?) IS NOT NULL, to_regclass(?) IS NOT NULL")) {
 					ps.setString(1, dataTable);
+					ps.setString(2, shadowTable);
 					try (ResultSet rs = ps.executeQuery()) {
-						exists = rs.next() && rs.getBoolean(1);
+						if (rs.next()) {
+							if (rs.getBoolean(1)) {
+								tables.add(dataTable);
+							}
+							if (rs.getBoolean(2)) {
+								tables.add(shadowTable);
+							}
+						}
 					}
 				}
-				if (exists && !tryLockDataTable(conn)) {
+				if (!tables.isEmpty() && !tryLockWithoutWaiting(conn, tables)) {
 					long delay = dropAttempts.afterTimeout(conn, attempt);
 					conn.rollback();
 					if (delay < 0) {
