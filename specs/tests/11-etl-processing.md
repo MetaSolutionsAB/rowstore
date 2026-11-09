@@ -8,14 +8,14 @@ load fails or the database is unreachable, atomic replaces, the cleanup of colum
 tables and aliases of deleted datasets.
 See [04-etl-pipeline.md](../04-etl-pipeline.md) (ETL-6, ETL-8, ETL-10, ETL-11, ETL-12).
 
-TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027, TC-ETL-028, TC-ETL-051, TC-ETL-054 and TC-ETL-055 are unit tests (`EtlProcessorTest`,
+TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027, TC-ETL-028, TC-ETL-051, TC-ETL-054, TC-ETL-055, TC-ETL-NEW1 and TC-ETL-NEW2 are unit tests (`EtlProcessorTest`,
 `PgDatasetPopulateTest`, `PgDatasetSwapLockTest`) that use fakes instead of a database. TC-ETL-010 to TC-ETL-014
 and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-026, TC-ETL-029 and TC-ETL-053 integration tests of
 replaces (`DatasetReplaceIT`). TC-ETL-030, TC-ETL-070 and TC-ETL-071 are unit tests (`EtlProcessorTest`), TC-ETL-031 to TC-ETL-037,
 TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-073 and TC-ETL-074 are integration tests of the column name cleanup
 (`ColumnNameCleanupIT`), TC-ETL-038 to TC-ETL-044, TC-ETL-048 and TC-ETL-072 unit tests of the cleaning rule
 (`ColumnNamesTest`), TC-ETL-047 a unit test of the cleanup's stop condition (`PgRowStoreConnectionFailureTest`), and
-TC-ETL-075 to TC-ETL-078 integration tests of deletions (`DatasetDeleteIT`), and TC-ETL-079 an integration test of
+TC-ETL-075 to TC-ETL-078 and TC-ETL-NEW3 integration tests of deletions (`DatasetDeleteIT`), and TC-ETL-079 an integration test of
 deletions with a single ETL permit (`DatasetDeleteSingleEtlIT`, own RowStore instance with `maxetlprocesses` 1).
 
 ## Prerequisites
@@ -179,6 +179,33 @@ with SQL state `55P03`.
 
 **Assertions:**
 1. The delays after the attempts 1, 4, 5, 6, 7 and 101 are 1, 5, 10, 20, 30 and 30 seconds
+
+### TC-ETL-NEW1: An attempt to drop a deleted dataset's tables waits up to 3 seconds for the lock, a timed out attempt is retried
+
+**Setup:** As TC-ETL-027, with delays of 7 ms; the data table exists, the shadow table does not; the first
+`LOCK TABLE` fails with SQL state `55P03`.
+
+**Steps:**
+1. Call `dropTablesOfDeletedDataset(0)` (ETL-12.01), then `dropTablesOfDeletedDataset(1)`
+
+**Assertions:**
+1. The first attempt sets `lock_timeout = '3s'`, then locks the data table within a savepoint with
+   `SET LOCAL lock_timeout = '3s'` and `LOCK TABLE <dataTable> IN ACCESS EXCLUSIVE MODE` (without `NOWAIT`), rolls
+   back to the savepoint and the transaction, and returns the delay 7
+2. The second attempt locks the data table the same way, drops the shadow table and the data table
+   (`DROP TABLE IF EXISTS`), commits, and returns -1 (no further attempt)
+
+### TC-ETL-NEW2: A drop attempt that fails for another reason is retried until the wait limit, unless the failure cannot pass
+
+**Setup:** As TC-ETL-NEW1, with a wait limit of 30 minutes.
+
+**Assertions:**
+1. An attempt that gets no load connection (`SQLTransientConnectionException`) returns the delay 7
+2. An attempt whose `DROP TABLE` fails with SQL state `08006` (connection failure), `57014` (statement timeout) or
+   `55P03` (lock timeout) returns the delay 7
+3. An attempt whose `DROP TABLE` fails with SQL state `42501` (insufficient privilege) or `2BP01` (dependent objects)
+   returns -1
+4. With a wait limit of 0, an attempt that fails with `08006` returns -1 (given up)
 
 ### TC-ETL-050: A load of a dataset that was deleted while the load was queued is skipped
 
@@ -504,6 +531,18 @@ See API-3.07, DOM-2.04 and ETL-12.
 2. The leftover table is dropped; the `_copy` table and the data tables of the rows of step 3 still exist, and the
    dataset still returns its rows
 
+### TC-ETL-NEW3: A leftover table that cannot be dropped at startup is skipped, the other leftover tables are dropped
+
+**Steps:**
+1. Create two tables `data_<32 hex digits>` and two tables `data_<32 hex digits>_new`, none of them referenced by a
+   row in `datasets`
+2. Create a view on one of the data tables and on one of the shadow tables (`DROP TABLE` fails with SQL state `2BP01`)
+3. Call `PgRowStore.dropLeftoverShadowTables()` and `PgRowStore.dropLeftoverDataTables()` (which run at startup)
+
+**Assertions:**
+1. The returned table names contain the tables without a view, but not those with a view
+2. The tables without a view are dropped, the tables with a view still exist
+
 ### TC-ETL-078: The upgrade of a 1.x database removes aliases and data tables of deleted datasets
 
 **Steps:**
@@ -527,14 +566,14 @@ See API-3.07, DOM-2.04 and ETL-12.
 **Steps:**
 1. Create datasets A and B and wait until they are available
 2. In an open transaction, read A's data table (holds an `ACCESS SHARE` lock like a long export or `pg_dump`)
-3. `DELETE` A and wait 2 seconds (the first attempts to drop its data table find it in use)
+3. `DELETE` A and wait 2 seconds (the first attempt to drop its data table finds it in use and waits for its lock)
 4. `PUT` a CSV with the rows `C1`, `C2` to B
 5. End the transaction of step 2
 
 **Assertions:**
 1. The DELETE returns `204`
 2. B becomes available with the rows `C1`, `C2` while A's data table still exists (the pending drop holds the only
-   ETL permit only for the moments of its attempts, which do not wait for the lock)
+   ETL permit only during its attempts, each of which waits at most 3 seconds for the lock)
 3. Within 60 seconds after step 5, A's data table no longer exists
 
 ## Exclusive tasks (unit test)
