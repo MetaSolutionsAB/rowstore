@@ -36,10 +36,10 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Replaces the remote address of requests from trusted reverse proxies with the client address from X-Forwarded-For,
@@ -67,7 +67,7 @@ public class TrustedProxyFilter implements Filter {
 
 	// Peers that sent X-Forwarded-For without being trusted, to warn at most once per hour and address
 	private final Cache<String, Boolean> warnedPeers =
-			CacheBuilder.newBuilder().maximumSize(1000).expireAfterWrite(1, TimeUnit.HOURS).build();
+			CacheBuilder.newBuilder().maximumSize(1000).expireAfterWrite(Duration.ofHours(1)).build();
 
 	public TrustedProxyFilter(RowStoreConfig config) {
 		List<String> configured = config.getTrustedProxies();
