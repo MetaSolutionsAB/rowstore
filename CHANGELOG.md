@@ -34,6 +34,8 @@ RowStore 2.0 is a rewrite of the application layer on Spring Boot. The REST API 
 
 [ROWS-168](https://metasolutions.atlassian.net/browse/ROWS-168) Correct and complete the 2.0 upgrade notes and specs after the PR #4 review
 
+[ROWS-143](https://metasolutions.atlassian.net/browse/ROWS-143) Dependency vulnerability scan before 2.0: Spring Boot 3.5.16 (from 3.5.10), Tomcat 10.1.61, Jackson 2.21.8, PostgreSQL JDBC 42.7.14, Log4j 2.25.5, Guava 33.8.0, Commons Lang 3.20.0
+
 ### Bug
 
 [ROWS-101](https://metasolutions.atlassian.net/browse/ROWS-101) Export corrupts rows with duplicate cell values, fails on sparse rows, and leaks a connection on DB error

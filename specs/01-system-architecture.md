@@ -30,7 +30,7 @@ Covers the system from a structural and architectural perspective. For detailed 
 
 > **ARCH-3.01** Core technologies:
 > - **Java 25** — Runtime and language level
-> - **Spring Boot 3.5.10** — Application framework with embedded Tomcat
+> - **Spring Boot 3.5.16** — Application framework with embedded Tomcat
 > - **PostgreSQL** — Data storage (JSONB)
 > - **HikariCP** — Optional JDBC connection pooling, used only when `connectionPoolMax` > 0 ([CFG-4.03](06-configuration.md#cfg-4-database-configuration)); by default, connections are opened per operation with the driver's `PGSimpleDataSource`
 > - **Flyway** — Database schema migration
@@ -158,3 +158,4 @@ Covers the system from a structural and architectural perspective. For detailed 
 | 2026-10-23 | ARCH-5.01: ParameterParsingFilter and TunnelFilter added (ROWS-152, ROWS-158) |
 | 2026-11-05 | ARCH-7.03: requests blocked by a long lock on one dataset can use up the query connections if they arrive faster than the lock timeout releases them (ROWS-168) |
 | 2026-11-05 | ARCH-7.03: condition under which requests behind a swap lock attempt succeed, startup warning otherwise; ARCH-7.08: the first SQL state decides which failures are retried, also behind a connection pool |
+| 2026-11-09 | ARCH-3.01: Spring Boot 3.5.16 with patched dependency versions (ROWS-143) |

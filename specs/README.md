@@ -110,7 +110,7 @@ Current limitations relevant to this area.
 | ARCH-2.03 | Export as JSON or CSV |
 | ARCH-2.04 | Web GUI for browsing |
 | ARCH-2.05 | Rate limiting |
-| ARCH-3.01 | Core: Java 25, Spring Boot 3.5.10, PostgreSQL, Tomcat (embedded), optional HikariCP, Flyway |
+| ARCH-3.01 | Core: Java 25, Spring Boot 3.5.16, PostgreSQL, Tomcat (embedded), optional HikariCP, Flyway |
 | ARCH-3.02 | Libraries: OpenCSV, Guava, Log4j2, juniversalchardet, ICU4J |
 | ARCH-4.01 | Single Maven module — executable JAR |
 | ARCH-4.02 | [REMOVED] standalone/jetty — replaced by Spring Boot embedded server |
