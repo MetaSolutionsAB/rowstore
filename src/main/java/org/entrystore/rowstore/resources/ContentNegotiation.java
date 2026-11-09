@@ -20,94 +20,136 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
+import org.springframework.util.MimeTypeUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * Selects the representation of a resource that has more than one (API-4.04). Like Restlet in 1.x, a request is never
- * answered with 406: if the Accept header accepts none of the representations, the first representation with the same
- * top-level type as an accepted media type is selected (e.g., text/plain selects text/html or text/csv), otherwise the
- * first representation. Resources with only one representation always respond with it, regardless of the Accept
- * header; their controllers set the Content-Type explicitly instead of using {@code produces}.
+ * Selects the representation of a resource that has more than one (API-4.04), as the flexible content negotiation of
+ * Restlet did in 1.x ({@code FlexibleConneg}). A representation scores the highest quality of the media ranges that
+ * include it, after the Accept header has been enriched with ranges of low quality: the parent of each range (e.g.,
+ * text/* for text/html, with 0.005 + 0.001 &times; its quality), application/* with 0.002 (the parent of Restlet's
+ * default media type application/octet-stream) and *&#47;* with 0.001, which replaces a *&#47;* sent by the client.
+ * Consequently, a representation named by its media type or by type/* wins over one only matched by a range of the
+ * same top-level type (e.g., text/html for text/csv), the quality decides between ranges of the same kind, and
+ * *&#47;* never decides. Requests are never answered with 406. Resources with only one representation always
+ * respond with it, regardless of the Accept header; their controllers set the Content-Type explicitly instead of
+ * using {@code produces}.
  */
 final class ContentNegotiation {
+
+	private static final MediaType APPLICATION_ALL = new MediaType("application", "*");
 
 	private ContentNegotiation() {
 	}
 
 	/**
-	 * @param representations The media types of the representations, the default first.
-	 * @return Returns the selected representation: the one with the highest quality in the Accept header; if several
-	 * have the same quality, the one matched by the more specific media range (e.g., application/json over *&#47;*),
-	 * then the earlier one.
+	 * @param representations The media types of the representations, in the order in which they win ties.
+	 * @return Returns the representation with the highest score; of several with the same score, the first one.
 	 */
 	static MediaType select(HttpServletRequest request, MediaType... representations) {
-		List<MediaType> accepted = acceptedMediaTypes(request);
-		if (accepted.isEmpty()) {
-			return representations[0];
-		}
-
-		MediaType best = null;
-		double bestQuality = 0;
-		int bestSpecificity = -1;
+		List<Preference> preferences = preferences(request);
+		MediaType best = representations[0];
+		float bestScore = -1;
 		for (MediaType representation : representations) {
-			// the quality of a representation is that of the most specific media range that includes it
-			double quality = 0;
-			int specificity = -1;
-			for (MediaType range : accepted) {
-				if (range.includes(representation)) {
-					int s = specificity(range);
-					if (s > specificity || (s == specificity && range.getQualityValue() > quality)) {
-						quality = range.getQualityValue();
-						specificity = s;
-					}
+			float score = -1;
+			for (Preference preference : preferences) {
+				if (includes(preference.range(), representation)) {
+					score = Math.max(score, preference.quality());
 				}
 			}
-			if (quality > bestQuality || (quality > 0 && quality == bestQuality && specificity > bestSpecificity)) {
+			if (score > bestScore) {
 				best = representation;
-				bestQuality = quality;
-				bestSpecificity = specificity;
+				bestScore = score;
 			}
 		}
-		if (best != null) {
-			return best;
-		}
+		return best;
+	}
 
-		// none is acceptable: like Restlet, prefer a representation with the same top-level type
-		List<MediaType> byQuality = new ArrayList<>(accepted);
-		byQuality.sort(Comparator.comparingDouble(MediaType::getQualityValue).reversed());
-		for (MediaType range : byQuality) {
-			for (MediaType representation : representations) {
-				if (range.getQualityValue() > 0 && !range.isWildcardType() &&
-						range.getType().equalsIgnoreCase(representation.getType())) {
-					return representation;
+	private record Preference(MediaType range, float quality) {
+	}
+
+	/**
+	 * Returns the media ranges of the Accept header, enriched as by {@code FlexibleConneg.getEnrichedPreferences()}.
+	 * Ranges that cannot be parsed are skipped. Ranges with quality 0 still match (with quality 0), they are only not
+	 * added as the parent of another range.
+	 */
+	private static List<Preference> preferences(HttpServletRequest request) {
+		List<Preference> preferences = new ArrayList<>();
+		for (String header : Collections.list(request.getHeaders(HttpHeaders.ACCEPT))) {
+			for (String token : MimeTypeUtils.tokenize(header)) {
+				try {
+					MediaType range = MediaType.parseMediaType(token);
+					preferences.add(new Preference(range.removeQualityValue(), (float) range.getQualityValue()));
+				} catch (InvalidMediaTypeException e) {
+					// skipped: Restlet parsed such a value into a range that includes none of the representations
 				}
 			}
 		}
-		return representations[0];
+
+		Set<MediaType> undesired = preferences.stream()
+				.filter(p -> p.quality() == 0)
+				.map(Preference::range)
+				.collect(Collectors.toSet());
+		// the list grows while it is iterated, so that the parents of added parents are added as well
+		for (int i = 0; i < preferences.size(); i++) {
+			Preference preference = preferences.get(i);
+			MediaType parent = parent(preference.range());
+			if (parent != null && !undesired.contains(parent)) {
+				preferences.add(new Preference(parent, 0.005f + 0.001f * preference.quality()));
+			}
+		}
+		if (!undesired.contains(MediaType.APPLICATION_OCTET_STREAM)) {
+			preferences.add(new Preference(MediaType.APPLICATION_OCTET_STREAM, 0.003f));
+			if (!undesired.contains(APPLICATION_ALL)) {
+				preferences.add(new Preference(APPLICATION_ALL, 0.002f));
+			}
+		}
+		preferences.removeIf(p -> p.range().isWildcardType());
+		preferences.add(new Preference(MediaType.ALL, 0.001f));
+		return preferences;
 	}
 
-	private static int specificity(MediaType range) {
+	/**
+	 * As {@code MediaType.getParent()} of Restlet: the range without parameters, otherwise type/* or *&#47;*.
+	 */
+	private static MediaType parent(MediaType range) {
+		if (!range.getParameters().isEmpty()) {
+			return new MediaType(range.getType(), range.getSubtype());
+		}
 		if (range.isWildcardType()) {
-			return 0;
+			return null;
 		}
-		return range.isWildcardSubtype() ? 1 : 2;
+		return "*".equals(range.getSubtype()) ? MediaType.ALL : new MediaType(range.getType(), "*");
 	}
 
-	private static List<MediaType> acceptedMediaTypes(HttpServletRequest request) {
-		List<String> headers = Collections.list(request.getHeaders(HttpHeaders.ACCEPT));
-		if (headers.isEmpty()) {
-			return List.of();
+	/**
+	 * As {@code MediaType.includes(Metadata, false)} of Restlet: if the subtypes are equal, the parameters of the range
+	 * must be those of the representation; type/*+suffix also includes type/suffix (e.g., application/*+json includes
+	 * application/json).
+	 */
+	private static boolean includes(MediaType range, MediaType representation) {
+		if (range.isWildcardType()) {
+			return true;
 		}
-		try {
-			return MediaType.parseMediaTypes(headers);
-		} catch (InvalidMediaTypeException e) {
-			// an unparseable Accept header is treated like none, as by Restlet
-			return List.of();
+		if (!range.getType().equals(representation.getType())) {
+			return false;
 		}
+		String subtype = range.getSubtype();
+		if (subtype.equals(representation.getSubtype())) {
+			for (Map.Entry<String, String> parameter : range.getParameters().entrySet()) {
+				if (!parameter.getValue().equals(representation.getParameter(parameter.getKey()))) {
+					return false;
+				}
+			}
+			return true;
+		}
+		return "*".equals(subtype) || (subtype.startsWith("*+") && representation.getSubtype().endsWith(subtype.substring(2)));
 	}
 
 }

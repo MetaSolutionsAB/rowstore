@@ -23,12 +23,13 @@ Spec: API-4.04
 | `/dataset/{id}/json` | `text/html`, `text/csv` |
 | `/dataset/{id}` | `application/ld+json`, `application/xml` |
 
-### TC-CONNEG-002: The dataset resource redirects to the HTML view for text types
+### TC-CONNEG-002: The dataset resource redirects to the HTML view if HTML matches best
 
 Spec: API-4.03, API-4.04
 
-**Requests:** `GET /dataset/{id}` without Accept header and with `text/plain`, `text/csv`, `text/json`,
-`text/javascript`, `*/*` and a browser's Accept header
+**Requests:** `GET /dataset/{id}` with `text/html`, `text/plain`, `text/csv`, `text/json`, `text/javascript`,
+`text/html, */*`, `text/plain;q=0.3, */*;q=0.5`, `application/json;q=0.9, text/html` and a browser's Accept header
+(`text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8`)
 
 **Expected Response:**
 - Status: `303`, `Location`: `{datasetUrl}/html`
@@ -39,8 +40,8 @@ Spec: API-3.10, API-4.04
 
 | Accept | Content-Type |
 |--------|--------------|
-| (none), `*/*`, `application/xml`, `text/csv;q=0.5, application/json` | `application/json` |
-| `text/csv`, `text/html`, `text/plain` | `text/csv` |
+| (none), `*/*`, `application/xml`, `text/csv;q=0.5, application/json`, `text/html, application/json;q=0.9` | `application/json` |
+| `text/csv`, `text/html`, `text/plain`, `text/html, */*`, `text/plain;q=0.5, */*;q=0.2`, `text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2` | `text/csv` |
 
 ### TC-CONNEG-004: The HTML view is always served as text/html
 
@@ -62,9 +63,20 @@ Spec: API-4.05
 
 Spec: API-4.04
 
-1. `GET /dataset/{id}` with `Accept: application/json` (200), `text/html` (303) and without `Accept` (303) → `Vary` contains `Accept`
+1. `GET /dataset/{id}` with `Accept: application/json` (200), `text/html` (303) and without `Accept` (200) → `Vary` contains `Accept`
 2. `GET /dataset/{id}/export` with `Accept: text/csv` and `application/json` (200) → `Vary` contains `Accept`
 3. `GET /dataset/{unknown}` and `GET /dataset/{unknown}/export` (404) → `Vary` contains `Accept`
+
+### TC-CONNEG-007: The dataset resource responds with JSON without a better match for HTML
+
+Spec: API-4.01, API-4.04
+
+**Requests:** `GET /dataset/{id}` without Accept header and with `*/*`, `*/*;q=0.8`, `image/png`,
+`image/gif, */*; q=.2`, `application/xml, */*;q=0.5`, `text/html, application/json`,
+`text/html;q=0.9, application/json` and `garbage` (unparseable)
+
+**Expected Response:**
+- Status: `200`, Content-Type `application/json`, `resultCount` 5
 
 ## Method Tunnel
 

@@ -66,15 +66,16 @@ public class DatasetController {
 	}
 
 	/**
-	 * Responds with a redirect to the HTML view or with the JSON query result, depending on the Accept header
-	 * (API-4.03, API-4.04): HTML if no Accept header is sent or if it accepts neither, but has a text type (e.g.,
-	 * text/plain), JSON otherwise. All responses vary by the Accept header, also errors.
+	 * Responds with the JSON query result or with a redirect to the HTML view, depending on the Accept header
+	 * (API-4.03, API-4.04): JSON is the first representation, so it is selected without Accept header, for
+	 * *&#47;* and if the Accept header matches neither (e.g., image/png). All responses vary by the Accept header,
+	 * also errors.
 	 */
 	@GetMapping(value = "/dataset/{id}")
 	public ResponseEntity<?> represent(@PathVariable("id") String id, HttpServletRequest request,
 			HttpServletResponse response) {
 		response.addHeader(HttpHeaders.VARY, HttpHeaders.ACCEPT);
-		if (MediaType.TEXT_HTML.equals(ContentNegotiation.select(request, MediaType.TEXT_HTML, MediaType.APPLICATION_JSON))) {
+		if (MediaType.TEXT_HTML.equals(ContentNegotiation.select(request, MediaType.APPLICATION_JSON, MediaType.TEXT_HTML))) {
 			return representHtml(id);
 		}
 		return doQuery(id, queryParameters(request));
