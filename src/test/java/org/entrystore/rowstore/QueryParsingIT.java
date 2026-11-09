@@ -107,7 +107,8 @@ class QueryParsingIT extends BaseIntegrationTest {
             "Name=%C",
             "Name=McLoud&Telephone=%zz",
             "Telephone=%zz&Name=McLoud",
-            "Na%zzme=McLoud"
+            "Na%zzme=McLoud",
+            "Name=%C5kesson"
     })
     @DisplayName("TC-QUERY-022: A malformed percent-encoding is rejected with 400 instead of dropping the filter")
     void malformedPercentEncoding_isRejected(String query) {

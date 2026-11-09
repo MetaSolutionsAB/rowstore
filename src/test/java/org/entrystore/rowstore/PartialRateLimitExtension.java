@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 
 /**
- * JUnit 5 extension that starts a RowStore test environment with partial rate limit config.
+ * JUnit Jupiter extension that starts a RowStore test environment with partial rate limit config.
  *
  * Configuration:
  * - Global rate limit: -1 (disabled)

@@ -247,7 +247,7 @@ since HTTP clients encode or reject these characters.
 Spec: QUERY-9.04
 
 **Requests** (raw query strings, on `/dataset/{id}` and `/dataset/{id}/json`): `Name=100%`, `Name=%zz`, `Name=%C`,
-`Name=McLoud&Telephone=%zz`, `Telephone=%zz&Name=McLoud`, `Na%zzme=McLoud`
+`Name=McLoud&Telephone=%zz`, `Telephone=%zz&Name=McLoud`, `Na%zzme=McLoud`, `Name=%C5kesson` (ISO-8859-1, not UTF-8)
 
 **Expected Response:**
 - Status: `400` (not `200` with the malformed filter dropped)
