@@ -413,7 +413,6 @@ public class PgDataset implements Dataset {
 				// the column name of each cell position, null for a column whose label is empty (ETL-4.08)
 				String[] columns = new String[0];
 				Set<String> columnNames = new LinkedHashSet<>();
-				boolean hasLabel = false;
 				// indexes of columns renamed by an append, to be dropped right before the commit
 				List<String> staleIndexes = List.of();
 				String[] line;
@@ -476,6 +475,13 @@ public class PgDataset implements Dataset {
 							conn.rollback();
 							return false;
 						}
+						// a header without any label, e.g., ",,," or binary data, yields no columns (ETL-4.10)
+						if (labels.isEmpty()) {
+							log.error("The CSV header of dataset {} has no column with a label", getId());
+							log.info("Rolling back transaction");
+							conn.rollback();
+							return false;
+						}
 						if (append) {
 							// we must compare existing column names with new ones; they are read with the load's
 							// connection, since a load must not hold more than one connection at a time (ARCH-7.04)
@@ -519,11 +525,10 @@ public class PgDataset implements Dataset {
 								columnNames.add(column);
 							}
 						}
-						hasLabel = !columnNames.isEmpty();
 					} else {
 						JSONObject jsonLine = null;
 						try {
-							jsonLine = csvLineToJsonObject(line, columns, hasLabel);
+							jsonLine = csvLineToJsonObject(line, columns);
 						} catch (Exception e) {
 							log.error(e.getMessage());
 							log.error("Error occured when processing line {} of CSV: {}", lineCount, line);
@@ -544,6 +549,13 @@ public class PgDataset implements Dataset {
 						}
 					}
 					lineCount++;
+				}
+				// a file without a header line, e.g., empty lines only, yields no columns (ETL-4.10)
+				if (lineCount == 0) {
+					log.error("The CSV file of dataset {} has no header line", getId());
+					log.info("Rolling back transaction");
+					conn.rollback();
+					return false;
 				}
 				// in case there are some inserts left to be sent (i.e.
 				// batch size above was smaller than 100 when loop ended)
@@ -1557,17 +1569,14 @@ public class PgDataset implements Dataset {
 	 * Converts a CSV row to a JSON object.
 	 *
 	 * @param line The row consisting of its cells' values.
-	 * @param columns The column name of each cell position of the CSV header, null for a column without label.
-	 * @param hasLabel Whether any column of the CSV header has a label.
+	 * @param columns The column name of each cell position of the CSV header, null for a column without label;
+	 *                at least one column has a label (ETL-4.10).
 	 * @return Returns a JSON object consisting of key (column name) - value (cell value) pairs.
 	 * @throws JSONException
 	 */
-	private JSONObject csvLineToJsonObject(String[] line, String[] columns, boolean hasLabel) throws JSONException {
+	private JSONObject csvLineToJsonObject(String[] line, String[] columns) throws JSONException {
 		if (line.length > columns.length) {
 			throw new IllegalArgumentException("Amount of values per row must not be higher than amount of labels in first row of CSV file");
-		}
-		if (!hasLabel) {
-			throw new IllegalArgumentException("The first row of the CSV file has no column with a label");
 		}
 
 		JSONObject result = new JSONObject();

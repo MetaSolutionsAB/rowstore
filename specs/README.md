@@ -216,6 +216,7 @@ Current limitations relevant to this area.
 | ETL-4.07 | Labels sanitized: U+FEFF and U+00AD removed anywhere; also used by the append check; affected names change |
 | ETL-4.08 | Columns keep their position; cells of columns with an empty label skipped, no shifting |
 | ETL-4.09 | Duplicate labels after normalization fail the load (ERROR), also for appends; replace keeps the previous data |
+| ETL-4.10 | A load without columns (no header line, or no non-empty label) fails (ERROR); replace keeps the previous data, append adds nothing |
 | ETL-5.01 | Batch insert every 200 rows, rollback on error |
 | ETL-6.01 | POST = append (validates column match) |
 | ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate); owner and privileges kept |
