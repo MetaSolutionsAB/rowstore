@@ -57,6 +57,7 @@ import java.sql.SQLException;
 import java.sql.Savepoint;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -403,6 +404,11 @@ public class PgDataset implements Dataset {
 			PreparedStatement stmt = null;
 			CSVReader cr = null;
 			try {
+				// binary data, e.g., a compressed body sent without Content-Encoding, fails the load (ETL-4.10)
+				if (DatasetUtil.isCompressed(csvFile)) {
+					log.error("The file of dataset {} is gzip or zip data, not CSV", getId());
+					return false;
+				}
 				conn = rowstore.getLoadConnection();
 				Charset charset = DatasetUtil.detectCharset(csvFile);
 				char separator = detectSeparator(csvFile, charset);
@@ -466,6 +472,13 @@ public class PgDataset implements Dataset {
 						return false;
 					}
 					if (lineCount == 0) {
+						// control characters in the decoded header indicate binary data (ETL-4.10)
+						if (Arrays.stream(line).anyMatch(DatasetUtil::containsControlCharacter)) {
+							log.error("The CSV header of dataset {} contains control characters, the file is probably binary data", getId());
+							log.info("Rolling back transaction");
+							conn.rollback();
+							return false;
+						}
 						// We convert all column names to lower case,
 						// otherwise all queries must be case sensitive later
 						columns = new String[line.length];

@@ -37,7 +37,7 @@ class CsvNoColumnsIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("TC-CSV-048: A replace with a gzip body sent without Content-Encoding fails and keeps the previous data")
+    @DisplayName("TC-CSV-048: A replace with a gzip or zip body sent without Content-Encoding fails and keeps the previous data")
     void replaceWithUndecodedGzip_failsAndKeepsPreviousData() {
         testCases().replaceWithUndecodedGzip_failsAndKeepsPreviousData();
     }
@@ -52,6 +52,12 @@ class CsvNoColumnsIT extends BaseIntegrationTest {
     @DisplayName("TC-CSV-050: A new dataset whose header has no label fails")
     void headerWithoutLabel_fails() {
         testCases().headerWithoutLabel_fails();
+    }
+
+    @Test
+    @DisplayName("TC-CSV-057: A replace whose header contains a control character fails and keeps the previous data")
+    void replaceWithControlCharacterInHeader_failsAndKeepsPreviousData() {
+        testCases().replaceWithControlCharacterInHeader_failsAndKeepsPreviousData();
     }
 
     @Test

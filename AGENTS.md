@@ -168,7 +168,7 @@ completed run is recorded in `maintenance_tasks` (ETL-11.07).
 5. `TrustedProxyFilter` - Takes the client address from `X-Forwarded-For`: by default the last entry, written by the connecting peer (the reverse proxy); with `trustedproxies`, only for listed peers, walked from the right
 6. `TunnelFilter` - Restlet-compatible tunnel of 1.x: `media` query parameter replaces `Accept`; `method` parameter or `X-HTTP-Method-Override` replaces the method of POST requests (only POST, and only without `Origin` or from the `baseurl` origin or a listed CORS origin, SEC-9.05)
 7. `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
-8. `RequestDecodingFilter` - Decodes the bodies of POST and PUT requests by `Content-Encoding` (gzip, x-gzip, deflate, deflate-no-wrap, zip, identity) as Restlet did in 1.x, rejects other codings with 415, and closes the decoders after the request; corrupt data surfaces as `MalformedContentException` while the controller reads the body (400), and `maxuploadsize` applies to the decoded bytes (API-3.17)
+8. `RequestDecodingFilter` - Decodes the bodies of POST and PUT requests by `Content-Encoding` (gzip, x-gzip, deflate, deflate-no-wrap, zip, identity) as Restlet did in 1.x, rejects other codings and more than two stacked compressions with 415, and closes the decoders after the request; corrupt data surfaces as `MalformedContentException` while the controller reads the body (400), and `maxuploadsize` applies to the decoded bytes and to the input of each decoder (API-3.17)
 
 **Utilities** (`util/`):
 - `DatasetUtil` - Dataset URL building, charset detection, byte order mark skipping, regex heuristics

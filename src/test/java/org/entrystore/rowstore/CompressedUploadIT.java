@@ -101,7 +101,7 @@ class CompressedUploadIT extends BaseIntegrationTest {
 
     @Test
     @DisplayName("TC-ENCODING-004: An unsupported coding is rejected with 415 and nothing is stored")
-    void unsupportedCoding_isRejectedWith415() {
+    void unsupportedCoding_isRejectedWith415() throws IOException {
         DatasetUrls urls = createDatasetAndWait(CSV);
         try {
             List<String> before = TestUtils.getDatasetsList(jsonSpec);
@@ -110,9 +110,13 @@ class CompressedUploadIT extends BaseIntegrationTest {
             given().spec(csvSpec).header("Content-Encoding", "br").header("Origin", "https://app.example.com")
                     .body(OTHER_CSV).post("/datasets")
                     .then().statusCode(415)
-                    .header("Access-Control-Allow-Origin", notNullValue());
+                    .header("Access-Control-Allow-Origin", notNullValue())
+                    .header("Accept-Encoding", "gzip, x-gzip, deflate, deflate-no-wrap, zip, identity");
             upload("PUT", urls.datasetUrl, "zstd", OTHER_CSV).then().statusCode(415);
             upload("POST", urls.datasetUrl, "gzip, br", OTHER_CSV).then().statusCode(415);
+            // more than two compressions
+            upload("PUT", urls.datasetUrl, "gzip, gzip, gzip", ContentCodings.encode(OTHER_CSV, "gzip, gzip, gzip"))
+                    .then().statusCode(415);
 
             assertThat(TestUtils.getDatasetsList(jsonSpec)).containsExactlyInAnyOrderElementsOf(before);
             given().spec(jsonSpec).get(urls.infoUrl).then().body("status", equalTo(ETL_STATUS_AVAILABLE));
@@ -158,6 +162,33 @@ class CompressedUploadIT extends BaseIntegrationTest {
 
             assertThat(given().spec(jsonSpec).get(urls.datasetUrl + "/aliases").then().statusCode(200)
                     .extract().jsonPath().getList("", String.class)).containsExactly("compressedalias");
+        } finally {
+            deleteDataset(urls.datasetUrl);
+        }
+    }
+
+    @Test
+    @DisplayName("TC-ENCODING-010: An alias body larger than 1 MiB is rejected with 413, also when compressed")
+    void largeAliasBody_isRejectedWith413() throws IOException {
+        DatasetUrls urls = createDatasetAndWait(CSV);
+        try {
+            String aliasesUrl = urls.datasetUrl + "/aliases";
+            // a JSON array of exactly 1 MiB
+            byte[] maxBody = Arrays.copyOf("[\"bigalias\"".getBytes(StandardCharsets.UTF_8), 1024 * 1024);
+            Arrays.fill(maxBody, 11, maxBody.length - 1, (byte) ' ');
+            maxBody[maxBody.length - 1] = ']';
+            given().contentType("application/json").body(maxBody).put(aliasesUrl).then().statusCode(204);
+
+            // 64 MiB after decoding, a few hundred bytes as sent
+            byte[] bomb = ContentCodings.encode(new byte[64 * 1024 * 1024], "gzip, gzip");
+            given().contentType("application/json").header("Content-Encoding", "gzip, gzip").body(bomb)
+                    .put(aliasesUrl).then().statusCode(413);
+            byte[] tooLarge = Arrays.copyOf(maxBody, maxBody.length + 1);
+            tooLarge[tooLarge.length - 1] = ' ';
+            given().contentType("application/json").body(tooLarge).post(aliasesUrl).then().statusCode(413);
+
+            assertThat(given().spec(jsonSpec).get(aliasesUrl).then().statusCode(200)
+                    .extract().jsonPath().getList("", String.class)).containsExactly("bigalias");
         } finally {
             deleteDataset(urls.datasetUrl);
         }

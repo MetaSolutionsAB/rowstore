@@ -110,6 +110,20 @@ class DatasetUtilTempFileTest {
     }
 
     @Test
+    void failedReadWithError_leavesNoTempFile() {
+        StackOverflowError error = new StackOverflowError();
+        InputStream failing = new InputStream() {
+            @Override
+            public int read() {
+                throw error;
+            }
+        };
+
+        assertThatThrownBy(() -> DatasetUtil.writeTempFile(failing, 100)).isSameAs(error);
+        assertThat(tempFile()).doesNotExist();
+    }
+
+    @Test
     void charsetOfEmptyFile_isUtf8() throws IOException {
         // e.g., an upload that is empty after decoding its Content-Encoding; this threw NegativeArraySizeException
         Path empty = Files.createTempFile("RowStoreTest", ".csv");
