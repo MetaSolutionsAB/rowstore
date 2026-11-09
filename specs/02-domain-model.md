@@ -26,6 +26,8 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 
 > **DOM-2.03** Dataset has ETL Status — A dataset's `status` field tracks its position in the ETL lifecycle (see [DOM-3](#dom-3-etl-status-lifecycle)).
 
+> **DOM-2.04** Aliases do not outlive their dataset — Deleting a dataset deletes its rows in `aliases` in the same transaction as its row in `datasets` ([API-3.07](03-api.md#api-3-endpoint-catalog)), so that its aliases can be set on other datasets right away. An alias update that races with the deletion inserts nothing ([ETL-12.04](04-etl-pipeline.md#etl-12-dropping-the-tables-of-deleted-datasets)). 1.x and 2.0 snapshots before ROWS-174 left the aliases of deleted datasets behind, which kept them reserved forever (setting such an alias on another dataset returned 400). The Flyway migration `V3__delete_orphan_aliases.sql` deletes these aliases once (`DELETE FROM aliases a WHERE NOT EXISTS (SELECT 1 FROM datasets d WHERE d.id = a.dataset_id)`), also on databases of 1.x, which Flyway baselines at version 0.
+
 ## DOM-3 ETL Status Lifecycle
 
 > **DOM-3.01** The ETL status follows a linear state machine with one branch:
@@ -138,3 +140,4 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 | 2026-02-09 | Updated source references for Spring Boot migration |
 | 2026-10-20 | Shadow table naming for replaces (DOM-6.02); pre-2.0 SERIAL data tables become BIGSERIAL on their first replace (DOM-4.03) |
 | 2026-10-21 | Table `maintenance_tasks` for one-time maintenance tasks (DOM-4.04) |
+| 2026-11-09 | Aliases are deleted with their dataset, orphan aliases removed by migration V3 (DOM-2.04, ROWS-174) |

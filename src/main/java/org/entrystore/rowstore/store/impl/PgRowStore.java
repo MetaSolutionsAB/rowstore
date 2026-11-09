@@ -35,6 +35,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.SQLExceptionTranslator;
 import org.springframework.stereotype.Service;
@@ -44,6 +45,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLNonTransientConnectionException;
 import java.sql.SQLTransientConnectionException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -178,6 +180,7 @@ public class PgRowStore implements RowStore {
 		runStartupMaintenance(startupRetry, "check the version of the database", this::checkServerVersion);
 		runStartupMaintenance(startupRetry, "reset datasets with interrupted loads or lost uploads", this::resetInterruptedLoadsOrThrow);
 		runStartupMaintenance(startupRetry, "drop leftover shadow tables", this::dropLeftoverShadowTablesOrThrow);
+		runStartupMaintenance(startupRetry, "drop leftover data tables of deleted datasets", this::dropLeftoverDataTablesOrThrow);
 		log.info("Started RowStore {}", versionInfo.getVersion());
 	}
 
@@ -397,8 +400,7 @@ public class PgRowStore implements RowStore {
 				"SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename ~ ?",
 				String.class, "^" + PgDatasets.SHADOW_TABLE_PATTERN + "$");
 		for (String table : tables) {
-			if (table.matches(PgDatasets.SHADOW_TABLE_PATTERN)) {
-				jdbcTemplate.execute("DROP TABLE IF EXISTS " + table);
+			if (table.matches(PgDatasets.SHADOW_TABLE_PATTERN) && dropTableAtStartup(table, "leftover shadow table")) {
 				dropped.add(table);
 			}
 		}
@@ -406,6 +408,95 @@ public class PgRowStore implements RowStore {
 			log.warn("Dropped {} leftover shadow table(s): {}", dropped.size(), dropped);
 		}
 		return dropped;
+	}
+
+	/**
+	 * Drops data tables of deleted datasets (ETL-12.03): tables in the current schema matching
+	 * {@link PgDatasets#DATA_TABLE_PATTERN} that no row of the datasets table references, e.g., because RowStore stopped
+	 * before the background drop after a deletion (ETL-12.01) succeeded. Called at startup, before requests are
+	 * served. A dataset's registry row and its data table are created in one transaction (PgDatasets#createDataset()),
+	 * so the data table of an existing dataset is never without its row. A table that cannot be dropped, e.g.,
+	 * because a backup reads it for longer than {@link PgDataset#SWAP_LOCK_TIMEOUT_SECONDS}, is skipped until the next
+	 * startup (see {@link #dropTableAtStartup(String, String)}).
+	 *
+	 * @return Returns the names of the dropped tables.
+	 */
+	public List<String> dropLeftoverDataTables() {
+		try {
+			return dropLeftoverDataTablesOrThrow();
+		} catch (DataAccessException e) {
+			log.error("Unable to drop leftover data tables of deleted datasets: {}", e.getMessage());
+			return List.of();
+		}
+	}
+
+	/**
+	 * Like {@link #dropLeftoverDataTables()}.
+	 *
+	 * @throws DataAccessException If the database could not be accessed.
+	 */
+	private List<String> dropLeftoverDataTablesOrThrow() {
+		List<String> dropped = new ArrayList<>();
+		// the referenced names are computed as one set and anti-joined with the tables, not looked up per table
+		List<String> tables = jdbcTemplate.queryForList(
+				"WITH referenced AS (" + PgDatasets.REFERENCED_TABLE_NAMES + ") " +
+						"SELECT t.tablename::text FROM pg_tables t LEFT JOIN referenced r ON r.name = t.tablename::text " +
+						"WHERE t.schemaname = current_schema() AND t.tablename ~ ? AND r.name IS NULL",
+				String.class, "^" + PgDatasets.DATA_TABLE_PATTERN + "$");
+		for (String table : tables) {
+			if (table.matches(PgDatasets.DATA_TABLE_PATTERN) && dropTableAtStartup(table, "leftover data table")) {
+				dropped.add(table);
+			}
+		}
+		if (!dropped.isEmpty()) {
+			log.warn("Dropped {} leftover data table(s) of deleted datasets: {}", dropped.size(), dropped);
+		}
+		return dropped;
+	}
+
+	/**
+	 * Drops a table at startup in its own transaction, whose lock timeout is {@link PgDataset#SWAP_LOCK_TIMEOUT_SECONDS}
+	 * regardless of queryLockTimeout (which may be 0), so that a table held by a reader, e.g., a backup with pg_dump,
+	 * does not block the startup. Such a table, or one that cannot be dropped for another reason (e.g., missing
+	 * privileges or a dependent view), is skipped until the next startup (logged at ERROR level), so that the other
+	 * tables are still dropped.
+	 *
+	 * @param description What the table is, for logging (e.g., "leftover data table").
+	 * @return Returns true if the table was dropped (or did not exist), false if it was skipped.
+	 * @throws DataAccessException If the database is not reachable ({@link StartupRetry#isConnectivityFailure(Throwable)}),
+	 * so that the startup retries the step.
+	 */
+	private boolean dropTableAtStartup(String table, String description) {
+		try {
+			jdbcTemplate.execute((ConnectionCallback<Void>) conn -> {
+				conn.setAutoCommit(false);
+				try (Statement stmt = conn.createStatement()) {
+					stmt.execute("SET LOCAL lock_timeout = '" + PgDataset.SWAP_LOCK_TIMEOUT_SECONDS + "s'");
+					stmt.execute("DROP TABLE IF EXISTS " + table);
+					conn.commit();
+				} catch (SQLException | RuntimeException e) {
+					try {
+						conn.rollback();
+					} catch (SQLException e1) {
+						e.addSuppressed(e1);
+					}
+					throw e;
+				}
+				return null;
+			});
+			return true;
+		} catch (DataAccessException e) {
+			if (StartupRetry.isConnectivityFailure(e)) {
+				throw e;
+			}
+			if (e instanceof TransientDataAccessResourceException) {
+				log.error("Unable to drop {} {} within {} s, it is in use (e.g., by a backup); it will be dropped at the " +
+						"next start: {}", description, table, PgDataset.SWAP_LOCK_TIMEOUT_SECONDS, e.getMessage());
+			} else {
+				log.error("Unable to drop {} {}, skipping it until the next start: {}", description, table, e.getMessage());
+			}
+			return false;
+		}
 	}
 
 	@EventListener(ApplicationReadyEvent.class)

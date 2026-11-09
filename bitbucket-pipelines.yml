@@ -38,7 +38,7 @@ stepdefinitions:
         - mvn --version
         - export TESTCONTAINERS_RYUK_DISABLED=true
         # the oldest supported version (DEPL-4.01): the ITs whose SQL depends on the server version, about 5 minutes
-        - mvn verify -Dsurefire.skip=true -Drowstore.test.postgresImage=postgres:9.6-alpine -Dit.test=ColumnNameCleanupIT,DatasetReplaceIT,CsvBomIT,DatasetUtf8LifecycleIT,DatasetEmptyColumnIT
+        - mvn verify -Dsurefire.skip=true -Drowstore.test.postgresImage=postgres:9.6-alpine -Dit.test=ColumnNameCleanupIT,DatasetReplaceIT,DatasetDeleteIT,CsvBomIT,DatasetUtf8LifecycleIT,DatasetEmptyColumnIT
       services:
         - docker
   - deploy: &deploy

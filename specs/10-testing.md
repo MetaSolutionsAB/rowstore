@@ -82,7 +82,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | `GET /dataset/{id}/export` | [06-export.md](tests/06-export.md) | ExportIT |
 > | `GET /dataset/{id}/html` | — | WebGuiIT |
 > | `GET /dataset/{id}/swagger` | — | SwaggerIT |
-> | CSV formats | [04-csv-formats.md](tests/04-csv-formats.md) | CsvParsingIT, CsvEmptyLineIT, CsvEmptyLineLegacyParserIT, CsvBomIT, CsvBomLegacyParserIT, DatasetEncodingIT, DatasetSemicolonIT, DatasetEmptyColumnIT, DatasetCorruptIT |
+> | CSV formats | [04-csv-formats.md](tests/04-csv-formats.md) | CsvParsingIT, CsvEmptyLineIT, CsvEmptyLineLegacyParserIT, CsvBomIT, CsvBomLegacyParserIT, DatasetEncodingIT, DatasetSemicolonIT, DatasetEmptyColumnIT, DatasetCorruptIT, CsvNoColumnsIT, CsvNoColumnsLegacyParserIT |
 > | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT, DatasetLookupLoggingIT (plus unit test PgDatasetLookupTest) |
 > | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT, RateLimitAverageIT, RateLimitPartialConfigIT, RateLimitZeroValueIT, RateLimitClientIpIT (plus unit test TrustedProxyFilterTest) |
 > | Path parameters | [08-error-handling.md](tests/08-error-handling.md) | PathParameterIT |
@@ -90,8 +90,8 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | Configuration and data sources | [10-configuration.md](tests/10-configuration.md) | ConnectionPoolIT (plus unit tests RowStoreConfigTest, DataSourceConfigTest) |
 > | Connection limits | [12-connection-limits.md](tests/12-connection-limits.md) | ConnectionLimitIT, ConnectionLimitSingleSlotIT, ConnectionLimitHealthIT (plus unit tests LimitedDataSourceTest, RowStoreConfigConnectionLimitsTest, PgRowStoreSessionSqlTest) |
 > | Deployment | [13-deployment.md](tests/13-deployment.md) | AccessLogIT (plus unit tests RowStoreApplicationTest, RowStoreConfigLoaderTest, AccessLogFilterTest) |
-> | HTTP compatibility (content negotiation, method tunnel, `Range`) | [14-http-compatibility.md](tests/14-http-compatibility.md) | ContentNegotiationIT, MethodTunnelIT, RangeRequestIT |
-> | ETL processing | [11-etl-processing.md](tests/11-etl-processing.md) | EtlProcessingIT, DatasetReplaceIT, ColumnNameCleanupIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest, PgDatasetSwapLockTest, ColumnNamesTest, DatasetUtilBomReaderTest, PgRowStoreConnectionFailureTest) |
+> | HTTP compatibility (content negotiation, writes to `/dataset/{id}/json`, method tunnel, compressed request bodies, `Range`) | [14-http-compatibility.md](tests/14-http-compatibility.md) | ContentNegotiationIT, DatasetJsonPathIT, MethodTunnelIT, CompressedUploadIT, UploadSizeLimitIT, RangeRequestIT (plus unit tests ContentNegotiationTest, TunnelFilterTest, RequestDecodingFilterTest, DatasetUtilTempFileTest) |
+> | ETL processing | [11-etl-processing.md](tests/11-etl-processing.md) | EtlProcessingIT, DatasetReplaceIT, DatasetDeleteIT, DatasetDeleteSingleEtlIT, ColumnNameCleanupIT (plus unit tests EtlProcessorTest, PgDatasetPopulateTest, PgDatasetSwapLockTest, ColumnNamesTest, DatasetUtilBomReaderTest, PgRowStoreConnectionFailureTest) |
 
 ## TEST-9 Framework-Agnostic Specs
 

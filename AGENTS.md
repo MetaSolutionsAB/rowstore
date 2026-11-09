@@ -70,7 +70,7 @@ mvn verify -Dit.test=StatusIT#getStatus_returnsValidStructure
 mvn verify -Drowstore.test.postgresImage=postgres:9.6-alpine
 
 # The subset that CI runs against PostgreSQL 9.6 (step "Integration Test PostgreSQL 9.6" in bitbucket-pipelines.yml, about 5 minutes)
-mvn verify -Dsurefire.skip=true -Drowstore.test.postgresImage=postgres:9.6-alpine -Dit.test=ColumnNameCleanupIT,DatasetReplaceIT,CsvBomIT,DatasetUtf8LifecycleIT,DatasetEmptyColumnIT
+mvn verify -Dsurefire.skip=true -Drowstore.test.postgresImage=postgres:9.6-alpine -Dit.test=ColumnNameCleanupIT,DatasetReplaceIT,DatasetDeleteIT,CsvBomIT,DatasetUtf8LifecycleIT,DatasetEmptyColumnIT
 ```
 
 To run tests against an external RowStore instance (skips Testcontainers):
@@ -145,7 +145,11 @@ exhausted budget until the wait timeout. Budget usage is reported by `/status` (
 `PgDataset.populate()` loads a CSV in a single transaction. An append inserts into the data table; a replace (PUT)
 loads into a shadow table `<dataTable>_new` and swaps it for the data table at the end of the same transaction, so
 the previous data is served during the load and kept if it fails (see ETL-6 in `specs/04-etl-pipeline.md`).
-At startup, `PgRowStore` sets datasets left in PROCESSING or ACCEPTED_DATA to ERROR (ETL-8.06), drops leftover shadow tables, and starts a
+A DELETE only deletes the dataset's rows in `datasets` and `aliases` (`PgDatasets.purgeDataset()`); its data table is
+dropped afterwards by attempts that wait up to 3 seconds for its lock and run as jobs of the dataset in `EtlProcessor`; between
+attempts, no ETL permit or connection is held (ETL-12.01).
+At startup, `PgRowStore` sets datasets left in PROCESSING or ACCEPTED_DATA to ERROR (ETL-8.06), drops leftover shadow
+tables and data tables of deleted datasets (ETL-12.03), and starts a
 background cleanup of column names stored before 2.0 with a byte order mark or soft hyphens (ETL-11), unless a
 completed run is recorded in `maintenance_tasks` (ETL-11.07).
 

@@ -26,6 +26,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLTransientConnectionException;
 import java.sql.Savepoint;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -39,7 +40,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Tests the retries of {@link PgDataset#lockDataTableForReplace(Connection)} when the lock of the data table times
  * out, e.g., because of a long streaming export: every attempt waits at most 3 seconds, and the attempts are retried
- * until the wait limit. The waiting itself is covered by DatasetReplaceIT (TC-ETL-023, TC-ETL-053).
+ * until the wait limit. The waiting itself is covered by DatasetReplaceIT (TC-ETL-023, TC-ETL-053). Also tests the
+ * attempts of {@link PgDataset#dropTablesOfDeletedDataset(int)}, which are retried in the same way (ETL-12.01).
  */
 class PgDatasetSwapLockTest {
 
@@ -54,6 +56,10 @@ class PgDatasetSwapLockTest {
     private String lockFailureState = "55P03";
 
     private boolean lockTimeout;
+
+    private String dropFailureState;
+
+    private boolean loadConnectionFails;
 
     @Test
     @DisplayName("TC-ETL-027: A timed out lock for replacing the data table is retried within a savepoint, every attempt with a short timeout")
@@ -144,23 +150,93 @@ class PgDatasetSwapLockTest {
         assertThat(executed).doesNotContain("ROLLBACK TO SAVEPOINT");
     }
 
+    @Test
+    @DisplayName("TC-ETL-080: An attempt to drop a deleted dataset's tables waits up to 3 seconds for the lock, a timed out attempt is retried")
+    void dropAttempt_waitsForLockWithShortTimeout_andIsRetried() {
+        PgDataset dataset = newDataset();
+        dataset.setSwapRetryDelays(7, 7, 7);
+        failingLocks = 1;
+
+        assertThat(dataset.dropTablesOfDeletedDataset(0)).isEqualTo(7);
+        assertThat(executed).containsExactly(
+                "SET LOCAL lock_timeout = '3s'", "TABLES EXIST",
+                "SAVEPOINT", "SET LOCAL lock_timeout = '3s'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE",
+                "ROLLBACK TO SAVEPOINT", "ROLLBACK");
+
+        executed.clear();
+        assertThat(dataset.dropTablesOfDeletedDataset(1)).isEqualTo(-1);
+        assertThat(executed).containsExactly(
+                "SET LOCAL lock_timeout = '3s'", "TABLES EXIST",
+                "SAVEPOINT", "SET LOCAL lock_timeout = '3s'", "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE",
+                "DROP TABLE IF EXISTS " + dataTable + "_new", "DROP TABLE IF EXISTS " + dataTable, "COMMIT");
+    }
+
+    @Test
+    @DisplayName("TC-ETL-081: A drop attempt that fails for another reason is retried until the wait limit, unless the failure cannot pass")
+    void dropAttemptFailure_isRetriedUntilWaitLimit_unlessItCannotPass() {
+        PgDataset dataset = newDataset();
+        dataset.setSwapRetryDelays(7, 7, 7);
+
+        // e.g., no load connection within connectionWaitTimeout, a connection failure, a statement timeout
+        loadConnectionFails = true;
+        assertThat(dataset.dropTablesOfDeletedDataset(0)).isEqualTo(7);
+        loadConnectionFails = false;
+        for (String state : List.of("08006", "57014", "55P03")) {
+            dropFailureState = state;
+            assertThat(dataset.dropTablesOfDeletedDataset(1)).as(state).isEqualTo(7);
+        }
+
+        // insufficient privilege, dependent objects (e.g., a view on the data table)
+        for (String state : List.of("42501", "2BP01")) {
+            dropFailureState = state;
+            assertThat(dataset.dropTablesOfDeletedDataset(1)).as(state).isEqualTo(-1);
+        }
+
+        dropFailureState = "08006";
+        dataset.setSwapLockWaitLimit(0, 7, 60000);
+        assertThat(dataset.dropTablesOfDeletedDataset(1)).isEqualTo(-1);
+    }
+
     private PgDataset newDataset() {
         RowStore rowStore = (RowStore) Proxy.newProxyInstance(getClass().getClassLoader(),
-                new Class<?>[]{RowStore.class}, (proxy, method, args) -> null);
+                new Class<?>[]{RowStore.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("getLoadConnection")) {
+                        if (loadConnectionFails) {
+                            throw new SQLTransientConnectionException("Simulated connection wait timeout");
+                        }
+                        return connection();
+                    }
+                    return null;
+                });
         return new PgDataset(rowStore, id, EtlStatus.PROCESSING, new Date(), dataTable);
     }
 
     /**
-     * A prepared statement for the query of the sessions holding the data table, recorded as "LOCK HOLDERS",
-     * which finds no sessions.
+     * A prepared statement for the query of the sessions holding the data table, recorded as "LOCK HOLDERS", which
+     * finds no sessions; for the query whether the data table and the shadow table exist, recorded as "TABLES EXIST",
+     * which finds only the data table; for other queries (whether a dataset references the data table), one that
+     * finds nothing.
      */
-    private PreparedStatement lockHoldersStatement() {
+    private PreparedStatement preparedStatement(String sql) {
+        boolean tablesExist = sql.startsWith("SELECT to_regclass");
+        String recordedAs = sql.contains("pg_locks") ? "LOCK HOLDERS" : tablesExist ? "TABLES EXIST" : null;
+        boolean[] rowRead = {false};
         ResultSet resultSet = (ResultSet) Proxy.newProxyInstance(getClass().getClassLoader(),
-                new Class<?>[]{ResultSet.class}, (proxy, method, args) -> method.getName().equals("next") ? false : null);
+                new Class<?>[]{ResultSet.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "next" -> {
+                        boolean hasRow = tablesExist && !rowRead[0];
+                        rowRead[0] = true;
+                        yield hasRow;
+                    }
+                    case "getBoolean" -> (Integer) args[0] == 1;
+                    default -> null;
+                });
         return (PreparedStatement) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{PreparedStatement.class}, (proxy, method, args) -> {
                     if (method.getName().equals("executeQuery")) {
-                        executed.add("LOCK HOLDERS");
+                        if (recordedAs != null) {
+                            executed.add(recordedAs);
+                        }
                         return resultSet;
                     }
                     return null;
@@ -187,6 +263,9 @@ class PgDatasetSwapLockTest {
                             failingLocks--;
                             throw new SQLException("Simulated lock failure", lockFailureState);
                         }
+                        if (sql.startsWith("DROP TABLE") && dropFailureState != null) {
+                            throw new SQLException("Simulated drop failure", dropFailureState);
+                        }
                         return false;
                     }
                     return null;
@@ -201,8 +280,12 @@ class PgDatasetSwapLockTest {
                         executed.add(args != null ? "ROLLBACK TO SAVEPOINT" : "ROLLBACK");
                         yield null;
                     }
+                    case "commit" -> {
+                        executed.add("COMMIT");
+                        yield null;
+                    }
                     case "createStatement" -> statement;
-                    case "prepareStatement" -> lockHoldersStatement();
+                    case "prepareStatement" -> preparedStatement((String) args[0]);
                     default -> null;
                 });
     }

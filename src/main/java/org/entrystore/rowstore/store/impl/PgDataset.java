@@ -67,6 +67,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -145,9 +147,21 @@ public class PgDataset implements Dataset {
 	private long lockHoldersLogIntervalMillis = LOCK_HOLDERS_LOG_INTERVAL_MILLIS;
 
 	/**
+	 * The attempts of the background drop of a deleted dataset's tables, see {@link #dropTablesInBackground()}; the
+	 * attempts run one after another.
+	 */
+	private volatile LockAttempts dropAttempts;
+
+	/**
 	 * SQL state of a lock that could not be acquired within lock_timeout.
 	 */
 	private static final String LOCK_NOT_AVAILABLE = PgRowStore.LOCK_NOT_AVAILABLE;
+
+	/**
+	 * SQL states of failures of the background drop that a further attempt cannot overcome: insufficient privilege
+	 * (e.g., the table is owned by another role) and dependent objects (e.g., a view on the data table).
+	 */
+	private static final Set<String> DROP_NEVER_SUCCEEDS = Set.of("42501", "2BP01");
 
 	/**
 	 * Class of the SQL states of data exceptions, e.g., an invalid byte sequence (22021) or a null character in a
@@ -322,7 +336,9 @@ public class PgDataset implements Dataset {
 			Integer count = rowstore.getLoadJdbcTemplate().queryForObject(
 					"SELECT COUNT(*) FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", Integer.class, id);
 			if (count == null || count == 0) {
-				log.info("Dataset {} does not exist anymore, skipping its load", getId());
+				// e.g., deleted between the acceptance of the upload and its load; the load must not touch any table,
+				// since the data table is dropped or about to be dropped (ETL-12.04)
+				log.error("Dataset {} does not exist anymore, discarding its upload", getId());
 				return false;
 			}
 			log.warn("Dataset {} is already in status {}({}) without an active load, taking it over",
@@ -1049,35 +1065,101 @@ public class PgDataset implements Dataset {
 		try (Statement stmt = conn.createStatement()) {
 			executeDdl(stmt, "SET LOCAL idle_in_transaction_session_timeout = 0");
 		}
-		long start = System.nanoTime();
-		long lastHoldersLog = 0;
-		boolean holdersLogged = false;
+		LockAttempts attempts = new LockAttempts(purpose);
 		for (int attempt = 0; ; attempt++) {
-			Savepoint savepoint = conn.setSavepoint();
-			try (Statement stmt = conn.createStatement()) {
-				executeDdl(stmt, "SET LOCAL lock_timeout = '" + SWAP_LOCK_TIMEOUT_SECONDS + "s'");
-				executeDdl(stmt, "LOCK TABLE " + dataTable + " IN ACCESS EXCLUSIVE MODE");
+			if (tryLockTables(conn, List.of(dataTable))) {
 				if (attempt > 0) {
 					log.info("Locked data table {} of dataset {} to {} after {} attempts in {} s", dataTable, getId(),
-							purpose, attempt + 1, TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - start));
+							purpose, attempt + 1, attempts.elapsedSeconds());
 				}
 				return true;
-			} catch (SQLException e) {
-				if (!LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
-					throw e;
-				}
-				// also reverts SET LOCAL
-				conn.rollback(savepoint);
+			}
+			long delay = attempts.afterTimeout(conn, attempt);
+			if (delay < 0) {
+				return false;
+			}
+			try {
+				Thread.sleep(delay);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				log.error("Interrupted while waiting to lock data table {} of dataset {} to {}", dataTable, getId(), purpose);
+				return false;
+			}
+		}
+	}
+
+	/**
+	 * Makes one attempt to lock tables exclusively within the caller's transaction, waiting at most
+	 * {@link #SWAP_LOCK_TIMEOUT_SECONDS} (per table), within a savepoint that is rolled back if the attempt times out.
+	 *
+	 * @return Returns true if the tables were locked, false if the attempt timed out.
+	 * @throws SQLException If locking failed for another reason than a lock timeout.
+	 */
+	private static boolean tryLockTables(Connection conn, List<String> tables) throws SQLException {
+		Savepoint savepoint = conn.setSavepoint();
+		try (Statement stmt = conn.createStatement()) {
+			executeDdl(stmt, "SET LOCAL lock_timeout = '" + SWAP_LOCK_TIMEOUT_SECONDS + "s'");
+			executeDdl(stmt, "LOCK TABLE " + String.join(", ", tables) + " IN ACCESS EXCLUSIVE MODE");
+			return true;
+		} catch (SQLException e) {
+			if (!LOCK_NOT_AVAILABLE.equals(e.getSQLState())) {
+				throw e;
+			}
+			// also reverts SET LOCAL
+			conn.rollback(savepoint);
+			return false;
+		}
+	}
+
+	/**
+	 * The attempts to lock the data table for one purpose (ETL-6.04): when they started, the delays between them, the
+	 * wait limit, and the logging of the sessions holding the table.
+	 */
+	private final class LockAttempts {
+
+		private final String purpose;
+
+		/**
+		 * Appended to the message when giving up, e.g., what happens to the table then.
+		 */
+		private final String givingUpNote;
+
+		private final long start = System.nanoTime();
+
+		private long lastHoldersLog;
+
+		private boolean holdersLogged;
+
+		LockAttempts(String purpose) {
+			this(purpose, "");
+		}
+
+		LockAttempts(String purpose, String givingUpNote) {
+			this.purpose = purpose;
+			this.givingUpNote = givingUpNote;
+		}
+
+		long elapsedSeconds() {
+			return TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - start);
+		}
+
+		/**
+		 * Called after the given (0-based) attempt timed out, with a connection whose transaction is still usable
+		 * (to log the lock holders). Logs the retry, and the lock holders once the short delays are used up, then at
+		 * most once per interval, and when giving up.
+		 *
+		 * @return Returns the delay before the next attempt, or -1 if the wait limit is reached (logged at ERROR level).
+		 */
+		long afterTimeout(Connection conn, int attempt) {
+			long delay = nextDelay(attempt);
+			if (delay < 0) {
+				log.error("Unable to lock data table {} of dataset {} within {} s to {} ({} attempts), giving up{}", dataTable,
+						getId(), TimeUnit.MILLISECONDS.toSeconds(swapLockWaitLimitMillis), purpose, attempt + 1, givingUpNote);
+				logLockHolders(conn, "Data table " + dataTable + " of dataset " + getId() + " is held by");
+				return -1;
 			}
 			long now = System.nanoTime();
 			long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(now - start);
-			long delay = swapRetryDelay(attempt);
-			if (elapsedMillis + delay >= swapLockWaitLimitMillis) {
-				log.error("Unable to lock data table {} of dataset {} within {} s to {} ({} attempts), giving up", dataTable,
-						getId(), TimeUnit.MILLISECONDS.toSeconds(swapLockWaitLimitMillis), purpose, attempt + 1);
-				logLockHolders(conn, "Data table " + dataTable + " of dataset " + getId() + " is held by");
-				return false;
-			}
 			if (attempt < swapRetryDelaysMillis.length) {
 				log.warn("Data table {} of dataset {} is in use (e.g., by an export), retrying to {} in {} ms",
 						dataTable, getId(), purpose, delay);
@@ -1094,13 +1176,161 @@ public class PgDataset implements Dataset {
 				holdersLogged = true;
 				lastHoldersLog = now;
 			}
+			return delay;
+		}
+
+		/**
+		 * @return Returns the delay after the given (0-based) attempt, or -1 if the next attempt would start after the
+		 * wait limit.
+		 */
+		long nextDelay(int attempt) {
+			long delay = swapRetryDelay(attempt);
+			return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) + delay >= swapLockWaitLimitMillis ? -1 : delay;
+		}
+
+	}
+
+	/**
+	 * Drops the data table and the shadow table (if any) of a dataset whose row in the datasets table has been deleted,
+	 * in the background (ETL-12.01). Every attempt is a job of the dataset (EtlProcessor#runExclusively), so it never
+	 * runs concurrently with a load of the dataset, and uses its own connection of the load budget, never a query
+	 * connection. Like an attempt of a replace (ETL-6.04), an attempt waits at most {@link #SWAP_LOCK_TIMEOUT_SECONDS}
+	 * for the lock of the data table and the shadow table, longer than deadlock_timeout (default 1 s), after which
+	 * PostgreSQL cancels an autovacuum that blocks the lock; a lock request that never waits would fail as long as
+	 * autovacuum processes the table, e.g., a large table right after its load. No new query of the deleted dataset
+	 * can queue behind the waiting lock, since its row in the datasets table is already gone; only requests that looked
+	 * up the dataset before its deletion may wait for up to one attempt. If a table is still in use, e.g., by an export
+	 * that started before the deletion, or if the attempt fails for another reason that may pass (e.g., a connection
+	 * failure, logged at WARN level), the job ends, and the next attempt is submitted as a new job after the delay of
+	 * {@link #swapRetryDelay(int)}, so that neither an ETL permit nor a connection is held between the attempts, until
+	 * {@link #SWAP_LOCK_WAIT_LIMIT_MILLIS} is reached. Giving up and failures that cannot pass (e.g., missing privileges
+	 * or a dependent view) are logged at ERROR level; the startup drops what is left (ETL-12.03), also if the ETL
+	 * processor is shut down before the next attempt.
+	 */
+	void dropTablesInBackground() {
+		submitDropAttempt(0);
+	}
+
+	private void submitDropAttempt(int attempt) {
+		try {
+			rowstore.getEtlProcessor().runExclusively(this, () -> {
+				long delay = dropTablesOfDeletedDataset(attempt);
+				if (delay >= 0) {
+					Thread.ofVirtual().name("drop-" + dataTable).start(() -> {
+						try {
+							Thread.sleep(delay);
+						} catch (InterruptedException e) {
+							log.error("Interrupted while waiting to drop data table {} of deleted dataset {}, it will be " +
+									"dropped at the next start", dataTable, getId());
+							return;
+						}
+						submitDropAttempt(attempt + 1);
+					});
+				}
+			}).whenComplete((result, e) -> {
+				if (e instanceof CancellationException) {
+					log.error("Data table {} of deleted dataset {} was not dropped, RowStore is shutting down; it will be " +
+							"dropped at the next start", dataTable, getId());
+				}
+			});
+		} catch (RejectedExecutionException e) {
+			log.error("Data table {} of deleted dataset {} was not dropped, RowStore is shutting down; it will be " +
+					"dropped at the next start", dataTable, getId());
+		}
+	}
+
+	/**
+	 * Makes one attempt to drop the data table and the shadow table (if any) of a deleted dataset, in one transaction
+	 * on a connection of the load budget, see {@link #dropTablesInBackground()}. A table that is still referenced by a
+	 * row of the datasets table ({@link PgDatasets#referencedByDataset(String)}) is never dropped. Failures are logged
+	 * and not thrown.
+	 *
+	 * @param attempt The number of the attempt, starting with 0.
+	 * @return Returns the delay in milliseconds after which the next attempt is to be made because the tables could not
+	 * be locked in time or the attempt failed for another reason that may pass, or -1 if there is to be no further
+	 * attempt (dropped, given up, or failed for a reason that cannot pass).
+	 */
+	long dropTablesOfDeletedDataset(int attempt) {
+		long before = System.currentTimeMillis();
+		if (attempt == 0) {
+			dropAttempts = new LockAttempts("drop it", "; it will be dropped at the next start");
+		}
+		String shadowTable = PgDatasets.shadowTableName(dataTable);
+		try (Connection conn = rowstore.getLoadConnection()) {
+			conn.setAutoCommit(false);
 			try {
-				Thread.sleep(delay);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				log.error("Interrupted while waiting to lock data table {} of dataset {} to {}", dataTable, getId(), purpose);
-				return false;
+				try (Statement stmt = conn.createStatement()) {
+					// no statement of the attempt waits long for a lock, also before and after locking the tables
+					executeDdl(stmt, "SET LOCAL lock_timeout = '" + SWAP_LOCK_TIMEOUT_SECONDS + "s'");
+				}
+				List<String> tables = new ArrayList<>();
+				try (PreparedStatement ps = conn.prepareStatement("SELECT to_regclass(?) IS NOT NULL, to_regclass(?) IS NOT NULL")) {
+					ps.setString(1, dataTable);
+					ps.setString(2, shadowTable);
+					try (ResultSet rs = ps.executeQuery()) {
+						if (rs.next()) {
+							if (rs.getBoolean(1)) {
+								tables.add(dataTable);
+							}
+							if (rs.getBoolean(2)) {
+								tables.add(shadowTable);
+							}
+						}
+					}
+				}
+				if (!tables.isEmpty() && !tryLockTables(conn, tables)) {
+					long delay = dropAttempts.afterTimeout(conn, attempt);
+					conn.rollback();
+					return delay;
+				}
+				// a safeguard: the data table of an existing dataset must never be dropped
+				try (PreparedStatement ps = conn.prepareStatement("SELECT " + PgDatasets.referencedByDataset("CAST(? AS text)"))) {
+					ps.setString(1, dataTable);
+					ps.setString(2, dataTable);
+					try (ResultSet rs = ps.executeQuery()) {
+						if (rs.next() && rs.getBoolean(1)) {
+							conn.rollback();
+							log.error("Not dropping data table {}, it belongs to a dataset in the datasets table", dataTable);
+							return -1;
+						}
+					}
+				}
+				try (Statement stmt = conn.createStatement()) {
+					executeDdl(stmt, "DROP TABLE IF EXISTS " + shadowTable);
+					executeDdl(stmt, "DROP TABLE IF EXISTS " + dataTable);
+				}
+				conn.commit();
+			} catch (SQLException | RuntimeException e) {
+				try {
+					conn.rollback();
+				} catch (SQLException e1) {
+					e.addSuppressed(e1);
+				}
+				throw e;
 			}
+			if (attempt > 0) {
+				log.info("Dropped data table {} of deleted dataset {} after {} attempts in {} s", dataTable, getId(),
+						attempt + 1, dropAttempts.elapsedSeconds());
+			} else {
+				log.info("Dropped data table {} of deleted dataset {} in {} ms", dataTable, getId(), System.currentTimeMillis() - before);
+			}
+			return -1;
+		} catch (SQLException | RuntimeException e) {
+			if (e instanceof SQLException se && se.getSQLState() != null && DROP_NEVER_SUCCEEDS.contains(se.getSQLState())) {
+				log.error("Unable to drop data table {} of deleted dataset {}, not retrying; the next start tries again: {}",
+						dataTable, getId(), e.getMessage());
+				return -1;
+			}
+			long delay = dropAttempts.nextDelay(attempt);
+			if (delay < 0) {
+				log.error("Unable to drop data table {} of deleted dataset {} within {} s ({} attempts), giving up; it " +
+						"will be dropped at the next start: {}", dataTable, getId(),
+						TimeUnit.MILLISECONDS.toSeconds(swapLockWaitLimitMillis), attempt + 1, e.getMessage());
+			} else {
+				log.warn("Unable to drop data table {} of deleted dataset {} (attempt {}), retrying in {} ms: {}",
+						dataTable, getId(), attempt + 1, delay, e.getMessage());
+			}
+			return delay;
 		}
 	}
 
@@ -1475,7 +1705,14 @@ public class PgDataset implements Dataset {
 			// Acquire row-level lock to serialize concurrent alias modifications
 			try (PreparedStatement lockStmt = conn.prepareStatement("SELECT 1 FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ? FOR UPDATE")) {
 				lockStmt.setObject(1, uuid);
-				lockStmt.executeQuery();
+				try (ResultSet rs = lockStmt.executeQuery()) {
+					if (!rs.next()) {
+						// deleted after it was looked up; its aliases must not outlive it (DOM-2.04)
+						log.info("Dataset {} does not exist anymore, not setting its aliases", getId());
+						conn.rollback();
+						return false;
+					}
+				}
 			}
 
 			// all reads use this connection, since a request must not hold more than one connection at a time (ARCH-7.04)
