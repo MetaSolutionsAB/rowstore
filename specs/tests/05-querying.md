@@ -174,7 +174,7 @@ Retired: the same check as TC-QUERY-005, which now has its details.
 **Expected Response:**
 - Status: `200`
 - `prev` link present (with `_offset=2`)
-- `next` absent when offset+limit >= resultCount
+- `next` absent when offset+limit > resultCount (QUERY-6.02; with offset+limit = resultCount, `next` links to an empty page)
 
 ### TC-QUERY-014: [REMOVED] Format parameter
 

@@ -145,7 +145,11 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 ## API-9 Per-Dataset Swagger
 
-> **API-9.01** Each dataset exposes a dynamically generated OpenAPI specification at `/dataset/{id}/swagger`. The spec includes query parameters derived from the dataset's column names and reflects the server's regex query configuration.
+> **API-9.01** Each dataset exposes a dynamically generated OpenAPI specification at `/dataset/{id}/swagger`. The spec includes query parameters derived from the dataset's column names and reflects the server's regex query configuration. Besides the column filters, it lists `_limit` and `_offset`; `_callback`, which 1.x listed for JSONP, is no longer listed (it is accepted and ignored, [QUERY-3.05](05-querying.md#query-3-special-parameters)).
+
+## API-10 Range Requests
+
+> **API-10.01** The `Range` request header is ignored by the RowStore resources (`/dataset/{id}` and its sub-resources, `/datasets`, `/status`): their responses have status 200 with the full body and no `Accept-Ranges` header, which tells clients that ranges are not supported (RFC 9110, section 14.2). In 1.x, Restlet answered a `Range: bytes=a-b` request with 206 Partial Content and sent `Accept-Ranges: bytes` (open-ended ranges of exports failed with 500). Neither 406 (which refers to the `Accept` header) nor 416 (only for unsatisfiable ranges of resources that support ranges) applies.
 
 ## Known Limitations
 
@@ -183,3 +187,4 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-11-05 | Added API-6.06: unknown and malformed dataset IDs are not logged at WARN or ERROR level (ROWS-169) |
 | 2026-11-09 | API-6.06: an invalid data table name in the datasets table answers 500 instead of 404 (ROWS-169) |
 | 2026-11-09 | API-3.04: `resultCount` is 0 for an offset beyond the last match (ROWS-170) |
+| 2026-11-09 | API-9.01: `_callback` is no longer listed in the per-dataset Swagger; added API-10.01: `Range` is ignored (ROWS-177) |

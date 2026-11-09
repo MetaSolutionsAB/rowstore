@@ -194,6 +194,7 @@ Current limitations relevant to this area.
 | API-7.01 | [REMOVED] _callback wraps JSON in function call — JSONP removed |
 | API-8.01 | Server header: RowStore |
 | API-9.01 | Per-dataset OpenAPI spec from column names |
+| API-10.01 | Range header ignored: 200 with full body, no Accept-Ranges |
 
 ### ETL — ETL Pipeline
 

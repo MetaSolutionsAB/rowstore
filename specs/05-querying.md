@@ -45,6 +45,8 @@ Covers the read path from query parameter parsing through SQL execution to respo
 > 2. **Explicit prefix**: Values starting with `~` are treated as regex (the `~` is stripped before use)
 >
 > Values that don't trigger either mechanism use exact match as an optimization.
+>
+> As in 1.x, the `~` prefix is not evaluated per value: from the first value with `~` on, all filters that follow in the (unspecified) iteration order of the query parameters are matched as regular expressions, also without `~` and without regex characters, and a leading `~` is stripped from every value. A query that combines a `~` value with other filters can therefore match those filters as regular expressions (ROWS-178).
 
 > **QUERY-4.04** The heuristic detection checks for the presence of these characters: `` ^ $ ( | [ * + { ? / ``. This is implemented in `DatasetUtil.isRegExpString()`.
 
@@ -68,8 +70,10 @@ Covers the read path from query parameter parsing through SQL execution to respo
 > **QUERY-6.01** Total result count is obtained via the `count(*) OVER()` PostgreSQL window function, which computes the count across the full result set while returning only the current page. The count is read from the returned rows, so an offset beyond the last match returns `resultCount` 0 (as in 1.x).
 
 > **QUERY-6.02** The response envelope includes `prev` and `next` URLs when applicable. These URLs preserve the original query parameters and adjust `_limit` and `_offset`:
-> - `next`: present when `offset + limit < resultCount`
-> - `prev`: present when `offset > 0`
+> - `next`: present when `offset + limit <= resultCount`, so a last page that is exactly full links to an empty page (e.g., `_limit=5` on 5 matching rows)
+> - `prev`: present when `offset >= limit`, so a page with a smaller offset than its limit has no `prev` (e.g., `_offset=1&_limit=2`)
+>
+> These conditions are those of 1.x and are kept for compatibility.
 
 ## QUERY-7 Query Timeout
 
@@ -119,3 +123,4 @@ Covers the read path from query parameter parsing through SQL execution to respo
 | 2026-11-05 | QUERY-9.03: `%2F` and `%5C` in dataset IDs return 404, path characters are not relaxed (ROWS-151) |
 | 2026-11-09 | QUERY-6.01: `resultCount` is 0 for an offset beyond the last match, as in 1.x (ROWS-170) |
 | 2026-11-09 | QUERY-9.04: percent-encodings that are not UTF-8 return 400 with Tomcat 11 (ROWS-143) |
+| 2026-11-09 | QUERY-6.02: conditions of `prev` and `next` as implemented in 1.x and 2.0; QUERY-4.03: a `~` value switches the following filters to regex matching (ROWS-177) |
