@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 
 /**
- * JUnit 5 extension that starts a RowStore test environment with average-type rate limiting.
+ * JUnit Jupiter extension that starts a RowStore test environment with average-type rate limiting.
  *
  * Configuration:
  * - Rate limit type: average (uses Guava RateLimiter instead of sliding window)

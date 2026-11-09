@@ -46,7 +46,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 >
 > Values that don't trigger either mechanism use exact match as an optimization.
 >
-> As in 1.x, the `~` prefix is not evaluated per value: from the first value with `~` on, all filters that follow in the (unspecified) iteration order of the query parameters are matched as regular expressions, also without `~` and without regex characters, and a leading `~` is stripped from every value. A query that combines a `~` value with other filters can therefore match those filters as regular expressions (ROWS-178).
+> As in 1.x, the `~` prefix is not evaluated per value: from the first value with `~` on, all filters that follow in the (unspecified) iteration order of the filters, which is not the order in the query string, are matched as regular expressions, also without `~` and without regex characters, and a leading `~` is stripped from every value. A query that combines a `~` value with other filters can therefore match those filters as regular expressions (ROWS-178).
 
 > **QUERY-4.04** The heuristic detection checks for the presence of these characters: `` ^ $ ( | [ * + { ? / ``. This is implemented in `DatasetUtil.isRegExpString()`.
 
@@ -102,6 +102,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 - No support for null/missing value queries
 - No full-text search (only exact match or regex)
 - Regex matching uses PostgreSQL `~` operator (POSIX regex), not LIKE patterns
+- In `full` regex mode, a `~` value also switches the filters that follow it to regex matching ([QUERY-4.03](#query-4-regex-modes), ROWS-178)
 
 ## References
 
@@ -125,6 +126,6 @@ Covers the read path from query parameter parsing through SQL execution to respo
 | 2026-11-05 | QUERY-9.03: `%2F` and `%5C` in dataset IDs return 404, path characters are not relaxed (ROWS-151) |
 | 2026-11-09 | QUERY-6.01: `resultCount` is 0 for an offset beyond the last match, as in 1.x (ROWS-170) |
 | 2026-11-09 | QUERY-9.04: percent-encodings that are not UTF-8 return 400 with Tomcat 11 (ROWS-143) |
-| 2026-11-09 | QUERY-6.02: conditions of `prev` and `next` as implemented in 1.x and 2.0; QUERY-4.03: a `~` value switches the following filters to regex matching (ROWS-177) |
+| 2026-11-09 | QUERY-6.02: conditions of `prev` and `next` as implemented in 1.x and 2.0; QUERY-4.03: a `~` value switches the following filters to regex matching, also listed under Known Limitations (ROWS-177) |
 | 2026-11-09 | QUERY-2.03: a value that is empty only after trimming matches empty cells, a value that is empty as sent returns 400 (ROWS-175) |
 | 2026-11-09 | QUERY-2.03: empty `_callback`, `_sort` and overridden values are accepted (1.x: 400); QUERY-6.02: blank filter values are carried over to the page links as a space (ROWS-175) |

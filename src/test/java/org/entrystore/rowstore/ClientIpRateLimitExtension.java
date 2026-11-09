@@ -27,7 +27,7 @@ import org.testcontainers.DockerClientFactory;
 import java.util.List;
 
 /**
- * JUnit 5 extension that starts three RowStore test environments with a per-client-IP rate limit
+ * JUnit Jupiter extension that starts three RowStore test environments with a per-client-IP rate limit
  * of {@value #CLIENT_IP_LIMIT} requests per {@value #TIME_RANGE_SECONDS} seconds. Global and per-dataset
  * limits are set high so that only the per-client-IP limit trips.
  *

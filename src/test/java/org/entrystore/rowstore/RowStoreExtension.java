@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 
 /**
- * JUnit 5 extension that starts the RowStore test environment before any tests run.
+ * JUnit Jupiter extension that starts the RowStore test environment before any tests run.
  *
  * The environment (PostgreSQL container + RowStore server) is started once and
  * shared across all test classes that use this extension.
