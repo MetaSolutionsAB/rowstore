@@ -83,7 +83,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 > | `GET /dataset/{id}/html` | — | WebGuiIT |
 > | `GET /dataset/{id}/swagger` | — | SwaggerIT |
 > | CSV formats | [04-csv-formats.md](tests/04-csv-formats.md) | CsvParsingIT, CsvEmptyLineIT, CsvEmptyLineLegacyParserIT, CsvBomIT, CsvBomLegacyParserIT, DatasetEncodingIT, DatasetSemicolonIT, DatasetEmptyColumnIT, DatasetCorruptIT |
-> | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT |
+> | Error handling | [08-error-handling.md](tests/08-error-handling.md) | ErrorHandlingIT, DatasetLookupLoggingIT (plus unit test PgDatasetLookupTest) |
 > | Rate limiting | [09-rate-limiting.md](tests/09-rate-limiting.md) | RateLimitIT, RateLimitAverageIT, RateLimitPartialConfigIT, RateLimitZeroValueIT, RateLimitClientIpIT (plus unit test TrustedProxyFilterTest) |
 > | Path parameters | [08-error-handling.md](tests/08-error-handling.md) | PathParameterIT |
 > | CORS | — | CorsIT |
@@ -94,7 +94,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-9 Framework-Agnostic Specs
 
-> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **322 test cases** across 14 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
+> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **323 test cases** across 14 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
 
 ## Known Limitations
 

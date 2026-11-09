@@ -13,7 +13,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `05-querying.md` | Query functionality: filters, pagination, regex modes, reserved `_callback` parameter (JSONP test cases retired), query string parsing (unencoded characters, malformed encodings, trimming, tunnel parameters) | 40 |
 | `06-export.md` | JSON/CSV export endpoints | 17 |
 | `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
-| `08-error-handling.md` | Error codes: 400, 404, 415, 423, 424, path parameters, upload content types, corrupt CSV, logging of unknown dataset IDs | 27 |
+| `08-error-handling.md` | Error codes: 400, 404, 415, 423, 424, path parameters, upload content types, corrupt CSV, logging of unknown dataset IDs | 28 |
 | `09-rate-limiting.md` | Rate limiting (429), client address via trusted proxies - requires separate profiles | 11 |
 | `10-configuration.md` | rowstore.json validation, data source settings and the PostgreSQL version check (unit and integration tests) | 15 |
 | `11-etl-processing.md` | ETL scheduling, shutdown, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 60 |
@@ -144,16 +144,16 @@ Dataset creation and modification are asynchronous. Tests should:
 | Querying | 40 |
 | Export | 17 |
 | Metadata Endpoints | 11 |
-| Error Handling | 27 |
+| Error Handling | 28 |
 | Rate Limiting | 11 |
 | Configuration | 15 |
 | ETL Processing | 60 |
 | Connection Limits | 36 |
 | Deployment | 11 |
 | HTTP Compatibility | 11 |
-| **Total** | **322** |
+| **Total** | **323** |
 
-Note: The specifications define 322 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
+Note: The specifications define 323 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 

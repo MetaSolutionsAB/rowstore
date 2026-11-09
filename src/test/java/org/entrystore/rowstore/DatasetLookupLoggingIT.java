@@ -43,6 +43,11 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 @DisplayName("Dataset Lookup Logging Tests")
 class DatasetLookupLoggingIT extends BaseIntegrationTest {
 
+    /**
+     * Name prefix of the threads that handle requests in the in-process server (Tomcat with virtual threads).
+     */
+    private static final String REQUEST_THREAD_PREFIX = "tomcat-handler-";
+
     private CapturingAppender appender;
 
     @BeforeEach
@@ -88,7 +93,12 @@ class DatasetLookupLoggingIT extends BaseIntegrationTest {
         assertThat(TestUtils.rawRequest(getBaseUrl(), "DELETE", "/dataset/" + unknown, List.of(), null).status())
                 .as("DELETE /dataset/" + unknown).isEqualTo(404);
 
-        assertThat(appender.events.stream().filter(e -> e.getLevel().isMoreSpecificThan(Level.WARN))
+        // only messages of request threads, so that background work of earlier test classes (e.g., ETL jobs) cannot
+        // make the test fail; the access log lines show that the messages of request threads are captured
+        List<LogEvent> requestEvents = appender.events.stream()
+                .filter(e -> e.getThreadName() != null && e.getThreadName().startsWith(REQUEST_THREAD_PREFIX)).toList();
+        assertThat(requestEvents).as("log messages of request threads").isNotEmpty();
+        assertThat(requestEvents.stream().filter(e -> e.getLevel().isMoreSpecificThan(Level.WARN))
                 .map(e -> e.getLevel() + " " + e.getLoggerName() + " - " + e.getMessage().getFormattedMessage()).toList())
                 .as("log messages at WARN or ERROR level").isEmpty();
     }
