@@ -108,7 +108,8 @@ class QueryParsingIT extends BaseIntegrationTest {
             "Name=%C",
             "Name=McLoud&Telephone=%zz",
             "Telephone=%zz&Name=McLoud",
-            "Na%zzme=McLoud"
+            "Na%zzme=McLoud",
+            "Name=%C5kesson"
     })
     @DisplayName("TC-QUERY-022: A malformed percent-encoding is rejected with 400 instead of dropping the filter")
     void malformedPercentEncoding_isRejected(String query) {
@@ -144,13 +145,13 @@ class QueryParsingIT extends BaseIntegrationTest {
             "some%20other%20column=%20%20      # Béringer,Åkesson,Martinsson",
             "Telephone=+&some%20other%20column=%20  # Åkesson"
     })
-    @DisplayName("TC-QUERY-026: A value consisting of spaces matches empty cells as in 1.x")
+    @DisplayName("TC-QUERY-028: A value consisting of spaces matches empty cells as in 1.x")
     void spacesOnlyValue_matchesEmptyCells(String query, String expected) {
         assertThat(names(get(query))).containsExactlyInAnyOrder(expected.split(","));
     }
 
     @Test
-    @DisplayName("TC-QUERY-027: The page links of a value consisting of spaces match empty cells")
+    @DisplayName("TC-QUERY-029: The page links of a value consisting of spaces match empty cells")
     void spacesOnlyValue_pageLinksMatchEmptyCells() {
         RawResponse first = get("some%20other%20column=+&_limit=1");
         assertThat(names(first)).containsExactly("Béringer");
@@ -163,7 +164,7 @@ class QueryParsingIT extends BaseIntegrationTest {
 
     @ParameterizedTest(name = "[{index}] ?{0}")
     @ValueSource(strings = {"_callback=", "_sort=", "Name=&Name=McLoud"})
-    @DisplayName("TC-QUERY-028: An empty _callback or _sort and an empty value followed by a value are accepted")
+    @DisplayName("TC-QUERY-030: An empty _callback or _sort and an empty value followed by a value are accepted")
     void emptySpecialParameterOrOverriddenValue_isAccepted(String query) {
         assertThat(get(query).status()).isEqualTo(200);
     }
@@ -178,7 +179,7 @@ class QueryParsingIT extends BaseIntegrationTest {
             "_limit=",
             "_offset"
     })
-    @DisplayName("TC-QUERY-026: An empty filter value as sent and a blank _limit or _offset are rejected with 400")
+    @DisplayName("TC-QUERY-028: An empty filter value as sent and a blank _limit or _offset are rejected with 400")
     void emptyValueAsSent_isRejected(String query) {
         assertThat(get(query).status()).isEqualTo(400);
     }

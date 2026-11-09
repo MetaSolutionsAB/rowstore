@@ -44,7 +44,7 @@ Release versions are set with `./set-version.sh <version>`, which updates `pom.x
 
 ## Testing
 
-### Java Integration Tests (JUnit 5 + REST Assured + Testcontainers)
+### Java Integration Tests (JUnit Jupiter 6 + REST Assured + Testcontainers)
 
 Integration tests automatically start a PostgreSQL container via Testcontainers and an embedded RowStore server. **Docker must be running.**
 

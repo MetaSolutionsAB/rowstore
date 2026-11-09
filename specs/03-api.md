@@ -161,7 +161,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 ## API-10 Range Requests
 
-> **API-10.01** The `Range` request header is ignored by the RowStore resources (`/dataset/{id}` and its sub-resources, `/datasets`, `/status`): their responses have status 200 with the full body and no `Accept-Ranges` header, which tells clients that ranges are not supported (RFC 9110, section 14.2). In 1.x, Restlet answered a `Range: bytes=a-b` request with 206 Partial Content and sent `Accept-Ranges: bytes` (open-ended ranges of exports failed with 500). Neither 406 (which refers to the `Accept` header) nor 416 (only for unsatisfiable ranges of resources that support ranges) applies.
+> **API-10.01** The `Range` request header is ignored by the RowStore resources (`/dataset/{id}` and its sub-resources, `/datasets`, `/status`): their responses have status 200 with the full body, as RFC 9110 (section 14.2) allows, and no `Accept-Ranges` header (section 14.3). In 1.x, Restlet answered a `Range: bytes=a-b` request with 206 Partial Content and sent `Accept-Ranges: bytes` (open-ended ranges of exports failed with 500). Neither 406 (which refers to the `Accept` header) nor 416 (only for unsatisfiable ranges of resources that support ranges) applies.
 
 ## Known Limitations
 

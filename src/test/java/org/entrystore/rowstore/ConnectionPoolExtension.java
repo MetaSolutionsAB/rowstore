@@ -26,7 +26,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.testcontainers.DockerClientFactory;
 
 /**
- * JUnit 5 extension that starts a RowStore test environment with HikariCP connection pooling enabled.
+ * JUnit Jupiter extension that starts a RowStore test environment with HikariCP connection pooling enabled.
  *
  * Uses connectionPoolMax=3 to verify that the HikariCP code path works correctly, with a separate
  * queryDatabase (pointing to the same container) so that the read-only query pool is exercised too.
