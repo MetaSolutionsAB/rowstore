@@ -374,6 +374,7 @@ Current limitations relevant to this area.
 | DEPL-2.03 | Docker tags: version, major.minor, latest, develop |
 | DEPL-2.04 | Image runs as non-root user rowstore (10001), ROWSTORE_CONFIG_URI, JAVA_OPTS |
 | DEPL-2.05 | Image is a drop-in replacement for 1.x: port 8080, latest moves to 2.0, docker repository to build 1.x only (planned), 1.x ROWSTORE_CONFIG_URI unchanged, USE_SYSTEM_CA_CERTS |
+| DEPL-2.06 | Image distrusts the eMudhra root CAs (CVE-2026-114820) in the JDK and system truststores, build fails if one is left; apk upgrade |
 | DEPL-3.01 | Pipeline: build → test → deploy + Docker Hub |
 | DEPL-3.02 | Branch strategy: master, develop, other |
 | DEPL-3.03 | Artifacts: executable JAR + SHA256 + GPG |
