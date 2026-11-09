@@ -50,7 +50,6 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 @RestController
@@ -344,8 +343,10 @@ public class DatasetController {
 			url.append("&");
 			url.append(URLEncoder.encode(k, StandardCharsets.UTF_8));
 			url.append("=");
-			// null: empty as sent, e.g. _callback=
-			url.append(URLEncoder.encode(Objects.requireNonNullElse(entry.getValue(), ""), StandardCharsets.UTF_8));
+			// a value that is empty only after trimming is sent as a space, so that the link matches empty cells as
+			// well (QUERY-2.03); a value that is empty as sent (null, e.g. _callback=) stays empty
+			String value = entry.getValue();
+			url.append(value == null ? "" : URLEncoder.encode(value.isEmpty() ? " " : value, StandardCharsets.UTF_8));
 		}
 		return url.toString();
 	}

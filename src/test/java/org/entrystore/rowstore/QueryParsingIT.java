@@ -27,6 +27,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -146,6 +147,25 @@ class QueryParsingIT extends BaseIntegrationTest {
     @DisplayName("TC-QUERY-026: A value consisting of spaces matches empty cells as in 1.x")
     void spacesOnlyValue_matchesEmptyCells(String query, String expected) {
         assertThat(names(get(query))).containsExactlyInAnyOrder(expected.split(","));
+    }
+
+    @Test
+    @DisplayName("TC-QUERY-027: The page links of a value consisting of spaces match empty cells")
+    void spacesOnlyValue_pageLinksMatchEmptyCells() {
+        RawResponse first = get("some%20other%20column=+&_limit=1");
+        assertThat(names(first)).containsExactly("Béringer");
+        URI next = URI.create(first.json().getString("next"));
+        assertThat(next.getRawQuery()).contains("some+other+column=+");
+
+        RawResponse second = TestUtils.rawGet(getBaseUrl(), next.getRawPath() + "?" + next.getRawQuery());
+        assertThat(names(second)).containsExactly("Åkesson");
+    }
+
+    @ParameterizedTest(name = "[{index}] ?{0}")
+    @ValueSource(strings = {"_callback=", "_sort=", "Name=&Name=McLoud"})
+    @DisplayName("TC-QUERY-028: An empty _callback or _sort and an empty value followed by a value are accepted")
+    void emptySpecialParameterOrOverriddenValue_isAccepted(String query) {
+        assertThat(get(query).status()).isEqualTo(200);
     }
 
     @ParameterizedTest(name = "[{index}] ?{0}")

@@ -283,6 +283,19 @@ Spec: QUERY-2.03, QUERY-3.01, QUERY-3.02
 3. `some%20other%20column=`, `some%20other%20column` (no `=`), `Name=McLoud&Telephone=`, `_limit=%20`, `_offset=+`,
    `_limit=`, `_offset` → `400`
 
+### TC-QUERY-027: The page links of a value consisting of spaces match empty cells
+
+Spec: QUERY-2.03, QUERY-6.02
+
+1. `some%20other%20column=+&_limit=1` → `200`, exactly Béringer; `next` contains `some+other+column=+`
+2. `GET` of `next` → `200`, exactly Åkesson (1.x wrote `some+other+column=` and returned 400)
+
+### TC-QUERY-028: An empty _callback or _sort and an empty value followed by a value are accepted
+
+Spec: QUERY-2.03, QUERY-3.05
+
+**Requests:** `_callback=`, `_sort=`, `Name=&Name=McLoud` → `200` (1.x: 400)
+
 ## JSONP Callback Tests
 
 JSONP support has been removed (API-7.01, QUERY-3.03), so these test cases, which expected wrapped responses as in 1.x, are retired. `_callback` is accepted and ignored (QUERY-3.05, see TC-QUERY-018 to TC-QUERY-020).
