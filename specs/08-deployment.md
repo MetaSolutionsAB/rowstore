@@ -45,13 +45,13 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 
 > **DEPL-2.03** Docker tags follow these conventions (pushed by the Docker Hub step of the pipeline, DEPL-3.02):
 > - Version-specific: the version in `VERSION.txt`, e.g. `2.0.0`, `2.0-SNAPSHOT` (master and develop)
-> - Major.minor shorthand, e.g. `2.0` (master)
-> - `latest` — Latest release (master), see DEPL-2.05
+> - Major.minor shorthand, e.g. `2.0` (master, only for versions without a suffix such as `-SNAPSHOT` or `-rc1`)
+> - `latest` — Latest release (master, only for versions without a suffix), see DEPL-2.05
 > - `develop` — Latest development build (develop)
 
 > **DEPL-2.05** The image is a drop-in replacement for the 1.x images, which were built in the separate `docker` repository (directory `rowstore/`), ran `bin/rowstore --port 8080` as root and exposed 8080:
 > - **Port:** the image listens on **8080** like the 1.x images (`ENV SERVER_PORT=8080`, `EXPOSE 8080`); `--server.port=<port>` passed to `docker run` takes precedence over the environment variable. The JAR's own default port stays 8282 (DEPL-1.02).
-> - **Tags:** the 2.0 images are pushed to the same repository `metasolutions/rowstore` as the 1.x images. The Docker Hub step also tags and pushes `latest` on master, so `latest` moves from 1.7 to 2.0 with the 2.0 release; deployments that stay on 1.x pull `1.7` (or `1.7.0`). The `docker` repository builds 1.x images only: its `build.sh` refuses versions 2.0 and later, also without an argument once `latest.version` is 2.0 or later.
+> - **Tags:** the 2.0 images are pushed to the same repository `metasolutions/rowstore` as the 1.x images. The Docker Hub step also tags and pushes `latest` on master (not for a version with a `-` suffix, DEPL-2.03), so `latest` moves from 1.7 to 2.0 with the 2.0 release; deployments that stay on 1.x pull `1.7` (or `1.7.0`). The `docker` repository builds 1.x images only: its `build.sh` refuses versions 2.0 and later, also without an argument once `latest.version` is 2.0 or later.
 > - **Configuration:** 1.x required `-c <URI>` unless `ROWSTORE_CONFIG_URI` was set, and the 1.x images set neither, so every working 1.x container definition sets one of them. A definition that sets `ROWSTORE_CONFIG_URI` works unchanged, e.g. `file:///srv/rowstore/etc/rowstore.json` with the configuration mounted there; without it, the 2.0 image reads `/srv/rowstore/rowstore.json` (DEPL-2.04). `-c <URI>` is rejected (CFG-7.05) and must become `-e ROWSTORE_CONFIG_URI=<URI>` or `--rowstore.config.uri=<URI>`.
 > - **CA certificates:** the entrypoint of the 1.x images was the base image's `/__cacert_entrypoint.sh` (Eclipse Temurin), which imports `/certificates/*.crt` into the truststore of the JVM if `USE_SYSTEM_CA_CERTS` is set (e.g. for `"ssl": true` with a private CA). The 2.0 image runs it in front of RowStore. As the user `rowstore` cannot write the JVM's truststore, the script copies it to a temporary file in `/tmp` (which must be writable), adds the certificates there and points the JVM to it with `JAVA_TOOL_OPTIONS`; the system's CA store is not updated (it was for root in 1.x), which affects only tools other than java.
 > - An existing 1.x container definition works with the 2.0 image after changing only the tag, as long as the configuration is readable for UID or GID 10001 (DEPL-2.04) and contains no options that 2.0 rejects (CFG-7.05).
@@ -66,7 +66,7 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > ```
 
 > **DEPL-3.02** Branch strategy:
-> - **master**: Full pipeline — build, test, deploy, Docker push (`<version>`, `<major.minor>` and `latest` tags)
+> - **master**: Full pipeline — build, test, deploy, Docker push (`<version>` tag, plus `<major.minor>` and `latest` if the version has no `-` suffix)
 > - **develop**: Full pipeline — build, test, deploy, Docker push (`<version>` and `develop` tags)
 > - **Other branches**: Build and test only (no deploy, no Docker push)
 
@@ -188,3 +188,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 | 2026-11-09 | DEPL-2.04, DEPL-2.05: configuration falls back to `/srv/rowstore/etc/rowstore.json`, `ROWSTORE_CONFIG_URI` no longer set with `ENV`; base image entrypoint for `USE_SYSTEM_CA_CERTS` kept (ROWS-176) |
 | 2026-11-09 | DEPL-2.04, DEPL-2.05: fallback to `/srv/rowstore/etc/rowstore.json` dropped (1.x required `ROWSTORE_CONFIG_URI` or `-c`), `ROWSTORE_CONFIG_URI` set with `ENV` again; `JAVA_OPTS` not glob-expanded (ROWS-176) |
 | 2026-11-09 | DEPL-2.04: jar copied with mode 0644 (`COPY --chmod`, BuildKit), not writable for group 0 (ROWS-176) |
+| 2026-11-09 | DEPL-2.03, DEPL-2.05, DEPL-3.02: `<major.minor>` and `latest` not pushed for versions with a `-` suffix (ROWS-176) |

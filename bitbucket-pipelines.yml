@@ -67,8 +67,9 @@ stepdefinitions:
         - docker build --pull --no-cache --tag metasolutions/rowstore:$VERSION .
         - docker push metasolutions/rowstore:$VERSION
         - if [ $BITBUCKET_BRANCH == "develop" ]; then docker tag metasolutions/rowstore:$VERSION metasolutions/rowstore:develop ; docker push metasolutions/rowstore:develop ; fi
-        # latest moves to every release of master (since 2.0; the 1.x images were built in the docker repository)
-        - if [ $BITBUCKET_BRANCH == "master" ]; then docker tag metasolutions/rowstore:$VERSION metasolutions/rowstore:$VERSION_MAJOR_MINOR ; docker push metasolutions/rowstore:$VERSION_MAJOR_MINOR ; docker tag metasolutions/rowstore:$VERSION metasolutions/rowstore:latest ; docker push metasolutions/rowstore:latest ; fi
+        # latest moves to every release of master (since 2.0; the 1.x images were built in the docker repository), but
+        # neither it nor <major.minor> to a version with a suffix such as -SNAPSHOT or -rc1
+        - if [ $BITBUCKET_BRANCH == "master" ]; then case "$VERSION" in *-*) echo "Not tagging $VERSION_MAJOR_MINOR and latest for $VERSION" ;; *) docker tag metasolutions/rowstore:$VERSION metasolutions/rowstore:$VERSION_MAJOR_MINOR ; docker push metasolutions/rowstore:$VERSION_MAJOR_MINOR ; docker tag metasolutions/rowstore:$VERSION metasolutions/rowstore:latest ; docker push metasolutions/rowstore:latest ;; esac ; fi
       services:
         - docker
       caches:
