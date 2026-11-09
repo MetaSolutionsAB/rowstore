@@ -126,7 +126,7 @@ As in 1.x, clients that cannot set headers or methods can tunnel them: the query
 ### /datasets
 
 - `GET http://{base-url}/datasets` - Returns an array with all dataset ids.
-- `POST http://{base-url}/datasets` - Starts the ETL process for a CSV file. Expects a CSV-file and returns HTTP 202 with location of created dataset. Uploads larger than `maxuploadsize` are rejected with HTTP 413.
+- `POST http://{base-url}/datasets` - Starts the ETL process for a CSV file. Expects a CSV-file and returns HTTP 202 with location of created dataset. Uploads larger than `maxuploadsize` are rejected with HTTP 413. Request bodies compressed with `Content-Encoding` `gzip`, `x-gzip`, `deflate`, `deflate-no-wrap` or `zip` are decoded (as in 1.x); other codings are rejected with HTTP 415 and corrupt compressed data with HTTP 400.
 
 ### /dataset/{id}
 

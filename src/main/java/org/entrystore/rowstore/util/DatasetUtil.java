@@ -70,10 +70,17 @@ public class DatasetUtil {
 		Path tmpPath = Files.createTempFile(RowStoreApplication.NAME, ".csv");
 		tmpPath.toFile().deleteOnExit();
 		log.info("Writing request body to temporary file at " + tmpPath);
-		if (maxSize > 0) {
-			Files.copy(new BoundedInputStream(inputStream, maxSize), tmpPath, StandardCopyOption.REPLACE_EXISTING);
-		} else {
-			Files.copy(inputStream, tmpPath, StandardCopyOption.REPLACE_EXISTING);
+		try {
+			if (maxSize > 0) {
+				// limits the bytes as read by the controller, i.e., after decoding a Content-Encoding (API-3.17)
+				Files.copy(new BoundedInputStream(inputStream, maxSize), tmpPath, StandardCopyOption.REPLACE_EXISTING);
+			} else {
+				Files.copy(inputStream, tmpPath, StandardCopyOption.REPLACE_EXISTING);
+			}
+		} catch (IOException | RuntimeException e) {
+			// e.g., the upload is too large or its compressed data is corrupt: the caller gets no file to delete
+			Files.deleteIfExists(tmpPath);
+			throw e;
 		}
 		return tmpPath.toFile();
 	}

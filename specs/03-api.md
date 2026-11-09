@@ -44,6 +44,8 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.16** `PUT`, `POST` and `DELETE /dataset/{id}/json` — Same as on `/dataset/{id}` (API-3.06, API-3.05, API-3.07), as in 1.x, where both paths were routed to the same resource: same status codes and response body, and the `Location` header of a replace or append is `/dataset/{id}` (without `/json`). The method tunnel applies as on `/dataset/{id}` (API-4.06, e.g. `POST /dataset/{id}/json?method=DELETE`), and `OPTIONS` lists the same methods for both paths.
 
+> **API-3.17** Request bodies with a `Content-Encoding` header are decoded before they are read, as by the DecoderService of Restlet in 1.x: `gzip` and `x-gzip`, `deflate` (zlib format), `deflate-no-wrap` (raw deflate), `zip` (the first entry of the archive) and `identity`. Codings are case-insensitive and may be stacked in one or several header lines (e.g. `gzip, identity`); they are decoded in reverse order of application. This applies to all request bodies: uploads (API-3.03, API-3.05, API-3.06) and alias updates (API-3.09). The decoded request has neither `Content-Encoding` nor `Content-Length`. A request body with any other coding (e.g. `br`, `zstd`) is rejected with **415** before anything is read or stored (1.x ignored such codings and loaded the body as sent, deliberate difference, ROWS-173). Compressed data that cannot be decoded (e.g. a truncated gzip body, data that is not in the declared format, or a zip archive without entries) is rejected with **400** while the upload is written to its temp file, i.e., before the 202 (1.x: 500 for a truncated gzip body). `maxuploadsize` limits the decoded size (ETL-9.02). A request without a body (no `Content-Length` above 0 and no `Transfer-Encoding`) is passed on unchanged, so an empty upload is answered as without `Content-Encoding` (400). The decoding is done by `RequestDecodingFilter`, after the CORS filter (415 responses carry CORS headers) and the rate limit.
+
 > **API-3.08** `GET /dataset/{id}/info` — Returns dataset metadata in JSON-LD format: status, created timestamp, column names, row count, identifier, aliases, `@context`, and `@id`.
 
 > **API-3.09** `GET|PUT|POST|DELETE /dataset/{id}/aliases` — Alias management:
@@ -127,9 +129,10 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 > - **204 No Content** — Successful alias update or dataset deletion with no response body
 
 > **API-6.02** Client error statuses:
-> - **400 Bad Request** — Invalid parameters, empty filter values, non-numeric limit/offset, invalid alias format, path parameters (`;` in the request path, [SEC-4.11](07-security.md#sec-4-input-validation))
+> - **400 Bad Request** — Invalid parameters, empty filter values, non-numeric limit/offset, invalid alias format, compressed request bodies that cannot be decoded (API-3.17), path parameters (`;` in the request path, [SEC-4.11](07-security.md#sec-4-input-validation))
 > - **404 Not Found** — Dataset or alias not found
-> - **415 Unsupported Media Type** — Non-CSV content type for upload endpoints
+> - **413 Content Too Large** — Upload larger than `maxuploadsize`, measured after decoding a `Content-Encoding` (API-3.17, ETL-9.02)
+> - **415 Unsupported Media Type** — Non-CSV content type for upload endpoints, or a request body with an unsupported `Content-Encoding` (API-3.17)
 
 > **API-6.03** Server-side constraint statuses:
 > - **423 Locked** — DELETE attempted on a dataset that is not in AVAILABLE or ERROR state
@@ -200,3 +203,4 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-11-09 | API-4.01, API-4.04: selection rule of Restlet's flexible content negotiation; `/dataset/{id}` returns JSON without `Accept` and for `*/*`; `Accept` read as by Restlet (accept extensions, invalid quality, type without subtype) (ROWS-171) |
 | 2026-11-09 | Known Limitations: 1.x handled `PATCH` like `PUT`; 2.0 keeps returning 405 (ROWS-172) |
 | 2026-11-09 | Added API-3.16: `PUT`, `POST` and `DELETE` on `/dataset/{id}/json` as on `/dataset/{id}` (ROWS-172) |
+| 2026-11-09 | Added API-3.17: request bodies with `Content-Encoding` are decoded as in 1.x, unsupported codings get 415, undecodable bodies 400; API-6.02: 413 and the new 400 and 415 cases (ROWS-173) |

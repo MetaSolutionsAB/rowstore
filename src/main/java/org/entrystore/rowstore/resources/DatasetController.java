@@ -20,6 +20,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.entrystore.rowstore.etl.EtlResource;
 import org.entrystore.rowstore.etl.EtlStatus;
+import org.entrystore.rowstore.filters.RequestDecodingFilter;
 import org.entrystore.rowstore.filters.TunnelFilter;
 import org.entrystore.rowstore.resources.model.DatasetAcceptedResponse;
 import org.entrystore.rowstore.resources.model.QueryResponse;
@@ -246,6 +247,10 @@ public class DatasetController {
 			} catch (DatasetUtil.PayloadTooLargeException ptle) {
 				log.warn(ptle.getMessage());
 				return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).build();
+			} catch (RequestDecodingFilter.MalformedContentException mce) {
+				// e.g., truncated gzip data (API-3.17)
+				log.info(mce.getMessage());
+				return ResponseEntity.badRequest().build();
 			} catch (IOException ioe) {
 				log.error(ioe.getMessage());
 				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();

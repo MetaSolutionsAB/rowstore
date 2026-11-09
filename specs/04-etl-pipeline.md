@@ -122,6 +122,8 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 
 > **ETL-9.01** Uploaded CSV content is written to a temp file named `RowStore-*.csv` via `File.createTempFile()`. The file is marked with `deleteOnExit()` as a safety net. It is explicitly deleted after its load has finished, whether successful or not, when its queued load is discarded (ETL-8.03, ETL-8.07, shutdown), or on early failure (before queuing). Upload size is enforced by `maxuploadsize` (default 100 MB).
 
+> **ETL-9.02** `maxuploadsize` limits the bytes of the upload as written to the temp file, i.e., after decoding a `Content-Encoding` (API-3.17), so that a small compressed body cannot expand to an arbitrarily large temp file (decompression bomb); the compressed size is not limited separately. If writing the temp file fails, e.g., because the upload exceeds `maxuploadsize` (413) or its compressed data cannot be decoded (400), the partially written temp file is deleted at once, and no dataset is created or changed.
+
 ## ETL-10 Failure Handling
 
 > **ETL-10.01** `populate()` tracks the outcome of a load locally and sets the final status (AVAILABLE on success, ERROR otherwise) from it, without reading the status back from the database. Exceptions that are not handled inside `populate()` (e.g., I/O errors, runtime exceptions) still set ERROR and then propagate to the `EtlProcessor`, which logs them with stack trace, makes a further best-effort attempt to set ERROR, and continues with the next job.
@@ -200,3 +202,4 @@ Covers the full upload-to-available lifecycle: file reception, virtual thread di
 | 2026-10-23 | Datasets in ACCEPTED_DATA are reset to ERROR at startup as well (ETL-8.06, ETL-10.02, ROWS-163) |
 | 2026-10-23 | Columns keep their position, empty labels skip their cells, duplicate labels fail the load (ETL-4.08, ETL-4.09, ROWS-154); cleanup limited to byte order marks and soft hyphens, names that clean to empty kept, appends match labels with normalized stored names (ETL-6.01, ETL-11.01, ETL-11.02, ETL-11.04, ETL-11.05, ETL-11.07 to ETL-11.09, ROWS-164) |
 | 2026-11-05 | ETL-6.04: queries behind a swap lock attempt succeed only with a `queryLockTimeout` longer than 3 s or 0, startup warning otherwise |
+| 2026-11-09 | Added ETL-9.02: `maxuploadsize` limits the decoded upload, temp file deleted if writing it fails (ROWS-173) |
