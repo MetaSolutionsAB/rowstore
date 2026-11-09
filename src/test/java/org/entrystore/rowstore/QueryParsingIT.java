@@ -158,7 +158,7 @@ class QueryParsingIT extends BaseIntegrationTest {
             "_limit=",
             "_offset"
     })
-    @DisplayName("TC-QUERY-026: An empty filter value as sent and a blank _limit or _offset are rejected with 400 as in 1.x")
+    @DisplayName("TC-QUERY-026: An empty filter value as sent and a blank _limit or _offset are rejected with 400")
     void emptyValueAsSent_isRejected(String query) {
         assertThat(get(query).status()).isEqualTo(400);
     }
