@@ -272,14 +272,6 @@ Spec: QUERY-3.06
 2. `/dataset/{id}?media=json&charset=utf-8&_limit=2&_offset=2` → `200`, 2 results, `prev` and `next` contain neither `media` nor `charset`
 3. A dataset with a column `language` (`language,n` / `sv,1` / `en,2`): `?language=sv` → `200`, exactly the row with `n` = `1`
 
-### TC-QUERY-025: An exactly full last page links to an empty page
-
-Spec: QUERY-6.02
-
-**Requests** (dataset with 5 rows):
-1. `/dataset/{id}?_limit=5` → `200`, 5 results, `next` with `_offset=5`, no `prev`
-2. `/dataset/{id}?_limit=5&_offset=5` → `200`, no results, no `next`, `prev` with `_offset=0`
-
 ### TC-QUERY-026: No prev link when the offset is smaller than the limit
 
 Spec: QUERY-6.02
@@ -289,6 +281,38 @@ Spec: QUERY-6.02
 **Expected Response:**
 - Status: `200`
 - 2 results, no `prev`, `next` with `_offset=3`
+
+### TC-QUERY-027: An exactly full last page links to an empty page
+
+Spec: QUERY-6.02
+
+**Requests** (dataset with 5 rows):
+1. `/dataset/{id}?_limit=5` → `200`, 5 results, `next` with `_offset=5`, no `prev`
+2. `/dataset/{id}?_limit=5&_offset=5` → `200`, no results, no `next`, `prev` with `_offset=0`
+
+### TC-QUERY-028: A value consisting of spaces matches empty cells as in 1.x
+
+Spec: QUERY-2.03, QUERY-3.01, QUERY-3.02
+
+**Requests** (dataset1_utf8.csv, sent unencoded with `TestUtils.rawRequest()`):
+1. `some%20other%20column=%20`, `some%20other%20column=+`, `some%20other%20column=%20%20` → `200`, exactly
+   Béringer, Åkesson and Martinsson (the rows whose cell is empty)
+2. `Telephone=+&some%20other%20column=%20` → `200`, exactly Åkesson
+3. `some%20other%20column=`, `some%20other%20column` (no `=`), `Name=McLoud&Telephone=`, `_limit=%20`, `_offset=+`,
+   `_limit=`, `_offset` → `400`
+
+### TC-QUERY-029: The page links of a value consisting of spaces match empty cells
+
+Spec: QUERY-2.03, QUERY-6.02
+
+1. `some%20other%20column=+&_limit=1` → `200`, exactly Béringer; `next` contains `some+other+column=+`
+2. `GET` of `next` → `200`, exactly Åkesson (1.x wrote `some+other+column=` and returned 400)
+
+### TC-QUERY-030: An empty _callback or _sort and an empty value followed by a value are accepted
+
+Spec: QUERY-2.03, QUERY-3.05
+
+**Requests:** `_callback=`, `_sort=`, `Name=&Name=McLoud` → `200` (1.x: 400)
 
 ## JSONP Callback Tests
 

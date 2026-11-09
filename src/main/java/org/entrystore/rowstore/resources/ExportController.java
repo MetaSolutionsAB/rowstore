@@ -73,8 +73,9 @@ public class ExportController {
 
 	/**
 	 * Exports the dataset as JSON or CSV, depending on the Accept header (API-3.10, API-4.04), which can be set with the
-	 * query parameter media (API-4.05): CSV if it accepts CSV with a higher quality than JSON, or if it accepts neither,
-	 * but has a text type (e.g., text/plain), JSON otherwise. All responses vary by the Accept header, also errors.
+	 * query parameter media (API-4.05): JSON is the first representation, so it is selected without Accept header, for
+	 * *&#47;* and if the Accept header matches neither (e.g., image/png). All responses vary by the Accept header,
+	 * also errors.
 	 */
 	@GetMapping(value = "/dataset/{id}/export")
 	public ResponseEntity<StreamingResponseBody> export(@PathVariable("id") String id, HttpServletRequest request,

@@ -42,6 +42,8 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.07** `DELETE /dataset/{id}` — Deletes a dataset, its data table, and all aliases. Only permitted when status is AVAILABLE (3) or ERROR (4). Returns **204 No Content** on success, 423 Locked if dataset is still processing.
 
+> **API-3.16** `PUT`, `POST` and `DELETE /dataset/{id}/json` — Same as on `/dataset/{id}` (API-3.06, API-3.05, API-3.07), as in 1.x, where both paths were routed to the same resource: same status codes and response body, and the `Location` header of a replace or append is `/dataset/{id}` (without `/json`). The method tunnel applies as on `/dataset/{id}` (API-4.06, e.g. `POST /dataset/{id}/json?method=DELETE`), and `OPTIONS` lists the same methods for both paths.
+
 > **API-3.08** `GET /dataset/{id}/info` — Returns dataset metadata in JSON-LD format: status, created timestamp, column names, row count, identifier, aliases, `@context`, and `@id`.
 
 > **API-3.09** `GET|PUT|POST|DELETE /dataset/{id}/aliases` — Alias management:
@@ -77,13 +79,26 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 ## API-4 Content Negotiation
 
-> **API-4.01** The `Accept` header determines the response format. JSON is the default.
+> **API-4.01** The `Accept` header determines the response format. JSON is the default: it is selected without `Accept` header, for `*/*` and for `Accept` headers that match no representation (API-4.04).
 
 > **API-4.02** [REMOVED] The `format` query parameter overrides the `Accept` header when present — never implemented, neither in 1.x nor in 2.0: `format` is treated like any other query parameter, i.e. as a column filter (400 if the dataset has no such column). Use the `Accept` header or the `media` parameter ([API-4.05](#api-4-content-negotiation)).
 
 > **API-4.03** `GET /dataset/{id}` with `Accept: text/html` responds with a **303 See Other** redirect to `/dataset/{id}/html`.
 
-> **API-4.04** Requests are never answered with 406 Not Acceptable, as in 1.x. Resources with one representation respond with it regardless of the `Accept` header: the JSON resources (`/status`, `/datasets`, `/dataset/{id}/json`, `/info`, `/aliases`, `/swagger`) with `application/json` (e.g., also for `Accept: application/ld+json`, `text/plain` or `text/html`) and `/dataset/{id}/html` with `text/html`. For resources with two representations (`/dataset/{id}`: HTML redirect and JSON; `/dataset/{id}/export`: JSON and CSV), the representation with the highest quality in the `Accept` header is selected (the quality of a representation is that of the most specific media range including it; on equal quality the more specific match, then the first representation listed here). If the `Accept` header accepts neither, the first representation with the same top-level type as an accepted media type is selected (e.g., `text/plain` selects the HTML redirect or the CSV export, `application/xml` JSON), otherwise the first one. Without `Accept` header, the first one is selected. Their responses, including error responses (e.g. 404), carry `Vary: Accept`, so that caches keep the representations apart.
+> **API-4.04** Requests are never answered with 406 Not Acceptable, as in 1.x. Resources with one representation respond with it regardless of the `Accept` header: the JSON resources (`/status`, `/datasets`, `/dataset/{id}/json`, `/info`, `/aliases`, `/swagger`) with `application/json` (e.g., also for `Accept: application/ld+json`, `text/plain` or `text/html`) and `/dataset/{id}/html` with `text/html`. For resources with two representations (`/dataset/{id}`: JSON and HTML redirect; `/dataset/{id}/export`: JSON and CSV), the representation is selected as by the flexible content negotiation of Restlet in 1.x (`FlexibleConneg`). Each representation scores the highest quality of the media ranges that include it, where the `Accept` header is extended by ranges with a low quality: the parent of each range (`type/*` for `type/subtype`, `*/*` for `type/*`, `type/subtype` for a range with parameters other than `q`) with 0.005 + 0.001 × its quality, `application/*` with 0.002, and `*/*` with 0.001, which replaces any `*/*` of the client. Parents equal to a range sent with `q=0` are not added; ranges with `q=0` themselves still match with quality 0. The representation with the highest score is selected, on equal scores the first one listed here, which is JSON for both resources. In practice:
+> 1. A representation named by its media type or by `type/*` wins over one that is only matched by a range of the same top-level type (e.g., `text/html` for `text/csv`, `application/xml` for `application/json`), unless its quality is below about 0.006; between matches of the same kind, the higher quality wins (`text/plain;q=0.9, application/json;q=0.5` → JSON, `application/json;q=0.1, text/*;q=0.5` → HTML).
+> 2. A range of the same top-level type wins over `*/*`, whatever its quality (`text/html;q=0.5, */*` → HTML; `text/plain;q=0.3, */*;q=0.5` → HTML redirect or CSV export).
+> 3. JSON is selected without `Accept` header, for `*/*`, for headers that match neither representation (e.g. `image/png`, `image/png, */*;q=0.2`) and on equal quality (`text/html, application/json` → JSON).
+>
+> The `Accept` headers are read as by Restlet's `PreferenceReader`: parameters before `q` belong to the media range, parameters after `q` are accept extensions and ignored (`application/json;q=1;foo=bar` matches JSON, `application/json;foo=bar` does not). A type without subtype (`text`, `text/`) is read as `text/*`. Semicolons and commas in quoted parameter values do not separate parameters or ranges, and a quoted quality is read without its quotes (`text/html;q="0.9"`). Unparseable ranges and empty ranges between commas are skipped. An invalid quality (not a number from 0 to 1, or `q` without value) and parameters without media type (e.g. `;q=0.5` or `;`) end the reading: the ranges before it are used, the following ones and further `Accept` headers are ignored (`text/html, application/json;q=2` → HTML; `application/json;q=2, text/html` → JSON).
+>
+> In 1.x, the order of the representations on equal scores was not fixed: it followed the order in which the JVM listed the annotated methods of the resource, so `text/html, application/json` could also select HTML. 2.0 always lists JSON first. For unusual `Accept` headers, the selection can still differ from 1.x:
+> - Media types are compared case-insensitively (`TEXT/HTML` selects HTML; 1.x selected JSON).
+> - Whitespace before a `;` that follows a parameter value (`*; charset=UTF-8 ;q=1`) and around `=` in the quality (`text/html;q= 0.5`) is read as RFC 9110 allows; Restlet dropped the quality or stopped reading there. A parameter without value (`text/html;a`), a `;` after the quality (`text/html;q=0.5;`) and a type followed by `;` alone (`text;`) are also read differently.
+> - Ranges that Spring cannot parse, e.g. `text/html;charset=bogus` or `text/html;;q=0.5`, are skipped; Restlet used them.
+> - Scores that differ by less than about 10⁻⁷ are not equal; Restlet added them to a floating-point sum in which they tied. This only occurs when both representations are matched by ranges with qualities below 0.01.
+>
+> Their responses, including error responses (e.g. 404), carry `Vary: Accept`, so that caches keep the representations apart.
 
 > **API-4.05** The query parameter `media` replaces the `Accept` header, as the TunnelService of Restlet did in 1.x, e.g., `/dataset/{id}/export?media=csv` for download links. Its value is a file extension (`json`, `csv`, `html`, `htm`, `txt`, `xml`) or a media type (e.g., `text/csv`); other values are ignored. Together with `charset`, `encoding` and `language`, which were consumed by the TunnelService as well, it is not a column filter, see [QUERY-3.06](05-querying.md#query-3-special-parameters).
 
@@ -153,7 +168,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 ## Known Limitations
 
-- No PATCH support for partial dataset updates
+- No PATCH support for partial dataset updates: `PATCH` returns 405, also tunnelled (400, API-4.06). 1.x handled `PATCH` on `/dataset/{id}`, `/dataset/{id}/json` and `/dataset/{id}/aliases` like `PUT` (full replace)
 - No bulk operations endpoint
 - No authentication in the application; the reverse proxy authenticates the private API (see [SEC-9](07-security.md#sec-9-reverse-proxy-contract))
 - No versioning in URL path (no `/v1/` prefix)
@@ -188,3 +203,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-11-09 | API-6.06: an invalid data table name in the datasets table answers 500 instead of 404 (ROWS-169) |
 | 2026-11-09 | API-3.04: `resultCount` is 0 for an offset beyond the last match (ROWS-170) |
 | 2026-11-09 | API-9.01: `_callback` is no longer listed in the per-dataset Swagger; added API-10.01: `Range` is ignored (ROWS-177) |
+| 2026-11-09 | API-4.01, API-4.04: selection rule of Restlet's flexible content negotiation; `/dataset/{id}` returns JSON without `Accept` and for `*/*`; `Accept` read as by Restlet (accept extensions, invalid quality, type without subtype) (ROWS-171) |
+| 2026-11-09 | Known Limitations: 1.x handled `PATCH` like `PUT`; 2.0 keeps returning 405 (ROWS-172) |
+| 2026-11-09 | Added API-3.16: `PUT`, `POST` and `DELETE` on `/dataset/{id}/json` as on `/dataset/{id}` (ROWS-172) |
+| 2026-11-09 | API-4.04: order of 1.x on equal scores, remaining differences from 1.x for unusual `Accept` headers (ROWS-171) |

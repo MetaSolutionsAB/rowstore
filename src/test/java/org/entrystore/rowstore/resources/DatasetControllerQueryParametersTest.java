@@ -49,4 +49,21 @@ class DatasetControllerQueryParametersTest {
                 .hasSize(5);
     }
 
+    @Test
+    @DisplayName("A value empty as sent is null, a value empty after trimming is an empty string")
+    void queryParameters_emptyAsSent_isNull() {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/dataset/x");
+        request.addParameter("sent", "");
+        request.addParameter("space", " ");
+        request.addParameter("spaces", "  ");
+        request.addParameter("last", "a", "");
+
+        assertThat(DatasetController.queryParameters(request))
+                .containsEntry("sent", null)
+                .containsEntry("space", "")
+                .containsEntry("spaces", "")
+                .containsEntry("last", null)
+                .hasSize(4);
+    }
+
 }

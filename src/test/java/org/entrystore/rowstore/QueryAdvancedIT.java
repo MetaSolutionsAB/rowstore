@@ -428,7 +428,7 @@ class QueryAdvancedIT extends BaseIntegrationTest {
 
     @Test
     @Order(21)
-    @DisplayName("TC-QUERY-025: An exactly full last page links to an empty page")
+    @DisplayName("TC-QUERY-027: An exactly full last page links to an empty page")
     void exactlyFullLastPage_linksToEmptyPage() {
         Response fullPage = given().spec(jsonSpec).queryParam("_limit", 5).when().get(datasetUrl);
         fullPage.then().statusCode(200).body("results", hasSize(5));

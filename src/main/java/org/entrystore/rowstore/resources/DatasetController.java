@@ -66,22 +66,24 @@ public class DatasetController {
 	}
 
 	/**
-	 * Responds with a redirect to the HTML view or with the JSON query result, depending on the Accept header
-	 * (API-4.03, API-4.04): HTML if no Accept header is sent or if it accepts neither, but has a text type (e.g.,
-	 * text/plain), JSON otherwise. All responses vary by the Accept header, also errors.
+	 * Responds with the JSON query result or with a redirect to the HTML view, depending on the Accept header
+	 * (API-4.03, API-4.04): JSON is the first representation, so it is selected without Accept header, for
+	 * *&#47;* and if the Accept header matches neither (e.g., image/png). All responses vary by the Accept header,
+	 * also errors.
 	 */
 	@GetMapping(value = "/dataset/{id}")
 	public ResponseEntity<?> represent(@PathVariable("id") String id, HttpServletRequest request,
 			HttpServletResponse response) {
 		response.addHeader(HttpHeaders.VARY, HttpHeaders.ACCEPT);
-		if (MediaType.TEXT_HTML.equals(ContentNegotiation.select(request, MediaType.TEXT_HTML, MediaType.APPLICATION_JSON))) {
+		if (MediaType.TEXT_HTML.equals(ContentNegotiation.select(request, MediaType.APPLICATION_JSON, MediaType.TEXT_HTML))) {
 			return representHtml(id);
 		}
 		return doQuery(id, queryParameters(request));
 	}
 
 	/**
-	 * Always responds with JSON, regardless of the Accept header (API-4.04).
+	 * Always responds with JSON, regardless of the Accept header (API-4.04). Otherwise, /dataset/{id}/json is the same
+	 * resource as /dataset/{id}, as in 1.x: PUT, POST and DELETE are mapped to both paths (API-3.16).
 	 */
 	@GetMapping(value = "/dataset/{id}/json")
 	public ResponseEntity<?> representJson(@PathVariable("id") String id, HttpServletRequest request) {
@@ -102,7 +104,9 @@ public class DatasetController {
 
 	/**
 	 * Returns the query parameters as in 1.x (QUERY-2.03): names and values are trimmed, parameters whose name is
-	 * empty after trimming are skipped, and of a repeated parameter the last value is used.
+	 * empty after trimming are skipped, and of a repeated parameter the last value is used. A value that is empty as
+	 * sent ({@code ?col=} or {@code ?col}, which Tomcat does not distinguish) is returned as null, whereas a value that
+	 * is only empty after trimming ({@code ?col=%20}) is returned as an empty string.
 	 */
 	static Map<String, String> queryParameters(HttpServletRequest request) {
 		Map<String, String> parameters = new LinkedHashMap<>();
@@ -110,7 +114,8 @@ public class DatasetController {
 			String key = entry.getKey().trim();
 			String[] values = entry.getValue();
 			if (!key.isEmpty() && values != null && values.length > 0) {
-				parameters.put(key, values[values.length - 1].trim());
+				String value = values[values.length - 1];
+				parameters.put(key, value.isEmpty() ? null : value.trim());
 			}
 		}
 		return parameters;
@@ -143,8 +148,9 @@ public class DatasetController {
 				specialParamCount++;
 				continue;
 			}
+			// a value empty as sent is rejected as in 1.x, one that is empty after trimming matches empty cells
 			String value = parameters.get(k);
-			if (value != null && value.isEmpty()) {
+			if (value == null) {
 				return ResponseEntity.badRequest().build();
 			}
 			tuples.put(k.toLowerCase(), value);
@@ -208,12 +214,12 @@ public class DatasetController {
 		));
 	}
 
-	@PostMapping(value = "/dataset/{id}")
+	@PostMapping(value = {"/dataset/{id}", "/dataset/{id}/json"})
 	public ResponseEntity<?> acceptCSVPost(@PathVariable("id") String id, HttpServletRequest request) {
 		return acceptCSV(id, request, true);
 	}
 
-	@PutMapping(value = "/dataset/{id}")
+	@PutMapping(value = {"/dataset/{id}", "/dataset/{id}/json"})
 	public ResponseEntity<?> acceptCSVPut(@PathVariable("id") String id, HttpServletRequest request) {
 		return acceptCSV(id, request, false);
 	}
@@ -273,7 +279,7 @@ public class DatasetController {
 		}
 	}
 
-	@DeleteMapping(value = "/dataset/{id}")
+	@DeleteMapping(value = {"/dataset/{id}", "/dataset/{id}/json"})
 	public ResponseEntity<Void> purgeDataset(@PathVariable("id") String id) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
@@ -337,7 +343,10 @@ public class DatasetController {
 			url.append("&");
 			url.append(URLEncoder.encode(k, StandardCharsets.UTF_8));
 			url.append("=");
-			url.append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
+			// a value that is empty only after trimming is sent as a space, so that the link matches empty cells as
+			// well (QUERY-2.03); a value that is empty as sent (null, e.g. _callback=) stays empty
+			String value = entry.getValue();
+			url.append(value == null ? "" : URLEncoder.encode(value.isEmpty() ? " " : value, StandardCharsets.UTF_8));
 		}
 		return url.toString();
 	}

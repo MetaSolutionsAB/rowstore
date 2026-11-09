@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Arrays;
@@ -82,30 +83,43 @@ class ContentNegotiationIT extends BaseIntegrationTest {
     }
 
     @ParameterizedTest(name = "[{index}] Accept: {0}")
-    @ValueSource(strings = {"text/plain", "text/csv", "text/json", "text/javascript", "*/*",
+    @ValueSource(strings = {"text/html", "text/plain", "text/csv", "text/json", "text/javascript", "text/html, */*",
+            "text/plain;q=0.3, */*;q=0.5", "application/json;q=0.9, text/html", "text", "text/html, application/json;q=2",
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"})
-    @DisplayName("TC-CONNEG-002: The dataset resource redirects to the HTML view for text types, as in 1.x")
-    void datasetResource_textTypes_redirectToHtml(String accept) {
+    @DisplayName("TC-CONNEG-002: The dataset resource redirects to the HTML view if HTML matches best, as in 1.x")
+    void datasetResource_htmlMatchesBest_redirectsToHtml(String accept) {
         RawResponse response = get("/dataset/{ds}", accept);
         assertThat(response.status()).isEqualTo(303);
         assertThat(response.header("Location")).isEqualTo(dataset.datasetUrl + "/html");
     }
 
-    @Test
-    @DisplayName("TC-CONNEG-002: The dataset resource redirects to the HTML view without Accept header")
-    void datasetResource_noAccept_redirectsToHtml() {
-        assertThat(get("/dataset/{ds}", null).status()).isEqualTo(303);
+    @ParameterizedTest(name = "[{index}] Accept: {0}")
+    @NullSource
+    @ValueSource(strings = {"*/*", "*/*;q=0.8", "image/png", "image/gif, */*; q=.2", "application/xml, */*;q=0.5",
+            "text/html, application/json", "text/html;q=0.9, application/json", "garbage",
+            "application/json;q=1;foo=bar, text/html;q=0.5", "application/json;q=2, text/html", ";"})
+    @DisplayName("TC-CONNEG-007: The dataset resource responds with JSON without a better match for HTML, as in 1.x")
+    void datasetResource_noBetterMatchForHtml_respondsWithJson(String accept) {
+        RawResponse response = get("/dataset/{ds}", accept);
+        assertThat(response.status()).isEqualTo(200);
+        assertThat(response.header("Content-Type")).startsWith("application/json");
+        assertThat(response.json().getInt("resultCount")).isEqualTo(5);
     }
 
     @ParameterizedTest(name = "[{index}] Accept: {0} -> {1}")
     @CsvSource(delimiter = '|', nullValues = "null", value = {
-            "null                               | application/json",
-            "*/*                                | application/json",
-            "text/csv                           | text/csv",
-            "text/html                          | text/csv",
-            "text/plain                         | text/csv",
-            "application/xml                    | application/json",
-            "text/csv;q=0.5, application/json   | application/json"
+            "null                                                   | application/json",
+            "*/*                                                    | application/json",
+            "text/csv                                               | text/csv",
+            "text/html                                              | text/csv",
+            "text/plain                                             | text/csv",
+            "application/xml                                        | application/json",
+            "text/csv;q=0.5, application/json                       | application/json",
+            "text/html, */*                                         | text/csv",
+            "text/plain;q=0.5, */*;q=0.2                            | text/csv",
+            "text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2   | text/csv",
+            "text/html, application/json;q=0.9                      | application/json",
+            ";                                                      | application/json"
     })
     @DisplayName("TC-CONNEG-003: The export selects JSON or CSV as in 1.x")
     void export_selectsRepresentation(String accept, String expected) {
@@ -157,7 +171,7 @@ class ContentNegotiationIT extends BaseIntegrationTest {
     @CsvSource(delimiter = '|', nullValues = "null", value = {
             "/dataset/{ds}                    | application/json  | 200",
             "/dataset/{ds}                    | text/html         | 303",
-            "/dataset/{ds}                    | null              | 303",
+            "/dataset/{ds}                    | null              | 200",
             "/dataset/{ds}/export             | text/csv          | 200",
             "/dataset/{ds}/export             | application/json  | 200",
             "/dataset/unknown-dataset         | application/json  | 404",

@@ -137,6 +137,8 @@ As in 1.x, clients that cannot set headers or methods can tunnel them: the query
 
 Uploads to the same dataset are processed one after another in the order in which they were received. A replace (`PUT`) supersedes uploads to the same dataset that are still waiting to be processed; they are discarded.
 
+`/dataset/{id}/json` accepts the same methods, as in 1.x; its `GET` always returns JSON, whatever the `Accept` header.
+
 An alias may be used in the URL instead of the ID above, see below for handling of aliases.
 
 #### Querying
@@ -151,7 +153,7 @@ Queries are subject to an eventually configured query timeout, see configuration
 
 The parameter `_callback` (JSONP in 1.x) is accepted and ignored: responses are always plain JSON. The parameters `media`, `charset`, `encoding` and `language` are no filters either (see above), unless the dataset has a column of that name. On `/dataset/{id}`, a `media` value that is a media type or file extension (e.g. `html`) still selects the representation; use `/dataset/{id}/json` to filter such a column.
 
-As in 1.x, parameter names and values are trimmed (`name=Bo%20` matches `Bo`), and regular expression characters such as `^`, `|`, `[`, `{` and `\` may be sent unencoded. Non-ASCII characters must be percent-encoded. A query string with a malformed percent-encoding (e.g. `name=100%`) is rejected with HTTP 400. Regular expressions are not restricted; their run time is limited by `querytimeout` if it is configured (by default, there is no limit).
+As in 1.x, parameter names and values are trimmed (`name=Bo%20` matches `Bo`, and `name=+` matches empty cells, whereas `name=` without value is rejected with HTTP 400), and regular expression characters such as `^`, `|`, `[`, `{` and `\` may be sent unencoded. Non-ASCII characters must be percent-encoded. A query string with a malformed percent-encoding (e.g. `name=100%`) is rejected with HTTP 400. Regular expressions are not restricted; their run time is limited by `querytimeout` if it is configured (by default, there is no limit).
 
 ### /dataset/{id}/info
 

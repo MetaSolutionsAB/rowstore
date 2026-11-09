@@ -18,7 +18,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-2.02** Unrecognized query parameters (those not matching any column name or special parameter) cause a **400 Bad Request** response.
 
-> **QUERY-2.03** Query parameters are parsed as in 1.x: names and values are trimmed (leading and trailing characters up to U+0020, e.g. spaces sent as `%20` or `+`), parameters whose name is empty after trimming are skipped, and of a repeated parameter the last value is used. Consequently, `?Name=Bo%20` matches `Bo`, and values with leading or trailing spaces cannot be matched exactly.
+> **QUERY-2.03** Query parameters are parsed as in 1.x: names and values are trimmed (leading and trailing characters up to U+0020, e.g. spaces sent as `%20` or `+`), parameters whose name is empty after trimming are skipped, and of a repeated parameter the last value is used. Consequently, `?Name=Bo%20` matches `Bo`, and values with leading or trailing spaces cannot be matched exactly. A filter value that is empty only after trimming (e.g. `?Name=%20`, `?Name=+`) matches the rows whose cell is empty, as in 1.x. A filter value that is empty as sent (`?Name=`, or `?Name` without `=`) returns 400; 1.x returned 400 for `?Name=` as well, but matched empty cells for `?Name`. `_limit` and `_offset` with an empty or blank value (e.g. `?_limit=%20`, `?_offset=+`, `?_offset`) return 400, as in 1.x (QUERY-3.01, QUERY-3.02). Other parameters with a value that is empty as sent are accepted, unlike in 1.x, whose parser stopped at such a parameter and returned 400: `?_callback=` and `?_sort=` are ignored, and of `?Name=&Name=McLoud` the last value is used (200).
 
 ## QUERY-3 Special Parameters
 
@@ -74,6 +74,8 @@ Covers the read path from query parameter parsing through SQL execution to respo
 > - `prev`: present when `offset >= limit`, so a page with a smaller offset than its limit has no `prev` (e.g., `_offset=1&_limit=2`)
 >
 > These conditions are those of 1.x and are kept for compatibility.
+>
+> A filter value that is empty only after trimming ([QUERY-2.03](#query-2-filter-mechanics)) is carried over as a space (`col=+`), so that the links match empty cells as well; 1.x carried it over as `col=`, which returned 400. A value that is empty as sent (e.g. `_callback=`) is carried over empty.
 
 ## QUERY-7 Query Timeout
 
@@ -125,3 +127,5 @@ Covers the read path from query parameter parsing through SQL execution to respo
 | 2026-11-09 | QUERY-6.01: `resultCount` is 0 for an offset beyond the last match, as in 1.x (ROWS-170) |
 | 2026-11-09 | QUERY-9.04: percent-encodings that are not UTF-8 return 400 with Tomcat 11 (ROWS-143) |
 | 2026-11-09 | QUERY-6.02: conditions of `prev` and `next` as implemented in 1.x and 2.0; QUERY-4.03: a `~` value switches the following filters to regex matching, also listed under Known Limitations (ROWS-177) |
+| 2026-11-09 | QUERY-2.03: a value that is empty only after trimming matches empty cells, a value that is empty as sent returns 400 (ROWS-175) |
+| 2026-11-09 | QUERY-2.03: empty `_callback`, `_sort` and overridden values are accepted (1.x: 400); QUERY-6.02: blank filter values are carried over to the page links as a space (ROWS-175) |
