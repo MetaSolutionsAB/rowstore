@@ -35,10 +35,10 @@ docker build -t rowstore .
 docker run -p 8080:8080 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json --stop-timeout 70 rowstore
 ```
 
-The image reads its configuration from `/srv/rowstore/rowstore.json`, or `/srv/rowstore/etc/rowstore.json` if only that
-exists (1.x location), unless `ROWSTORE_CONFIG_URI` is set (`src/main/docker/entrypoint.sh`, chained behind the base
-image's `/__cacert_entrypoint.sh` for `USE_SYSTEM_CA_CERTS`, DEPL-2.05), runs as the
-non-root user `rowstore` (UID 10001), honours `JAVA_OPTS` and passes `docker run` arguments to RowStore (DEPL-2.04).
+The image reads its configuration from `/srv/rowstore/rowstore.json` (`ENV ROWSTORE_CONFIG_URI`; 1.x container
+definitions set the variable, since 1.x required it or `-c`), starts java behind the base image's
+`/__cacert_entrypoint.sh` for `USE_SYSTEM_CA_CERTS` (DEPL-2.05), runs as the non-root user `rowstore` (UID 10001),
+honours `JAVA_OPTS` and passes `docker run` arguments to RowStore (DEPL-2.04).
 It listens on 8080 like the 1.x images (`ENV SERVER_PORT=8080`; `--server.port=<port>` overrides it), while the JAR
 defaults to 8282. The Docker Hub step of `bitbucket-pipelines.yml` pushes `<version>`, `develop` (develop) and
 `<major.minor>` and `latest` (master) (DEPL-2.05); the 1.x images came from the separate `docker` repository.

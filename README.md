@@ -83,7 +83,7 @@ On SIGTERM (e.g. `docker stop`), RowStore stops accepting requests and lets runn
 
 ### Docker
 
-The Docker image `metasolutions/rowstore:<version>` (Docker Hub) is built from the `Dockerfile` in this repository and reads its configuration from `/srv/rowstore/rowstore.json`, or from `/srv/rowstore/etc/rowstore.json` if only that exists (where the 1.x images found it), unless the environment variable `ROWSTORE_CONFIG_URI` or the argument `--rowstore.config.uri` names another location. Like the 1.x images, it listens on port 8080 (environment variable `SERVER_PORT`; the JAR itself defaults to 8282):
+The Docker image `metasolutions/rowstore:<version>` (Docker Hub) is built from the `Dockerfile` in this repository and reads its configuration from `/srv/rowstore/rowstore.json`, unless the environment variable `ROWSTORE_CONFIG_URI` or the argument `--rowstore.config.uri` names another location. 1.x required `ROWSTORE_CONFIG_URI` or `-c`: a container that sets `ROWSTORE_CONFIG_URI` (e.g. to `file:///srv/rowstore/etc/rowstore.json`) works unchanged, while `-c <URI>` must become `-e ROWSTORE_CONFIG_URI=<URI>` or `--rowstore.config.uri=<URI>`. Like the 1.x images, it listens on port 8080 (environment variable `SERVER_PORT`; the JAR itself defaults to 8282):
 
 ```
 docker run -p 8080:8080 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json --stop-timeout 70 metasolutions/rowstore:<version>
