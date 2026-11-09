@@ -146,7 +146,7 @@ exhausted budget until the wait timeout. Budget usage is reported by `/status` (
 loads into a shadow table `<dataTable>_new` and swaps it for the data table at the end of the same transaction, so
 the previous data is served during the load and kept if it fails (see ETL-6 in `specs/04-etl-pipeline.md`).
 A DELETE only deletes the dataset's rows in `datasets` and `aliases` (`PgDatasets.purgeDataset()`); its data table is
-dropped afterwards by short attempts (3 s lock timeout) that run as jobs of the dataset in `EtlProcessor`; between
+dropped afterwards by attempts that lock it without waiting (NOWAIT) and run as jobs of the dataset in `EtlProcessor`; between
 attempts, no ETL permit or connection is held (ETL-12.01).
 At startup, `PgRowStore` sets datasets left in PROCESSING or ACCEPTED_DATA to ERROR (ETL-8.06), drops leftover shadow
 tables and data tables of deleted datasets (ETL-12.03), and starts a

@@ -527,14 +527,14 @@ See API-3.07, DOM-2.04 and ETL-12.
 **Steps:**
 1. Create datasets A and B and wait until they are available
 2. In an open transaction, read A's data table (holds an `ACCESS SHARE` lock like a long export or `pg_dump`)
-3. `DELETE` A and wait until an attempt to drop its data table waits for the lock
+3. `DELETE` A and wait 2 seconds (the first attempts to drop its data table find it in use)
 4. `PUT` a CSV with the rows `C1`, `C2` to B
 5. End the transaction of step 2
 
 **Assertions:**
 1. The DELETE returns `204`
-2. B becomes available with the rows `C1`, `C2` while A's data table still exists (the waiting drop holds the only
-   ETL permit at most for one attempt of 3 seconds)
+2. B becomes available with the rows `C1`, `C2` while A's data table still exists (the pending drop holds the only
+   ETL permit only for the moments of its attempts, which do not wait for the lock)
 3. Within 60 seconds after step 5, A's data table no longer exists
 
 ## Exclusive tasks (unit test)
