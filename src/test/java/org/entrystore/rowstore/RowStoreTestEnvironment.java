@@ -21,7 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -44,7 +44,7 @@ public class RowStoreTestEnvironment {
 
     private static RowStoreTestEnvironment instance;
 
-    private PostgreSQLContainer<?> postgresContainer;
+    private PostgreSQLContainer postgresContainer;
     private ConfigurableApplicationContext applicationContext;
     private int serverPort;
     private Path tempConfigFile;
@@ -215,7 +215,7 @@ public class RowStoreTestEnvironment {
     private void startPostgres() {
         log.info("Starting PostgreSQL container...");
 
-        postgresContainer = new PostgreSQLContainer<>(TestUtils.postgresImage())
+        postgresContainer = new PostgreSQLContainer(TestUtils.postgresImage())
                 .withDatabaseName("rowstoretest")
                 .withUsername("rowstoretest")
                 .withPassword("rowstoretestpw");

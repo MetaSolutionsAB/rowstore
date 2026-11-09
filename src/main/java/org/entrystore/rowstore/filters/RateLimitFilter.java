@@ -34,12 +34,12 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Date;
 import java.util.NoSuchElementException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
@@ -74,7 +74,7 @@ public class RateLimitFilter implements Filter {
 			if (rateLimitTypeSlidingWindow) {
 				log.info("Rate limiting using sliding windows");
 				slidingWindows = CacheBuilder.newBuilder().maximumSize(32768).build();
-				loader = () -> CacheBuilder.newBuilder().expireAfterWrite(config.getRateLimitTimeRange(), TimeUnit.SECONDS).build();
+				loader = () -> CacheBuilder.newBuilder().expireAfterWrite(Duration.ofSeconds(config.getRateLimitTimeRange())).build();
 			} else {
 				log.info("Rate limiting using averaging");
 				rateLimiters = CacheBuilder.newBuilder().maximumSize(32768).build();
