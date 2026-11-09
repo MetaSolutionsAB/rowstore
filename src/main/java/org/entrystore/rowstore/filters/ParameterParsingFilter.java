@@ -39,6 +39,10 @@ import java.io.IOException;
  * request with a form body are not parsed, since that would consume the body (e.g., a JSON array of aliases sent as
  * application/x-www-form-urlencoded); such requests have no query parameters that RowStore uses as filters. Runs after
  * the CORS filter, so that browsers can read the response.
+ * <p>
+ * This filter must be the first code that reads the parameters of a request: Tomcat 11 throws the
+ * InvalidParameterException only on the first call of a getParameter* method and later calls return the parameters
+ * parsed before the malformed one, without an error. A filter that runs earlier must therefore not read parameters.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 3)

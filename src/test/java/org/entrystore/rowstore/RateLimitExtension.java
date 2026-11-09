@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 
 /**
- * JUnit 5 extension that starts a RowStore test environment with rate limiting enabled.
+ * JUnit Jupiter extension that starts a RowStore test environment with rate limiting enabled.
  *
  * Configuration:
  * - Global rate limit: {@value #GLOBAL_LIMIT} requests per time range

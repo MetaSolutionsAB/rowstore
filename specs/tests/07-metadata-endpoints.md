@@ -39,12 +39,15 @@ Tests for metadata endpoints: Swagger API documentation and WebGui HTML interfac
 
 ### TC-SWAGGER-004: Swagger contains standard parameters
 
+Spec: API-9.01
+
 **Request:**
 - Method: `GET`
 - URL: `/dataset/{id}/swagger`
 
 **Assertions:**
-- Response contains: `_limit`, `_offset`, `_callback`
+- Response contains: `_limit`, `_offset`
+- Response does not contain `_callback` (accepted and ignored, but not listed since 2.0)
 - Parameters have descriptions
 
 ### TC-SWAGGER-005: Swagger contains dataset ID
