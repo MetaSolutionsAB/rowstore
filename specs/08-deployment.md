@@ -41,12 +41,21 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 
 > **DEPL-2.02** The Dockerfile is maintained **in the RowStore repository** (root `Dockerfile`). It uses `eclipse-temurin:25-jre-alpine` as the base image and copies the pre-built JAR.
 
-> **DEPL-2.04** The image runs RowStore as the unprivileged user `rowstore` (UID and GID 10001), with the working directory `/srv/rowstore` (owned by `rowstore`; the jar is owned by root and not writable for `rowstore`). A mounted configuration must be readable for UID or GID 10001; if it is readable only by root or the host user, it is made readable for the group (`chgrp 10001 rowstore.json && chmod 0640 rowstore.json`), or the container is run as a user that can read it (`docker run --user <uid>`). The configuration location is set as the environment variable `ROWSTORE_CONFIG_URI=file:///srv/rowstore/rowstore.json`, so arguments of `docker run` are passed to RowStore without replacing it. The entrypoint runs `exec java -XX:MaxRAMPercentage=75 $JAVA_OPTS -jar rowstore.jar "$@"`: JVM options are passed in `JAVA_OPTS` (as with the 1.x start script) and take precedence over the default heap of 75% of the container's memory limit, and java replaces the shell, so it receives the stop signal.
+> **DEPL-2.04** The image runs RowStore as the unprivileged user `rowstore` (UID and GID 10001), with the working directory `/srv/rowstore` (owned by `rowstore`; the jar is owned by root with mode 0644, set with `COPY --chmod` independently of the build machine's umask, so neither `rowstore` nor group 0, as which OpenShift runs containers, can write it; `COPY --chmod` requires BuildKit). A mounted configuration must be readable for UID or GID 10001; if it is readable only by root or the host user, it is made readable for the group (`chgrp 10001 rowstore.json && chmod 0640 rowstore.json`), or the container is run as a user that can read it (`docker run --user <uid>`). The configuration location is passed as the environment variable `ROWSTORE_CONFIG_URI` (set to `file:///srv/rowstore/rowstore.json` with `ENV`; a container overrides it to read another location), so arguments of `docker run` are passed to RowStore without replacing it; `--rowstore.config.uri` takes precedence over the variable (CFG-2.01). The entrypoint runs the base image's `/__cacert_entrypoint.sh` (DEPL-2.05), which then runs `sh -c 'set -f; exec java -XX:MaxRAMPercentage=75 $JAVA_OPTS -jar rowstore.jar "$@"'`: JVM options are passed in `JAVA_OPTS` (as with the 1.x start script), split into words without glob expansion, and take precedence over the default heap of 75% of the container's memory limit, and both shells are replaced by java (`exec`), so it receives the stop signal.
 
-> **DEPL-2.03** Docker tags follow these conventions:
-> - Version-specific: `2.0`, `2.0-SNAPSHOT`
-> - Major.minor shorthand
-> - `develop` — Latest development build
+> **DEPL-2.03** Docker tags follow these conventions (pushed by the Docker Hub step of the pipeline, DEPL-3.02):
+> - Version-specific: the version in `VERSION.txt`, e.g. `2.0.0`, `2.0-SNAPSHOT` (master and develop)
+> - Major.minor shorthand, e.g. `2.0` (master, only for versions without a suffix such as `-SNAPSHOT` or `-rc1`)
+> - `latest` — Latest release (master, only for versions without a suffix), see DEPL-2.05
+> - `develop` — Latest development build (develop)
+
+> **DEPL-2.05** The image is a drop-in replacement for the 1.x images, which were built in the separate `docker` repository (directory `rowstore/`), ran `bin/rowstore --port 8080` as root and exposed 8080:
+> - **Port:** the image listens on **8080** like the 1.x images (`ENV SERVER_PORT=8080`, `EXPOSE 8080`); `--server.port=<port>` passed to `docker run` takes precedence over the environment variable. The JAR's own default port stays 8282 (DEPL-1.02).
+> - **Tags:** the 2.0 images are pushed to the same repository `metasolutions/rowstore` as the 1.x images. The Docker Hub step also tags and pushes `latest` on master (not for a version with a `-` suffix, DEPL-2.03), so `latest` moves from 1.7 to 2.0 with the 2.0 release; deployments that stay on 1.x pull `1.7` (or `1.7.0`). The `docker` repository is to build 1.x images only: a change to its README and `build.sh` (planned, not yet in that repository) will make `build.sh` refuse versions 2.0 and later, also without an argument once `latest.version` is 2.0 or later.
+> - **Configuration:** 1.x required `-c <URI>` unless `ROWSTORE_CONFIG_URI` was set, and the 1.x images set neither, so every working 1.x container definition sets one of them. A definition that sets `ROWSTORE_CONFIG_URI` works unchanged, e.g. `file:///srv/rowstore/etc/rowstore.json` with the configuration mounted there; without it, the 2.0 image reads `/srv/rowstore/rowstore.json` (DEPL-2.04). `-c <URI>` is rejected (CFG-7.05) and must become `-e ROWSTORE_CONFIG_URI=<URI>` or `--rowstore.config.uri=<URI>`.
+> - **CA certificates:** the entrypoint of the 1.x images was the base image's `/__cacert_entrypoint.sh` (Eclipse Temurin), which imports `/certificates/*.crt` into the truststore of the JVM if `USE_SYSTEM_CA_CERTS` is set (e.g. for `"ssl": true` with a private CA). The 2.0 image runs it in front of RowStore. As the user `rowstore` cannot write the JVM's truststore, the script copies it to a temporary file in `/tmp` (which must be writable), adds the certificates there and points the JVM to it with `JAVA_TOOL_OPTIONS`; the system's CA store is not updated (it was for root in 1.x), which affects only tools other than java.
+> - **Writable `/tmp`:** Tomcat creates its work directory in `/tmp`, and the CA script writes the truststore copy there, so `/tmp` must be writable. With a read-only root filesystem (`docker run --read-only`, Kubernetes `readOnlyRootFilesystem: true`), a tmpfs or an `emptyDir` volume must be mounted at `/tmp` (`--tmpfs /tmp`); 1.x started without one.
+> - An existing 1.x container definition works with the 2.0 image after changing only the tag, as long as the configuration is readable for UID or GID 10001 (DEPL-2.04), `/tmp` is writable, and it passes no 1.x start-script command or arguments, such as `-c` (CFG-7.05).
 
 ## DEPL-3 CI/CD
 
@@ -58,8 +67,8 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > ```
 
 > **DEPL-3.02** Branch strategy:
-> - **master**: Full pipeline — build, test, deploy, Docker push (release tags)
-> - **develop**: Full pipeline — build, test, deploy, Docker push (`develop` tag)
+> - **master**: Full pipeline — build, test, deploy, Docker push (`<version>` tag, plus `<major.minor>` and `latest` if the version has no `-` suffix)
+> - **develop**: Full pipeline — build, test, deploy, Docker push (`<version>` and `develop` tags)
 > - **Other branches**: Build and test only (no deploy, no Docker push)
 
 > **DEPL-3.03** Deploy artifacts:
@@ -176,3 +185,9 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 | 2026-11-05 | DEPL-3.01, DEPL-4.01: CI runs a subset of the integration tests against PostgreSQL 9.6 (ROWS-165) |
 | 2026-11-05 | DEPL-5.04: port opened only after the database is reachable, unlimited wait, start period of health checks, fast failure of authentication and configuration errors |
 | 2026-11-09 | DEPL-4.04: data tables of deleted datasets and removed aliases after a rollback to 1.7 (ROWS-174) |
+| 2026-11-09 | Added DEPL-2.05 (image listens on 8080 like the 1.x images, `latest` pushed on master, `docker` repository builds 1.x only); DEPL-2.03 and DEPL-3.02: tags per branch, `latest` (ROWS-176) |
+| 2026-11-09 | DEPL-2.04, DEPL-2.05: configuration falls back to `/srv/rowstore/etc/rowstore.json`, `ROWSTORE_CONFIG_URI` no longer set with `ENV`; base image entrypoint for `USE_SYSTEM_CA_CERTS` kept (ROWS-176) |
+| 2026-11-09 | DEPL-2.04, DEPL-2.05: fallback to `/srv/rowstore/etc/rowstore.json` dropped (1.x required `ROWSTORE_CONFIG_URI` or `-c`), `ROWSTORE_CONFIG_URI` set with `ENV` again; `JAVA_OPTS` not glob-expanded (ROWS-176) |
+| 2026-11-09 | DEPL-2.04: jar copied with mode 0644 (`COPY --chmod`, BuildKit), not writable for group 0 (ROWS-176) |
+| 2026-11-09 | DEPL-2.03, DEPL-2.05, DEPL-3.02: `<major.minor>` and `latest` not pushed for versions with a `-` suffix (ROWS-176) |
+| 2026-11-09 | DEPL-2.05: writable `/tmp` required (tmpfs or `emptyDir` with a read-only root filesystem), 1.x arguments instead of options (CFG-7.05), `docker` repository guard planned rather than in place (ROWS-176) |

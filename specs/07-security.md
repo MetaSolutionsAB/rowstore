@@ -87,7 +87,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-9.02** The reverse proxy authenticates all requests with methods other than `GET` and `HEAD` (the private API: creating, replacing, appending to and deleting datasets, managing aliases). `GET` and `HEAD` requests form the public read API.
 
-> **SEC-9.03** The reverse proxy denies public access to these paths, which RowStore serves on the application port (8282) in 2.0, so blocking them at the proxy is the only protection (a separate management port is planned for 2.1, ROWS-108):
+> **SEC-9.03** The reverse proxy denies public access to these paths, which RowStore serves on the application port (8282, or 8080 in the Docker image) in 2.0, so blocking them at the proxy is the only protection (a separate management port is planned for 2.1, ROWS-108):
 > - `/actuator` and `/actuator/**` (exposed endpoints: `health`, `info`, `metrics`)
 > - `/swagger-ui.html` and `/swagger-ui/**` (springdoc Swagger UI)
 > - `/v3/api-docs`, `/v3/api-docs/**` and `/v3/api-docs.yaml` (springdoc OpenAPI description)
@@ -130,3 +130,4 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 | 2026-11-05 | SEC-6.02: body of the 403, forwarding headers not evaluated (ROWS-168) |
 | 2026-11-05 | SEC-9.05: method tunnel only for requests without Origin or from the origin of `baseurl` or a listed CORS origin, otherwise 403 (CSRF, ROWS-158); SEC-4.08 note: `querytimeout` has no default |
 | 2026-11-09 | SEC-4.09: `maxuploadsize` also limits the input of each decoder, at most two stacked compressions, alias bodies limited to 1 MiB (ROWS-173) |
+| 2026-11-09 | SEC-9.03: application port 8080 in the Docker image (ROWS-176) |

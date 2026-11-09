@@ -32,11 +32,17 @@ Docker image (the `Dockerfile` copies `target/rowstore-*.jar`, so build the JAR 
 ```bash
 mvn -Dmaven.test.skip=true install
 docker build -t rowstore .
-docker run -p 8282:8282 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json --stop-timeout 70 rowstore
+docker run -p 8080:8080 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json --stop-timeout 70 rowstore
 ```
 
-The image reads its configuration from `/srv/rowstore/rowstore.json` (env `ROWSTORE_CONFIG_URI`), runs as the
-non-root user `rowstore` (UID 10001), honours `JAVA_OPTS` and passes `docker run` arguments to RowStore (DEPL-2.04).
+The image reads its configuration from `/srv/rowstore/rowstore.json` (`ENV ROWSTORE_CONFIG_URI`; 1.x container
+definitions set the variable, since 1.x required it or `-c`), starts java behind the base image's
+`/__cacert_entrypoint.sh` for `USE_SYSTEM_CA_CERTS` (DEPL-2.05), runs as the non-root user `rowstore` (UID 10001),
+honours `JAVA_OPTS` and passes `docker run` arguments to RowStore (DEPL-2.04).
+It listens on 8080 like the 1.x images (`ENV SERVER_PORT=8080`; `--server.port=<port>` overrides it), while the JAR
+defaults to 8282. The Docker Hub step of `bitbucket-pipelines.yml` pushes `<version>`, `develop` (develop) and
+`<major.minor>` and `latest` (master, only for versions without a `-` suffix; DEPL-2.03, DEPL-2.05); the 1.x images
+came from the separate `docker` repository.
 `main` rejects arguments that are not of the form `--name=value` (CFG-7.05), so 1.x options do not pass silently.
 
 Release versions are set with `./set-version.sh <version>`, which updates `pom.xml`, `VERSION.txt` and
