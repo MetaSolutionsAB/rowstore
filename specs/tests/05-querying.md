@@ -272,6 +272,17 @@ Spec: QUERY-3.06
 2. `/dataset/{id}?media=json&charset=utf-8&_limit=2&_offset=2` → `200`, 2 results, `prev` and `next` contain neither `media` nor `charset`
 3. A dataset with a column `language` (`language,n` / `sv,1` / `en,2`): `?language=sv` → `200`, exactly the row with `n` = `1`
 
+### TC-QUERY-026: A value consisting of spaces matches empty cells as in 1.x
+
+Spec: QUERY-2.03, QUERY-3.01, QUERY-3.02
+
+**Requests** (dataset1_utf8.csv, sent unencoded with `TestUtils.rawRequest()`):
+1. `some%20other%20column=%20`, `some%20other%20column=+`, `some%20other%20column=%20%20` → `200`, exactly
+   Béringer, Åkesson and Martinsson (the rows whose cell is empty)
+2. `Telephone=+&some%20other%20column=%20` → `200`, exactly Åkesson
+3. `some%20other%20column=`, `some%20other%20column` (no `=`), `Name=McLoud&Telephone=`, `_limit=%20`, `_offset=+`,
+   `_limit=`, `_offset` → `400`
+
 ## JSONP Callback Tests
 
 JSONP support has been removed (API-7.01, QUERY-3.03), so these test cases, which expected wrapped responses as in 1.x, are retired. `_callback` is accepted and ignored (QUERY-3.05, see TC-QUERY-018 to TC-QUERY-020).

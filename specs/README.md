@@ -250,7 +250,7 @@ Current limitations relevant to this area.
 | QUERY-1.01 | Column filters via query params with regex and pagination |
 | QUERY-2.01 | Case-insensitive column name matching |
 | QUERY-2.02 | Unrecognized params → 400 |
-| QUERY-2.03 | Names and values trimmed, empty names skipped, last value of repeated params (as in 1.x) |
+| QUERY-2.03 | Names and values trimmed, empty names skipped, last value of repeated params, blank values match empty cells (as in 1.x) |
 | QUERY-3.01 | _limit: default 100, max from querymaxlimit |
 | QUERY-3.02 | _offset: default 0, negatives corrected to 0 |
 | QUERY-3.03 | [REMOVED] _callback: JSONP function name — JSONP removed |

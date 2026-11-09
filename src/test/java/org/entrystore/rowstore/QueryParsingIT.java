@@ -136,6 +136,33 @@ class QueryParsingIT extends BaseIntegrationTest {
         assertThat(names(get("Name=Martinsson&Name=McLoud"))).containsExactly("McLoud");
     }
 
+    @ParameterizedTest(name = "[{index}] ?{0}")
+    @CsvSource(delimiter = '#', value = {
+            "some%20other%20column=%20         # Béringer,Åkesson,Martinsson",
+            "some%20other%20column=+           # Béringer,Åkesson,Martinsson",
+            "some%20other%20column=%20%20      # Béringer,Åkesson,Martinsson",
+            "Telephone=+&some%20other%20column=%20  # Åkesson"
+    })
+    @DisplayName("TC-QUERY-026: A value consisting of spaces matches empty cells as in 1.x")
+    void spacesOnlyValue_matchesEmptyCells(String query, String expected) {
+        assertThat(names(get(query))).containsExactlyInAnyOrder(expected.split(","));
+    }
+
+    @ParameterizedTest(name = "[{index}] ?{0}")
+    @ValueSource(strings = {
+            "some%20other%20column=",
+            "some%20other%20column",
+            "Name=McLoud&Telephone=",
+            "_limit=%20",
+            "_offset=+",
+            "_limit=",
+            "_offset"
+    })
+    @DisplayName("TC-QUERY-026: An empty filter value as sent and a blank _limit or _offset are rejected with 400 as in 1.x")
+    void emptyValueAsSent_isRejected(String query) {
+        assertThat(get(query).status()).isEqualTo(400);
+    }
+
     @Test
     @DisplayName("TC-QUERY-024: Tunnel parameters of 1.x are not column filters and not carried over to page links")
     void tunnelParameters_areNotFilters() {

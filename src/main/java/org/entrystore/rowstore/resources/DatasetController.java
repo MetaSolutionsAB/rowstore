@@ -50,6 +50,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @RestController
@@ -104,7 +105,9 @@ public class DatasetController {
 
 	/**
 	 * Returns the query parameters as in 1.x (QUERY-2.03): names and values are trimmed, parameters whose name is
-	 * empty after trimming are skipped, and of a repeated parameter the last value is used.
+	 * empty after trimming are skipped, and of a repeated parameter the last value is used. A value that is empty as
+	 * sent ({@code ?col=} or {@code ?col}, which Tomcat does not distinguish) is returned as null, whereas a value that
+	 * is only empty after trimming ({@code ?col=%20}) is returned as an empty string.
 	 */
 	static Map<String, String> queryParameters(HttpServletRequest request) {
 		Map<String, String> parameters = new LinkedHashMap<>();
@@ -112,7 +115,8 @@ public class DatasetController {
 			String key = entry.getKey().trim();
 			String[] values = entry.getValue();
 			if (!key.isEmpty() && values != null && values.length > 0) {
-				parameters.put(key, values[values.length - 1].trim());
+				String value = values[values.length - 1];
+				parameters.put(key, value.isEmpty() ? null : value.trim());
 			}
 		}
 		return parameters;
@@ -145,8 +149,9 @@ public class DatasetController {
 				specialParamCount++;
 				continue;
 			}
+			// a value empty as sent is rejected as in 1.x, one that is empty after trimming matches empty cells
 			String value = parameters.get(k);
-			if (value != null && value.isEmpty()) {
+			if (value == null) {
 				return ResponseEntity.badRequest().build();
 			}
 			tuples.put(k.toLowerCase(), value);
@@ -339,7 +344,8 @@ public class DatasetController {
 			url.append("&");
 			url.append(URLEncoder.encode(k, StandardCharsets.UTF_8));
 			url.append("=");
-			url.append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
+			// null: empty as sent, e.g. _callback=
+			url.append(URLEncoder.encode(Objects.requireNonNullElse(entry.getValue(), ""), StandardCharsets.UTF_8));
 		}
 		return url.toString();
 	}
