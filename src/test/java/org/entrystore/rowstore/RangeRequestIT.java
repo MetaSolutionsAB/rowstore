@@ -58,7 +58,7 @@ class RangeRequestIT extends BaseIntegrationTest {
         assertThat(response.asByteArray().length).isGreaterThan(10);
     }
 
-    @ParameterizedTest(name = "[{index}] /dataset/{{id}}{0}")
+    @ParameterizedTest(name = "[{index}] /dataset/<id>{0}")
     @ValueSource(strings = {"", "/json", "/info", "/export"})
     @DisplayName("TC-RANGE-001: Range is ignored by the dataset resources")
     void range_isIgnoredByDatasetResources(String subPath) {
