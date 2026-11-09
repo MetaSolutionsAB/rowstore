@@ -162,7 +162,7 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 ## Known Limitations
 
-- No PATCH support for partial dataset updates
+- No PATCH support for partial dataset updates: `PATCH` returns 405, also tunnelled (400, API-4.06). 1.x handled `PATCH` on `/dataset/{id}`, `/dataset/{id}/json` and `/dataset/{id}/aliases` like `PUT` (full replace)
 - No bulk operations endpoint
 - No authentication in the application; the reverse proxy authenticates the private API (see [SEC-9](07-security.md#sec-9-reverse-proxy-contract))
 - No versioning in URL path (no `/v1/` prefix)
@@ -198,4 +198,5 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-11-09 | API-3.04: `resultCount` is 0 for an offset beyond the last match (ROWS-170) |
 | 2026-11-09 | API-9.01: `_callback` is no longer listed in the per-dataset Swagger; added API-10.01: `Range` is ignored (ROWS-177) |
 | 2026-11-09 | API-4.01, API-4.04: selection rule of Restlet's flexible content negotiation; `/dataset/{id}` returns JSON without `Accept` and for `*/*`; `Accept` read as by Restlet (accept extensions, invalid quality, type without subtype) (ROWS-171) |
+| 2026-11-09 | Known Limitations: 1.x handled `PATCH` like `PUT`; 2.0 keeps returning 405 (ROWS-172) |
 | 2026-11-09 | Added API-3.16: `PUT`, `POST` and `DELETE` on `/dataset/{id}/json` as on `/dataset/{id}` (ROWS-172) |
