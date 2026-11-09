@@ -48,6 +48,7 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > - Major.minor shorthand, e.g. `2.0` (master, only for versions without a suffix such as `-SNAPSHOT` or `-rc1`)
 > - `latest` — Latest release (master, only for versions without a suffix), see DEPL-2.05
 > - `develop` — Latest development build (develop)
+> - Release candidate, e.g. `2.0-rc` — `<major.minor>-rc` from `release/*` branches, the only tag pushed there (no version tag, `develop`, `<major.minor>` or `latest`); major.minor is taken from the version without suffix (`${VERSION%%-*}`), so `2.0.0` and `2.0.0-SNAPSHOT` both give `2.0-rc`, as in EntryStore
 
 > **DEPL-2.05** The image is a drop-in replacement for the 1.x images, which were built in the separate `docker` repository (directory `rowstore/`), ran `bin/rowstore --port 8080` as root and exposed 8080:
 > - **Port:** the image listens on **8080** like the 1.x images (`ENV SERVER_PORT=8080`, `EXPOSE 8080`); `--server.port=<port>` passed to `docker run` takes precedence over the environment variable. The JAR's own default port stays 8282 (DEPL-1.02).
@@ -71,6 +72,7 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 > **DEPL-3.02** Branch strategy:
 > - **master**: Full pipeline — build, test, deploy, Docker push (`<version>` tag, plus `<major.minor>` and `latest` if the version has no `-` suffix)
 > - **develop**: Full pipeline — build, test, deploy, Docker push (`<version>` and `develop` tags)
+> - **release/\***: Build, test, Docker push of the `<major.minor>-rc` tag only (DEPL-2.03); no deploy to entrystore.org, `develop.version` and `latest.version` unchanged
 > - **Other branches**: Build and test only (no deploy, no Docker push)
 
 > **DEPL-3.03** Deploy artifacts:
@@ -195,3 +197,4 @@ Covers operational concerns. For configuration options, see [06-configuration.md
 | 2026-11-09 | DEPL-2.05: writable `/tmp` required (tmpfs or `emptyDir` with a read-only root filesystem), 1.x arguments instead of options (CFG-7.05), `docker` repository guard planned rather than in place (ROWS-176) |
 | 2026-11-09 | Added DEPL-2.06 (eMudhra root CAs removed from the truststores at build time, CVE-2026-114820; `apk upgrade`) (ROWS-182) |
 | 2026-11-09 | DEPL-2.04: jar mode 0644 set in a build stage (`COPY --from`) instead of with `COPY --chmod`, so the image builds with the classic builder as in EntryStore (ROWS-176) |
+| 2026-11-09 | DEPL-2.03, DEPL-3.02: release-candidate tag `<major.minor>-rc` pushed from `release/*` branches, which build and test but do not deploy (ROWS-183) |

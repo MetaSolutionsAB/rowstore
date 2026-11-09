@@ -28,6 +28,8 @@ RowStore 2.0 is a rewrite of the application layer on Spring Boot. The REST API 
 
 [ROWS-176](https://metasolutions.atlassian.net/browse/ROWS-176) Docker image: listen on port 8080 like the 1.x images, push `latest` on master releases, keep `USE_SYSTEM_CA_CERTS`; the docker repository is to build only 1.x images (planned change in that repository)
 
+[ROWS-183](https://metasolutions.atlassian.net/browse/ROWS-183) Publish release-candidate Docker images (`<major.minor>-rc`) from release branches
+
 ### Task
 
 [ROWS-104](https://metasolutions.atlassian.net/browse/ROWS-104) Remove the ApiKeyFilter stub and document the reverse-proxy security contract

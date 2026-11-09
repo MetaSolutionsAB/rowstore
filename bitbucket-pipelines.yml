@@ -60,10 +60,13 @@ stepdefinitions:
       script:
         - docker version
         - export VERSION=`cat VERSION.txt` && echo $VERSION
-        - export VERSION_MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1,2) && echo $VERSION_MAJOR_MINOR
+        # drop any suffix before taking the first two parts, so 2.0.0, 2.0 and 2.0.0-SNAPSHOT all give 2.0 (as in EntryStore)
+        - export VERSION_MAJOR_MINOR=$(echo "${VERSION%%-*}" | cut -d. -f1,2) && echo $VERSION_MAJOR_MINOR
         - docker login -u $DOCKER_HUB_USER -p $DOCKER_HUB_PASSWORD
         - docker build --pull --no-cache --tag metasolutions/rowstore:$VERSION .
-        - docker push metasolutions/rowstore:$VERSION
+        # release branches publish only the candidate <major.minor>-rc (as in EntryStore), neither <version> nor develop,
+        # <major.minor> or latest; case is portable across bash and busybox ash
+        - case "$BITBUCKET_BRANCH" in release/*) docker tag metasolutions/rowstore:$VERSION metasolutions/rowstore:${VERSION_MAJOR_MINOR}-rc ; docker push metasolutions/rowstore:${VERSION_MAJOR_MINOR}-rc ;; *) docker push metasolutions/rowstore:$VERSION ;; esac
         - if [ $BITBUCKET_BRANCH == "develop" ]; then docker tag metasolutions/rowstore:$VERSION metasolutions/rowstore:develop ; docker push metasolutions/rowstore:develop ; fi
         # latest moves to every release of master (since 2.0; the 1.x images were built in the docker repository), but
         # neither it nor <major.minor> to a version with a suffix such as -SNAPSHOT or -rc1
@@ -86,6 +89,12 @@ pipelines:
         - step: *testpg
         - step: *testpg96
       - step: *deploy
+      - step: *dockerhub
+    'release/*':
+      - step: *build
+      - parallel:
+        - step: *testpg
+        - step: *testpg96
       - step: *dockerhub
     develop:
       - step: *build

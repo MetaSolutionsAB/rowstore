@@ -41,8 +41,9 @@ definitions set the variable, since 1.x required it or `-c`), starts java behind
 honours `JAVA_OPTS` and passes `docker run` arguments to RowStore (DEPL-2.04).
 It listens on 8080 like the 1.x images (`ENV SERVER_PORT=8080`; `--server.port=<port>` overrides it), while the JAR
 defaults to 8282. The Docker Hub step of `bitbucket-pipelines.yml` pushes `<version>`, `develop` (develop) and
-`<major.minor>` and `latest` (master, only for versions without a `-` suffix; DEPL-2.03, DEPL-2.05); the 1.x images
-came from the separate `docker` repository.
+`<major.minor>` and `latest` (master, only for versions without a `-` suffix; DEPL-2.03, DEPL-2.05), and only
+`<major.minor>-rc` (`release/*`, which builds and tests but does not deploy; DEPL-3.02); the 1.x images came from the
+separate `docker` repository.
 `main` rejects arguments that are not of the form `--name=value` (CFG-7.05), so 1.x options do not pass silently.
 The build runs `apk upgrade` and `src/main/docker/distrust-emudhra.sh` (shared with EntryStore, keep both copies in
 sync), which removes the eMudhra root CAs (CVE-2026-114820) from the JDK and Alpine truststores and fails the build if

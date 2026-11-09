@@ -371,7 +371,7 @@ Current limitations relevant to this area.
 | DEPL-1.06 | Context path of former WAR deployments, templates read from the JAR |
 | DEPL-2.01 | Docker image: metasolutions/rowstore |
 | DEPL-2.02 | Dockerfile in the RowStore repository |
-| DEPL-2.03 | Docker tags: version, major.minor, latest, develop |
+| DEPL-2.03 | Docker tags: version, major.minor, latest, develop, major.minor-rc (release branches) |
 | DEPL-2.04 | Image runs as non-root user rowstore (10001), ROWSTORE_CONFIG_URI, JAVA_OPTS |
 | DEPL-2.05 | Image is a drop-in replacement for 1.x: port 8080, latest moves to 2.0, docker repository to build 1.x only (planned), 1.x ROWSTORE_CONFIG_URI unchanged, USE_SYSTEM_CA_CERTS |
 | DEPL-2.06 | Image distrusts the eMudhra root CAs (CVE-2026-114820) in the JDK and system truststores, build fails if one is left; apk upgrade |
