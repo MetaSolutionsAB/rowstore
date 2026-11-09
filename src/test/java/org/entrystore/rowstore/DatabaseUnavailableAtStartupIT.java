@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -59,7 +59,7 @@ class DatabaseUnavailableAtStartupIT {
 
     private static final Duration STARTUP_AFTER_RECOVERY = Duration.ofSeconds(90);
 
-    private PostgreSQLContainer<?> postgres;
+    private PostgreSQLContainer postgres;
 
     private Path configFile;
 
@@ -97,7 +97,7 @@ class DatabaseUnavailableAtStartupIT {
     void startupWithUnreachableDatabase_waitsAndStarts() throws Exception {
         String externalUrl = System.getProperty("rowstore.baseUrl");
         Assumptions.assumeTrue(externalUrl == null || externalUrl.isEmpty(), "Needs its own RowStore instance");
-        postgres = new PostgreSQLContainer<>(TestUtils.postgresImage())
+        postgres = new PostgreSQLContainer(TestUtils.postgresImage())
                 .withDatabaseName("rowstorestartup")
                 .withUsername("test")
                 .withPassword("test");
