@@ -142,6 +142,7 @@ Current limitations relevant to this area.
 | DOM-2.01 | Dataset 1:N Alias |
 | DOM-2.02 | Dataset 1:N Row |
 | DOM-2.03 | Dataset has ETL Status |
+| DOM-2.04 | Aliases deleted with their dataset; orphan aliases removed by migration V3 |
 | DOM-3.01 | Status lifecycle: CREATED→ACCEPTED_DATA→PROCESSING→AVAILABLE\|ERROR |
 | DOM-4.01 | datasets table schema |
 | DOM-4.02 | aliases table schema |
@@ -169,7 +170,7 @@ Current limitations relevant to this area.
 | API-3.04 | GET /dataset/{id} and /json — query with filters |
 | API-3.05 | POST /dataset/{id} — append CSV data |
 | API-3.06 | PUT /dataset/{id} — replace CSV data |
-| API-3.07 | DELETE /dataset/{id} — delete dataset (204) |
+| API-3.07 | DELETE /dataset/{id} — delete dataset and aliases (204) without waiting for readers; data table dropped in the background |
 | API-3.08 | GET /dataset/{id}/info — dataset metadata (JSON-LD) |
 | API-3.09 | GET\|PUT\|POST\|DELETE /dataset/{id}/aliases — alias management |
 | API-3.10 | GET /dataset/{id}/export — export JSON or CSV |
@@ -222,7 +223,7 @@ Current limitations relevant to this area.
 | ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate); owner and privileges kept |
 | ETL-6.03 | Replace status: PROCESSING, AVAILABLE or ERROR; previous data served until replaced and kept on failure |
 | ETL-6.04 | Swap lock: 3 s lock_timeout attempts retried with growing delays for at most 30 minutes, giving up with ERROR and previous data; lock holders logged; replica query cancellation |
-| ETL-6.05 | Leftover shadow tables dropped at next replace, on delete and at startup |
+| ETL-6.05 | Leftover shadow tables dropped at next replace, after a delete and at startup |
 | ETL-7.01 | text_pattern_ops index per column, escapeString for DDL |
 | ETL-7.02 | Skip index for fields > 256 chars |
 | ETL-8.01 | [REMOVED] Busy-wait if PROCESSING — superseded by ETL-8.02 to ETL-8.07 |
@@ -245,6 +246,10 @@ Current limitations relevant to this area.
 | ETL-11.07 | Completed run recorded in maintenance_tasks, cleanup skipped at later startups |
 | ETL-11.08 | Only BOM and soft hyphens cleaned; whitespace and upper case of stored names kept |
 | ETL-11.09 | Stored names that clean to empty kept; ignored by appends |
+| ETL-12.01 | Data table of a deleted dataset dropped by a job of the dataset on the load budget with the swap lock strategy; INFO, ERROR on failure |
+| ETL-12.02 | Status condition part of the DELETE; no load runs on a deleted dataset's tables |
+| ETL-12.03 | Startup drops data tables that no datasets row references (WARN) |
+| ETL-12.04 | Uploads and alias updates racing with a delete: 404, or load discarded with ERROR, no table touched |
 
 ### QUERY — Query Processing
 

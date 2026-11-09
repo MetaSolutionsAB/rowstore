@@ -4,8 +4,9 @@
 
 Tests for the scheduling and failure handling of ETL loads: per-dataset ordering, coalescing of queued loads,
 permits only for running loads, shutdown, takeover of stale PROCESSING datasets, startup reset, status handling when a
-load fails or the database is unreachable, atomic replaces, and the cleanup of column names stored before 2.0.
-See [04-etl-pipeline.md](../04-etl-pipeline.md) (ETL-6, ETL-8, ETL-10, ETL-11).
+load fails or the database is unreachable, atomic replaces, the cleanup of column names stored before 2.0, and the
+tables and aliases of deleted datasets.
+See [04-etl-pipeline.md](../04-etl-pipeline.md) (ETL-6, ETL-8, ETL-10, ETL-11, ETL-12).
 
 TC-ETL-001 to TC-ETL-009, TC-ETL-015 to TC-ETL-017, TC-ETL-027, TC-ETL-028, TC-ETL-051, TC-ETL-054 and TC-ETL-055 are unit tests (`EtlProcessorTest`,
 `PgDatasetPopulateTest`, `PgDatasetSwapLockTest`) that use fakes instead of a database. TC-ETL-010 to TC-ETL-014
@@ -13,7 +14,8 @@ and TC-ETL-018 are integration tests (`EtlProcessingIT`), TC-ETL-019 to TC-ETL-0
 replaces (`DatasetReplaceIT`). TC-ETL-030, TC-ETL-070 and TC-ETL-071 are unit tests (`EtlProcessorTest`), TC-ETL-031 to TC-ETL-037,
 TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-073 and TC-ETL-074 are integration tests of the column name cleanup
 (`ColumnNameCleanupIT`), TC-ETL-038 to TC-ETL-044, TC-ETL-048 and TC-ETL-072 unit tests of the cleaning rule
-(`ColumnNamesTest`), and TC-ETL-047 a unit test of the cleanup's stop condition (`PgRowStoreConnectionFailureTest`).
+(`ColumnNamesTest`), TC-ETL-047 a unit test of the cleanup's stop condition (`PgRowStoreConnectionFailureTest`), and
+TC-ETL-075 to TC-ETL-078 integration tests of deletions (`DatasetDeleteIT`).
 
 ## Prerequisites
 
@@ -21,7 +23,8 @@ TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-073 and TC-ETL-074 are integration te
 - Integration tests: running RowStore instance; TC-ETL-010, TC-ETL-013, TC-ETL-014, TC-ETL-020 to TC-ETL-026, TC-ETL-029 and TC-ETL-053
   additionally require direct database access (superuser) and are skipped when testing an external instance; so do
   TC-ETL-031 to TC-ETL-037, TC-ETL-045, TC-ETL-046, TC-ETL-049, TC-ETL-073 and TC-ETL-074, which also call into the RowStore application (TC-ETL-035 additionally starts separate
-  RowStore instances on a separate database)
+  RowStore instances on a separate database), and TC-ETL-075, TC-ETL-077 and TC-ETL-078 (TC-ETL-077 calls into the
+  RowStore application, TC-ETL-078 starts a separate RowStore instance on a separate database)
 
 ## Test Data
 
@@ -436,7 +439,7 @@ with SQL state `55P03`.
 
 **Assertions:**
 1. The response is `204` and the dataset is gone (`404`)
-2. Neither `<dataTable>` nor `<dataTable>_new` exists
+2. Within 15 seconds, neither `<dataTable>` nor `<dataTable>_new` exists (they are dropped in the background, ETL-12.01)
 
 ### TC-ETL-029: A replace keeps the owner and the privileges of the data table
 
@@ -445,12 +448,72 @@ with SQL state `55P03`.
 2. Create the roles `rowstore_reader_<x>` and `rowstore_owner_<x>`; make the owner role the owner of the data table,
    grant `SELECT` on it to the reader role and `INSERT` to `PUBLIC`, and revoke `DELETE` from the owner role
 3. `PUT /dataset/{id}` with CSV `B` (2 rows) and wait until it is available
-4. Delete the dataset and drop the roles
+4. Delete the dataset, wait until its data table has been dropped (ETL-12.01), and drop the roles
 
 **Assertions:**
 1. Queries return the rows `B1`, `B2`
 2. The data table is owned by the owner role; the reader role has `SELECT` but not `UPDATE`
    (`has_table_privilege`); the owner role has `SELECT` but still not `DELETE`; `PUBLIC` has `INSERT`
+
+## Deletion of datasets (integration tests)
+
+See API-3.07, DOM-2.04 and ETL-12.
+
+### TC-ETL-075: A dataset whose data table is read by an export is deleted right away and its table dropped after the export
+
+**Steps:**
+1. Create a dataset from CSV `A` (3 rows), wait until it is available, insert 50,000 rows of about 1 KB each into its
+   data table, and set an alias on it
+2. Start a JSON export, read its first 1024 bytes and pause reading (the export keeps its cursor open)
+3. `DELETE /dataset/{id}`
+4. While the export is paused: request the dataset, `/info`, `/aliases`, `/export`, the alias, and `PUT` a CSV; wait
+   5 seconds (longer than one attempt to lock the data table)
+5. Read the rest of the export
+
+**Assertions:**
+1. The DELETE returns `204` in less than 5 seconds (well below `queryLockTimeout`, 15 s)
+2. All requests of step 4 return `404`; after the wait, the data table still exists
+3. The export is a complete JSON array with 50,003 rows
+4. Within 60 seconds after the export, the data table no longer exists
+
+### TC-ETL-076: Deleting a dataset deletes its aliases, so that they can be set on another dataset
+
+**Steps:**
+1. Create datasets A and B and set an alias on A
+2. `DELETE` A
+3. Set the same alias on B (`PUT /dataset/{B}/aliases`)
+
+**Assertions:**
+1. Before the deletion, `/dataset/{alias}/info` returns A
+2. After the deletion, A and the alias return `404`
+3. Setting the alias on B returns `204` (1.x and 2.0 before ROWS-174: `400`), and `/dataset/{alias}/info` returns B
+
+### TC-ETL-077: Leftover data tables of deleted datasets are dropped at startup, tables of existing datasets are kept
+
+**Steps:**
+1. Create a dataset from CSV `A` (3 rows) and wait until it is available
+2. Create a table `data_<32 hex digits>` without a row in `datasets`, and a table `data_<32 hex digits>_copy`
+3. Call `PgRowStore.dropLeftoverDataTables()` (which runs at startup)
+
+**Assertions:**
+1. The returned table names contain the leftover table, but neither the `_copy` table nor the dataset's data table
+2. The leftover table is dropped, the `_copy` table still exists, and the dataset still returns its rows
+
+### TC-ETL-078: The upgrade of a 1.x database removes aliases and data tables of deleted datasets
+
+**Steps:**
+1. Create a separate database with the schema of 1.x (`datasets` and `aliases`, no Flyway history): a dataset with a
+   data table (`rownr SERIAL`) and the alias `kept`, the alias `orphan` of a dataset without a row in `datasets`, and
+   a data table of that dataset
+2. Start a separate RowStore instance on the database (Flyway baselines it at version 0 and migrates it, including
+   `V3__delete_orphan_aliases.sql`; the startup drops leftover data tables)
+3. Set the aliases `kept` and `orphan` on the existing dataset
+
+**Assertions:**
+1. After the start, `aliases` only contains `kept`; the data table of the deleted dataset is dropped, the one of the
+   existing dataset is kept
+2. Before step 3, `/dataset/orphan` returns `404`; setting the aliases returns `204`, and `/dataset/orphan/json`
+   returns the rows of the existing dataset
 
 ## Exclusive tasks (unit test)
 

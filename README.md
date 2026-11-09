@@ -133,7 +133,7 @@ As in 1.x, clients that cannot set headers or methods can tunnel them: the query
 - `GET http://{base-url}/dataset/{id}[?column1=value1&column2=value2&_limit=100&_offset=0]` - Queries the dataset with column/value-tuples, see subsection "Querying" below. Browsers requesting HTML are redirected to the web interface (`/dataset/{id}/html`).
 - `PUT http://{base-url}/dataset/{id}` - Replaces existing data, same constraints and parameters apply as for `POST http://{base-url}/datasets`. The previous data is served until the new data has been loaded completely and is kept if the load fails.
 - `POST http://{base-url}/dataset/{id}` - Adds data to an existing dataset. The column names must match the existing ones.
-- `DELETE http://{base-url}/dataset/{id}` - Deletes the dataset (HTTP 204). Returns HTTP 423 unless the dataset is in status 3 (available) or 4 (error), e.g. while an upload is queued or being loaded.
+- `DELETE http://{base-url}/dataset/{id}` - Deletes the dataset (HTTP 204). Returns HTTP 423 unless the dataset is in status 3 (available) or 4 (error), e.g. while an upload is queued or being loaded. The dataset and its aliases are deleted right away, without waiting for running exports; its data table is dropped in the background once no export or backup reads it anymore, so the disk space is released only then.
 
 Uploads to the same dataset are processed one after another in the order in which they were received. A replace (`PUT`) supersedes uploads to the same dataset that are still waiting to be processed; they are discarded.
 
