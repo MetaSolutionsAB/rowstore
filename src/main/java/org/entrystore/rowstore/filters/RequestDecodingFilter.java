@@ -26,6 +26,8 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
+import org.entrystore.rowstore.store.RowStoreConfig;
+import org.entrystore.rowstore.util.DatasetUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
@@ -58,13 +60,17 @@ import java.util.zip.ZipInputStream;
  * {@code zip} (the first entry of the archive) and {@code identity}. The codings are case-insensitive and may be
  * stacked (e.g. {@code gzip, identity}); they are listed in the order in which they were applied and are decoded in
  * reverse order. A request body with any other coding (e.g. {@code br}) is rejected with 415 before it is read, since
- * loading compressed bytes as CSV would produce an empty or broken dataset (1.x ignored such codings).
+ * loading compressed bytes as CSV would produce an empty or broken dataset (1.x ignored such codings). So is a body
+ * with more than {@value #MAX_COMPRESSIONS} codings other than {@code identity} or more than {@value #MAX_CODINGS}
+ * codings in total. The 415 response lists the supported codings in {@code Accept-Encoding} (RFC 9110, 12.5.3).
  * <p>
  * The body is decoded while the controllers read it, so that {@code maxuploadsize} limits the decoded bytes, which
- * protects against decompression bombs. Corrupt compressed data is reported as {@link MalformedContentException}
- * while reading, which the controllers answer with 400. The decoded request hides the Content-Encoding and
- * Content-Length headers, which describe the encoded body. The decoders are closed when the request has been
- * handled, which releases their native memory.
+ * protects against decompression bombs. It also limits the bytes that each decoder reads, so that nested codings
+ * cannot make the decoders inflate much more than {@code maxuploadsize} bytes; exceeding it is reported as
+ * {@link DatasetUtil.PayloadTooLargeException} (413) as well. Corrupt compressed data is reported as
+ * {@link MalformedContentException} while reading, which the controllers answer with 400. The decoded request hides
+ * the Content-Encoding and Content-Length headers, which describe the encoded body. The decoders are closed when the
+ * request has been handled, which releases their native memory.
  * <p>
  * Only the bodies of POST and PUT requests (the method after {@link TunnelFilter}) are decoded, since RowStore reads
  * no other request bodies; other requests and requests with {@code Content-Length: 0} are passed on unchanged. A body
@@ -85,6 +91,25 @@ public class RequestDecodingFilter implements Filter {
 
 	static final Set<String> SUPPORTED_CODINGS = Set.of("gzip", "x-gzip", "deflate", "deflate-no-wrap", "zip", IDENTITY);
 
+	static final String ACCEPT_ENCODING = "gzip, x-gzip, deflate, deflate-no-wrap, zip, identity";
+
+	/**
+	 * The maximum number of codings other than identity, i.e., of nested decoders.
+	 */
+	static final int MAX_COMPRESSIONS = 2;
+
+	/**
+	 * The maximum number of codings, including identity.
+	 */
+	static final int MAX_CODINGS = 8;
+
+	// the maximum number of bytes that each decoder reads, maxuploadsize
+	private final long maxSize;
+
+	public RequestDecodingFilter(RowStoreConfig config) {
+		this.maxSize = config.getMaxUploadSize();
+	}
+
 	@Override
 	public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain chain)
 			throws IOException, ServletException {
@@ -94,14 +119,15 @@ public class RequestDecodingFilter implements Filter {
 			chain.doFilter(servletRequest, servletResponse);
 			return;
 		}
-		for (String coding : codings) {
-			if (!SUPPORTED_CODINGS.contains(coding)) {
-				log.info("Rejecting request body with unsupported Content-Encoding \"{}\"", coding);
-				((HttpServletResponse) servletResponse).sendError(HttpServletResponse.SC_UNSUPPORTED_MEDIA_TYPE);
-				return;
-			}
+		String unsupported = unsupportedCodings(codings);
+		if (unsupported != null) {
+			log.info("Rejecting request body with {}", unsupported);
+			HttpServletResponse response = (HttpServletResponse) servletResponse;
+			response.setHeader(HttpHeaders.ACCEPT_ENCODING, ACCEPT_ENCODING);
+			response.sendError(HttpServletResponse.SC_UNSUPPORTED_MEDIA_TYPE);
+			return;
 		}
-		DecodedRequest decodedRequest = new DecodedRequest(request, codings);
+		DecodedRequest decodedRequest = new DecodedRequest(request, codings, maxSize);
 		try {
 			chain.doFilter(decodedRequest, servletResponse);
 		} finally {
@@ -130,6 +156,22 @@ public class RequestDecodingFilter implements Filter {
 	}
 
 	/**
+	 * @return Returns a description of the reason why the codings are not supported, or null if they are.
+	 */
+	private static String unsupportedCodings(List<String> codings) {
+		for (String coding : codings) {
+			if (!SUPPORTED_CODINGS.contains(coding)) {
+				return "unsupported Content-Encoding \"" + coding + "\"";
+			}
+		}
+		long compressions = codings.stream().filter(coding -> !IDENTITY.equals(coding)).count();
+		if (compressions > MAX_COMPRESSIONS || codings.size() > MAX_CODINGS) {
+			return "too many codings in Content-Encoding: " + codings.size() + " codings, " + compressions + " compressions";
+		}
+		return null;
+	}
+
+	/**
 	 * @return Returns whether the request may have a body that RowStore reads: a POST or PUT request whose
 	 * Content-Length is not 0 (a body of unknown length may be empty, which the decoder detects).
 	 */
@@ -143,11 +185,16 @@ public class RequestDecodingFilter implements Filter {
 	 * Closing the returned stream closes all decoders and the encoded stream. If decoding fails here, the decoders
 	 * created so far are closed.
 	 *
+	 * @param maxSize The maximum number of bytes that each decoder reads; reading more throws a
+	 *                {@link DatasetUtil.PayloadTooLargeException}.
 	 * @throws IOException If the start of the encoded data could not be read or is not valid for its coding.
 	 */
-	static InputStream decode(InputStream encoded, List<String> codings) throws IOException {
+	static InputStream decode(InputStream encoded, List<String> codings, long maxSize) throws IOException {
 		InputStream stream = encoded;
 		for (String coding : codings.reversed()) {
+			if (!IDENTITY.equals(coding)) {
+				stream = new DatasetUtil.BoundedInputStream(stream, maxSize);
+			}
 			PushbackInputStream pushback = new PushbackInputStream(stream, 1);
 			try {
 				int first = pushback.read();
@@ -161,7 +208,9 @@ public class RequestDecodingFilter implements Filter {
 					case "deflate" -> new InflaterInputStream(pushback);
 					case "deflate-no-wrap" -> rawInflaterInputStream(pushback);
 					case "zip" -> {
-						ZipInputStream zip = new ZipInputStream(pushback);
+						// the entry name is ignored; ISO-8859-1 decodes any name that is not flagged as UTF-8, e.g.,
+						// in the code page of Windows Explorer, instead of failing
+						ZipInputStream zip = new ZipInputStream(pushback, StandardCharsets.ISO_8859_1);
 						if (zip.getNextEntry() == null) {
 							zip.close();
 							throw new IOException("The zip archive has no entry");
@@ -171,9 +220,10 @@ public class RequestDecodingFilter implements Filter {
 					case IDENTITY -> pushback;
 					default -> throw new IllegalArgumentException("Unsupported coding: " + coding);
 				};
-			} catch (IOException | RuntimeException e) {
+			} catch (Throwable t) {
+				// also errors, e.g., a StackOverflowError, so that the inflaters do not keep their native memory
 				closeQuietly(pushback);
-				throw e;
+				throw t;
 			}
 		}
 		return stream;
@@ -225,14 +275,17 @@ public class RequestDecodingFilter implements Filter {
 
 		private final List<String> codings;
 
+		private final long maxSize;
+
 		// the decoded body, read through getInputStream() or getReader()
 		private DecodingInputStream body;
 
 		private BufferedReader reader;
 
-		DecodedRequest(HttpServletRequest request, List<String> codings) {
+		DecodedRequest(HttpServletRequest request, List<String> codings, long maxSize) {
 			super(request);
 			this.codings = codings;
+			this.maxSize = maxSize;
 		}
 
 		@Override
@@ -258,7 +311,7 @@ public class RequestDecodingFilter implements Filter {
 
 		private DecodingInputStream body() throws IOException {
 			if (body == null) {
-				body = new DecodingInputStream(super.getInputStream(), codings);
+				body = new DecodingInputStream(super.getInputStream(), codings, maxSize);
 			}
 			return body;
 		}
@@ -313,7 +366,7 @@ public class RequestDecodingFilter implements Filter {
 	/**
 	 * Decodes the body lazily on the first read, so that all decoding failures surface while reading. Failures of
 	 * the decoders are reported as {@link MalformedContentException}, failures of reading the request (e.g., a client
-	 * that aborted the upload) as they are.
+	 * that aborted the upload) and too large inputs of a decoder as they are.
 	 */
 	private static final class DecodingInputStream extends ServletInputStream {
 
@@ -321,13 +374,16 @@ public class RequestDecodingFilter implements Filter {
 
 		private final List<String> codings;
 
+		private final long maxSize;
+
 		private InputStream decoded;
 
 		private boolean finished;
 
-		DecodingInputStream(InputStream source, List<String> codings) {
+		DecodingInputStream(InputStream source, List<String> codings, long maxSize) {
 			this.source = new SourceInputStream(source);
 			this.codings = codings;
+			this.maxSize = maxSize;
 		}
 
 		@Override
@@ -344,7 +400,7 @@ public class RequestDecodingFilter implements Filter {
 			}
 			try {
 				if (decoded == null) {
-					decoded = decode(source, codings);
+					decoded = decode(source, codings, maxSize);
 				}
 				int n = decoded.read(b, off, len);
 				if (n == -1) {
@@ -352,7 +408,7 @@ public class RequestDecodingFilter implements Filter {
 				}
 				return n;
 			} catch (IOException e) {
-				if (source.failed) {
+				if (source.failed || e instanceof DatasetUtil.PayloadTooLargeException) {
 					throw e;
 				}
 				throw new MalformedContentException(e);

@@ -197,10 +197,12 @@ entries, the first is loaded), `identity`, `gzip, identity` and `GZIP`:
 ### TC-ENCODING-004: An unsupported coding is rejected with 415 and nothing is stored
 
 1. `POST /datasets` with a plain CSV body, `Content-Encoding: br` and `Origin: https://app.example.com` → `415` with
-   `Access-Control-Allow-Origin`
+   `Access-Control-Allow-Origin` and `Accept-Encoding: gzip, x-gzip, deflate, deflate-no-wrap, zip, identity`
 2. `PUT /dataset/{id}` with `Content-Encoding: zstd` → `415`; `POST /dataset/{id}` with `Content-Encoding: gzip, br`
    → `415`
-3. No dataset was created; the dataset is AVAILABLE with its rows `A1`, `A2`
+3. `PUT /dataset/{id}` with the CSV compressed three times with gzip and `Content-Encoding: gzip, gzip, gzip` → `415`
+   (more than two compressions)
+4. No dataset was created; the dataset is AVAILABLE with its rows `A1`, `A2`
 
 ### TC-ENCODING-005: Corrupt compressed data is rejected with 400 and nothing is stored
 
@@ -224,6 +226,16 @@ less than 4096 bytes.
 3. No dataset was created; the existing dataset is AVAILABLE with its previous row count
 4. `PUT /dataset/{id}` with a compressed CSV whose decoded size is below the limit → `202`, then AVAILABLE
 
+### TC-ENCODING-NEW1: An alias body larger than 1 MiB is rejected with 413, also when compressed
+
+Spec: API-3.09, API-3.17.
+1. `PUT /dataset/{id}/aliases` with a body of exactly 1 MiB (1048576 bytes): `["bigalias"` padded with spaces and
+   closed with `]` → `204`
+2. `PUT /dataset/{id}/aliases` with 64 MiB of zero bytes compressed twice with gzip (a few hundred bytes) and
+   `Content-Encoding: gzip, gzip` → `413`
+3. `POST /dataset/{id}/aliases` with the body of step 1 and one more space (1 MiB + 1 byte, uncompressed) → `413`
+4. `GET /dataset/{id}/aliases` returns `["bigalias"]`
+
 ### TC-ENCODING-008: An upload that is empty after decoding, or without body and Content-Length, is rejected with 400
 
 1. `PUT /dataset/{id}`, `POST /dataset/{id}` and `POST /datasets` with a gzip stream of an empty file and
@@ -238,8 +250,11 @@ less than 4096 bytes.
 1. `GET /datasets` with `Content-Encoding: br` and a CSV body → `200` (as in 1.x)
 
 Unit tests (`RequestDecodingFilterTest`, `DatasetUtilTempFileTest`, without IDs) cover the codings of stacked and
-repeated header lines, the hidden `Content-Encoding` and `Content-Length` headers, `getReader()`, 415 for unsupported
-codings, requests with `Content-Length: 0` and methods other than POST and PUT passed on unchanged, bodies of unknown
+repeated header lines, the hidden `Content-Encoding` and `Content-Length` headers, `getReader()`, 415 with
+`Accept-Encoding` for unsupported codings and for more than two compressions or more than eight codings (also over
+several header lines), the limit of each decoder's input by `maxuploadsize`, a zip entry whose name is not UTF-8,
+requests with `Content-Length: 0` and methods other than POST and PUT passed on unchanged, bodies of unknown
 length, malformed data reported as `MalformedContentException`, failures of reading the request passed on as they
-are, the closing of the decoders and the request body when the request has been handled, the deletion of the temp
-file when writing it fails, and the charset detection of an empty file.
+are, the closing of the decoders and the request body when the request has been handled or decoding failed with an
+error, the deletion of the temp file when writing it fails (also with an error), and the charset detection of an
+empty file.

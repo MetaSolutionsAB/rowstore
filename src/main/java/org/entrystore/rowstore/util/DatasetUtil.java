@@ -76,10 +76,11 @@ public class DatasetUtil {
 			} else {
 				Files.copy(inputStream, tmpPath, StandardCopyOption.REPLACE_EXISTING);
 			}
-		} catch (IOException | RuntimeException e) {
-			// e.g., the upload is too large or its compressed data is corrupt: the caller gets no file to delete
+		} catch (Throwable t) {
+			// e.g., the upload is too large or its compressed data is corrupt, or a decoder failed with an error such
+			// as a StackOverflowError: the caller gets no file to delete
 			Files.deleteIfExists(tmpPath);
-			throw e;
+			throw t;
 		}
 		return tmpPath.toFile();
 	}
@@ -90,12 +91,15 @@ public class DatasetUtil {
 		}
 	}
 
-	private static class BoundedInputStream extends InputStream {
+	/**
+	 * A stream that throws a {@link PayloadTooLargeException} when more than a maximum number of bytes are read.
+	 */
+	public static class BoundedInputStream extends InputStream {
 		private final InputStream delegate;
 		private final long maxSize;
 		private long bytesRead = 0;
 
-		BoundedInputStream(InputStream delegate, long maxSize) {
+		public BoundedInputStream(InputStream delegate, long maxSize) {
 			this.delegate = delegate;
 			this.maxSize = maxSize;
 		}
