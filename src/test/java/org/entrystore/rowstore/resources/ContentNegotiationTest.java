@@ -98,6 +98,16 @@ class ContentNegotiationTest {
             "application/json;q=0.1, text/*;q=0.5                              | text/html        | text/csv",
             "text/plain;q=0.6, application/xml;q=0.5                           | text/html        | text/csv",
             "text/plain;q=0.5, application/xml;q=0.6                           | application/json | application/json",
+            "text/csv, application/json;q=0.5                                  | application/json | text/csv",
+            "text/csv;q=0.5;level=1, application/json;q=0.4                    | application/json | text/csv",
+            // parameters after q are accept extensions, parameters before q belong to the media range
+            "application/json;q=1;foo=bar, text/html;q=0.5                     | application/json | application/json",
+            "application/json;foo=bar, text/html;q=0.5                         | text/html        | application/json",
+            "text/html;q=1;foo=bar, application/json;q=0.5                     | text/html        | application/json",
+            // a type without subtype is type/*
+            "text                                                              | text/html        | text/csv",
+            "text/                                                             | text/html        | text/csv",
+            "text;q=0.5, application/json;q=0.4                                | text/html        | text/csv",
             // on equal quality, the first representation wins
             "text/html, application/json                                       | application/json | application/json",
             "application/json, text/html                                       | application/json | application/json",
@@ -113,7 +123,16 @@ class ContentNegotiationTest {
             "application/*;q=0, text/plain;q=0.001                             | text/html        | text/csv",
             // unparseable ranges are skipped
             "text/html, garbage                                                | text/html        | text/csv",
-            "text/html;q=2                                                     | application/json | application/json"
+            "garbage, text/html                                                | text/html        | text/csv",
+            "*/html, text/plain                                                | text/html        | text/csv",
+            // an invalid quality ends the reading, the ranges before it are kept
+            "text/html;q=2                                                     | application/json | application/json",
+            "text/html;q=-0.1                                                  | application/json | application/json",
+            "text/html;q                                                       | application/json | application/json",
+            "application/json;q=1.5, text/html                                 | application/json | application/json",
+            "application/json;q=abc, text/html                                 | application/json | application/json",
+            "text/plain, application/json;q=2, application/xml                 | text/html        | text/csv",
+            "text/html, application/json;q=2                                   | text/html        | text/csv"
     })
     @DisplayName("Dataset resource: JSON or HTML; export: JSON or CSV")
     void select(String accept, String dataset, String export) {
@@ -121,6 +140,19 @@ class ContentNegotiationTest {
                 .isEqualTo(MediaType.parseMediaType(dataset));
         assertThat(ContentNegotiation.select(request(accept), MediaType.APPLICATION_JSON, TEXT_CSV))
                 .isEqualTo(MediaType.parseMediaType(export));
+    }
+
+    @ParameterizedTest(name = "[{index}] Accept: {0} and Accept: {1} -> {2}")
+    @CsvSource(delimiter = '|', value = {
+            "image/png               | text/html   | text/html",
+            "application/json;q=2    | text/html   | application/json"
+    })
+    @DisplayName("Several Accept headers are read in order, an invalid quality ends the reading")
+    void select_severalAcceptHeaders(String first, String second, String expected) {
+        MockHttpServletRequest request = request(first);
+        request.addHeader("Accept", second);
+        assertThat(ContentNegotiation.select(request, MediaType.APPLICATION_JSON, MediaType.TEXT_HTML))
+                .isEqualTo(MediaType.parseMediaType(expected));
     }
 
 }

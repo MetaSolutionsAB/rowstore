@@ -84,7 +84,7 @@ class ContentNegotiationIT extends BaseIntegrationTest {
 
     @ParameterizedTest(name = "[{index}] Accept: {0}")
     @ValueSource(strings = {"text/html", "text/plain", "text/csv", "text/json", "text/javascript", "text/html, */*",
-            "text/plain;q=0.3, */*;q=0.5", "application/json;q=0.9, text/html",
+            "text/plain;q=0.3, */*;q=0.5", "application/json;q=0.9, text/html", "text", "text/html, application/json;q=2",
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"})
     @DisplayName("TC-CONNEG-002: The dataset resource redirects to the HTML view if HTML matches best, as in 1.x")
     void datasetResource_htmlMatchesBest_redirectsToHtml(String accept) {
@@ -96,7 +96,8 @@ class ContentNegotiationIT extends BaseIntegrationTest {
     @ParameterizedTest(name = "[{index}] Accept: {0}")
     @NullSource
     @ValueSource(strings = {"*/*", "*/*;q=0.8", "image/png", "image/gif, */*; q=.2", "application/xml, */*;q=0.5",
-            "text/html, application/json", "text/html;q=0.9, application/json", "garbage"})
+            "text/html, application/json", "text/html;q=0.9, application/json", "garbage",
+            "application/json;q=1;foo=bar, text/html;q=0.5", "application/json;q=2, text/html"})
     @DisplayName("TC-CONNEG-007: The dataset resource responds with JSON without a better match for HTML, as in 1.x")
     void datasetResource_noBetterMatchForHtml_respondsWithJson(String accept) {
         RawResponse response = get("/dataset/{ds}", accept);

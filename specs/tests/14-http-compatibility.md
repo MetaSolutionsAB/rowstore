@@ -28,7 +28,8 @@ Spec: API-4.04
 Spec: API-4.03, API-4.04
 
 **Requests:** `GET /dataset/{id}` with `text/html`, `text/plain`, `text/csv`, `text/json`, `text/javascript`,
-`text/html, */*`, `text/plain;q=0.3, */*;q=0.5`, `application/json;q=0.9, text/html` and a browser's Accept header
+`text/html, */*`, `text/plain;q=0.3, */*;q=0.5`, `application/json;q=0.9, text/html`, `text` (no subtype),
+`text/html, application/json;q=2` (invalid quality ends the reading) and a browser's Accept header
 (`text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8`)
 
 **Expected Response:**
@@ -73,7 +74,8 @@ Spec: API-4.01, API-4.04
 
 **Requests:** `GET /dataset/{id}` without Accept header and with `*/*`, `*/*;q=0.8`, `image/png`,
 `image/gif, */*; q=.2`, `application/xml, */*;q=0.5`, `text/html, application/json`,
-`text/html;q=0.9, application/json` and `garbage` (unparseable)
+`text/html;q=0.9, application/json`, `garbage` (unparseable), `application/json;q=1;foo=bar, text/html;q=0.5`
+(accept extension) and `application/json;q=2, text/html` (invalid quality ends the reading)
 
 **Expected Response:**
 - Status: `200`, Content-Type `application/json`, `resultCount` 5

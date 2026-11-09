@@ -76,21 +76,10 @@ final class ContentNegotiation {
 
 	/**
 	 * Returns the media ranges of the Accept header, enriched as by {@code FlexibleConneg.getEnrichedPreferences()}.
-	 * Ranges that cannot be parsed are skipped. Ranges with quality 0 still match (with quality 0), they are only not
-	 * added as the parent of another range.
+	 * Ranges with quality 0 still match (with quality 0), they are only not added as the parent of another range.
 	 */
 	private static List<Preference> preferences(HttpServletRequest request) {
-		List<Preference> preferences = new ArrayList<>();
-		for (String header : Collections.list(request.getHeaders(HttpHeaders.ACCEPT))) {
-			for (String token : MimeTypeUtils.tokenize(header)) {
-				try {
-					MediaType range = MediaType.parseMediaType(token);
-					preferences.add(new Preference(range.removeQualityValue(), (float) range.getQualityValue()));
-				} catch (InvalidMediaTypeException e) {
-					// skipped: Restlet parsed such a value into a range that includes none of the representations
-				}
-			}
-		}
+		List<Preference> preferences = readAcceptHeaders(request);
 
 		Set<MediaType> undesired = preferences.stream()
 				.filter(p -> p.quality() == 0)
@@ -113,6 +102,66 @@ final class ContentNegotiation {
 		preferences.removeIf(p -> p.range().isWildcardType());
 		preferences.add(new Preference(MediaType.ALL, 0.001f));
 		return preferences;
+	}
+
+	/**
+	 * Reads the media ranges of the Accept headers as Restlet's {@code PreferenceReader}: the media range consists of
+	 * the parameters before the first {@code q}, the parameters after it are accept extensions and ignored. A type
+	 * without subtype (e.g., text or text/) is read as type/*. An invalid quality (not a number from 0 to 1, or
+	 * {@code q} without value) ends the reading: the ranges read before it are kept, the following ones and further
+	 * Accept headers are ignored. Ranges that Spring cannot parse are skipped; Restlet read most of them into ranges
+	 * that include none of the representations (an exception is a range with an unknown charset such as
+	 * text/html;charset=bogus, which Restlet still matched with the low quality of its parent text/html).
+	 */
+	private static List<Preference> readAcceptHeaders(HttpServletRequest request) {
+		List<Preference> preferences = new ArrayList<>();
+		for (String header : Collections.list(request.getHeaders(HttpHeaders.ACCEPT))) {
+			for (String token : MimeTypeUtils.tokenize(header)) {
+				String[] parts = token.split(";");
+				StringBuilder range = new StringBuilder(withSubtype(parts[0].trim()));
+				float quality = 1;
+				for (int i = 1; i < parts.length; i++) {
+					int equals = parts[i].indexOf('=');
+					if ((equals < 0 ? parts[i] : parts[i].substring(0, equals)).trim().equals("q")) {
+						quality = quality(equals < 0 ? null : parts[i].substring(equals + 1).trim());
+						if (quality < 0) {
+							return preferences;
+						}
+						break;
+					}
+					range.append(';').append(parts[i]);
+				}
+				try {
+					preferences.add(new Preference(MediaType.parseMediaType(range.toString()), quality));
+				} catch (InvalidMediaTypeException e) {
+					// skipped
+				}
+			}
+		}
+		return preferences;
+	}
+
+	private static String withSubtype(String type) {
+		int slash = type.indexOf('/');
+		if (slash < 0) {
+			return type + "/*";
+		}
+		return slash == type.length() - 1 ? type + "*" : type;
+	}
+
+	/**
+	 * @return Returns the quality, or -1 if it is invalid (as by {@code PreferenceReader.readQuality()}).
+	 */
+	private static float quality(String value) {
+		if (value == null) {
+			return -1;
+		}
+		try {
+			float quality = Float.parseFloat(value);
+			return quality >= 0 && quality <= 1 ? quality : -1;
+		} catch (NumberFormatException e) {
+			return -1;
+		}
 	}
 
 	/**
