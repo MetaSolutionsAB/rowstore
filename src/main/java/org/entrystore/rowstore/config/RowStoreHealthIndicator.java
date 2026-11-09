@@ -18,8 +18,8 @@ package org.entrystore.rowstore.config;
 
 import org.entrystore.rowstore.store.RowStore;
 import org.entrystore.rowstore.store.impl.LimitedDataSource;
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 

@@ -21,7 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -56,7 +56,7 @@ public class ConfigurableTestEnvironment {
     private static final Logger log = LoggerFactory.getLogger(ConfigurableTestEnvironment.class);
 
     // Shared PostgreSQL container across all environments for efficiency
-    private static PostgreSQLContainer<?> sharedPostgresContainer;
+    private static PostgreSQLContainer sharedPostgresContainer;
     private static int postgresUsageCount = 0;
     private static final Object POSTGRES_LOCK = new Object();
 
@@ -206,7 +206,7 @@ public class ConfigurableTestEnvironment {
         synchronized (POSTGRES_LOCK) {
             if (sharedPostgresContainer == null || !sharedPostgresContainer.isRunning()) {
                 log.info("Starting shared PostgreSQL container...");
-                sharedPostgresContainer = new PostgreSQLContainer<>(TestUtils.postgresImage())
+                sharedPostgresContainer = new PostgreSQLContainer(TestUtils.postgresImage())
                         .withDatabaseName("rowstoretest")
                         .withUsername("rowstoretest")
                         .withPassword("rowstoretestpw");

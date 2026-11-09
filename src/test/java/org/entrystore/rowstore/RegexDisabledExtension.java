@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 
 /**
- * JUnit 5 extension that starts a RowStore test environment with regex queries disabled.
+ * JUnit Jupiter extension that starts a RowStore test environment with regex queries disabled.
  *
  * In this mode, all query values are treated as literal strings - regex patterns
  * are not interpreted.

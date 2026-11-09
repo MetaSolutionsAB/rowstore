@@ -110,7 +110,7 @@ Current limitations relevant to this area.
 | ARCH-2.03 | Export as JSON or CSV |
 | ARCH-2.04 | Web GUI for browsing |
 | ARCH-2.05 | Rate limiting |
-| ARCH-3.01 | Core: Java 25, Spring Boot 3.5.10, PostgreSQL, Tomcat (embedded), optional HikariCP, Flyway |
+| ARCH-3.01 | Core: Java 25, Spring Boot 4.1.2, PostgreSQL, Tomcat (embedded), optional HikariCP, Flyway |
 | ARCH-3.02 | Libraries: OpenCSV, Guava, Log4j2, juniversalchardet, ICU4J |
 | ARCH-4.01 | Single Maven module — executable JAR |
 | ARCH-4.02 | [REMOVED] standalone/jetty — replaced by Spring Boot embedded server |
@@ -399,8 +399,8 @@ Current limitations relevant to this area.
 | ID | Description |
 |----|-------------|
 | TEST-1.01 | Integration tests verifying REST API end-to-end |
-| TEST-2.01 | JUnit 5, REST Assured, Testcontainers, Awaitility, AssertJ |
-| TEST-3.01 | 43 IT classes with 376 tests, 24 unit test classes with 324 tests |
+| TEST-2.01 | JUnit Jupiter 6, REST Assured, Testcontainers, Awaitility, AssertJ |
+| TEST-3.01 | 43 IT classes with 377 tests, 24 unit test classes with 324 tests |
 | TEST-3.02 | Sequential execution within classes |
 | TEST-4.01 | Default profile (regexpqueries=full) |
 | TEST-4.02 | regex-disabled profile |

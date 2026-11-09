@@ -23,7 +23,7 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.apache.catalina.Globals;
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
@@ -33,11 +33,16 @@ import java.io.IOException;
 
 /**
  * Rejects requests with 400 whose query parameters Tomcat could not parse, e.g., because of a malformed percent-encoding
- * such as "?column=100%" (QUERY-9.04). Tomcat skips such parameters, so a column filter would be dropped silently and
- * the query would return rows that do not match it. Like Tomcat's FailedRequestFilter, but the parameters of a POST
+ * such as "?column=100%" (QUERY-9.04), so that a column filter is never dropped silently and the query does not return
+ * rows that do not match it. Tomcat throws an InvalidParameterException when the parameters are read for the first
+ * time; this filter reads them first, so that the failure is answered with 400 in one place. The parameters of a POST
  * request with a form body are not parsed, since that would consume the body (e.g., a JSON array of aliases sent as
  * application/x-www-form-urlencoded); such requests have no query parameters that RowStore uses as filters. Runs after
  * the CORS filter, so that browsers can read the response.
+ * <p>
+ * This filter must be the first code that reads the parameters of a request: Tomcat 11 throws the
+ * InvalidParameterException only on the first call of a getParameter* method and later calls return the parameters
+ * parsed before the malformed one, without an error. A filter that runs earlier must therefore not read parameters.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 3)
@@ -48,9 +53,10 @@ public class ParameterParsingFilter implements Filter {
 			throws IOException, ServletException {
 		HttpServletRequest request = (HttpServletRequest) servletRequest;
 		if (!isFormPost(request)) {
-			// parses the query string (and nothing else, since only form bodies of POST requests are parameters)
-			request.getParameterNames();
-			if (request.getAttribute(Globals.PARAMETER_PARSE_FAILED_ATTR) != null) {
+			try {
+				// parses the query string (and nothing else, since only form bodies of POST requests are parameters)
+				request.getParameterNames();
+			} catch (InvalidParameterException e) {
 				((HttpServletResponse) servletResponse).sendError(HttpServletResponse.SC_BAD_REQUEST);
 				return;
 			}

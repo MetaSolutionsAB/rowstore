@@ -87,7 +87,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-9.03** The characters `` ^ | [ ] { } \ " < > ` `` are accepted unencoded in the query string, as in 1.x (Jetty), since browsers and tools such as curl send them unencoded, e.g. in `?name=^Ber` (`server.tomcat.relaxed-query-chars`). Non-ASCII characters must be percent-encoded (as browsers do); Tomcat rejects them unencoded with 400. In the request path, these characters are not relaxed (unencoded, Tomcat rejects them with 400). An encoded slash or backslash (`%2F`, `%5C`) in a dataset ID is passed through undecoded and remains part of the ID, so e.g. `/dataset/a%2Fb` and `/dataset/x%2F..%2Fstatus` return 404 for the unknown dataset, as in 1.x (Tomcat's default is 400).
 
-> **QUERY-9.04** A query string that cannot be decoded, e.g. because of a malformed percent-encoding such as `?column=100%` or `?column=%zz`, returns **400 Bad Request** (`ParameterParsingFilter`). Tomcat skips such parameters, so the filter would otherwise be dropped silently and non-matching rows returned. In 1.x, such queries returned 0 rows or 500.
+> **QUERY-9.04** A query string that cannot be decoded, e.g. because of a malformed percent-encoding such as `?column=100%` or `?column=%zz`, or a percent-encoding that is not valid UTF-8 such as `?column=%C5` (ISO-8859-1), returns **400 Bad Request** (`ParameterParsingFilter`), so that a filter is never dropped silently and non-matching rows returned. In 1.x, such queries returned 0 rows or 500.
 
 ## Known Limitations
 
@@ -118,3 +118,4 @@ Covers the read path from query parameter parsing through SQL execution to respo
 | 2026-11-05 | QUERY-3.06: `media` still selects the representation on `/dataset/{id}`; QUERY-4.05: run time only limited if `querytimeout` is configured |
 | 2026-11-05 | QUERY-9.03: `%2F` and `%5C` in dataset IDs return 404, path characters are not relaxed (ROWS-151) |
 | 2026-11-09 | QUERY-6.01: `resultCount` is 0 for an offset beyond the last match, as in 1.x (ROWS-170) |
+| 2026-11-09 | QUERY-9.04: percent-encodings that are not UTF-8 return 400 with Tomcat 11 (ROWS-143) |
