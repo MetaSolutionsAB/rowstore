@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 
 /**
- * JUnit 5 extension that starts a RowStore test environment with the legacy CSV parser ({@code legacyparser: true}).
+ * JUnit Jupiter extension that starts a RowStore test environment with the legacy CSV parser ({@code legacyparser: true}).
  *
  * When testing an external RowStore instance ({@code rowstore.baseUrl}), the tests are skipped, since the parser
  * of the external instance is unknown.

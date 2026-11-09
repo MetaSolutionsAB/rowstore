@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 
 /**
- * JUnit 5 extension that starts a RowStore test environment with simple regex mode.
+ * JUnit Jupiter extension that starts a RowStore test environment with simple regex mode.
  *
  * In simple mode:
  * - Query values are treated as exact matches by default

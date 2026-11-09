@@ -426,6 +426,31 @@ class QueryAdvancedIT extends BaseIntegrationTest {
         assertThat(response.jsonPath().getString("next")).contains("_callback=x");
     }
 
+    @Test
+    @Order(21)
+    @DisplayName("TC-QUERY-027: An exactly full last page links to an empty page")
+    void exactlyFullLastPage_linksToEmptyPage() {
+        Response fullPage = given().spec(jsonSpec).queryParam("_limit", 5).when().get(datasetUrl);
+        fullPage.then().statusCode(200).body("results", hasSize(5));
+        assertThat(fullPage.jsonPath().getString("next")).contains("_offset=5");
+        assertThat((Object) fullPage.jsonPath().get("prev")).isNull();
+
+        Response emptyPage = given().spec(jsonSpec).queryParam("_limit", 5).queryParam("_offset", 5).when().get(datasetUrl);
+        emptyPage.then().statusCode(200).body("results", hasSize(0));
+        assertThat((Object) emptyPage.jsonPath().get("next")).isNull();
+        assertThat(emptyPage.jsonPath().getString("prev")).contains("_offset=0");
+    }
+
+    @Test
+    @Order(22)
+    @DisplayName("TC-QUERY-026: No prev link when the offset is smaller than the limit")
+    void offsetSmallerThanLimit_hasNoPrevLink() {
+        Response response = given().spec(jsonSpec).queryParam("_limit", 2).queryParam("_offset", 1).when().get(datasetUrl);
+        response.then().statusCode(200).body("results", hasSize(2));
+        assertThat((Object) response.jsonPath().get("prev")).isNull();
+        assertThat(response.jsonPath().getString("next")).contains("_offset=3");
+    }
+
     private void assertSameQueryResponse(Response actual, Response expected) {
         for (String field : new String[]{"results", "resultCount", "offset", "limit", "prev", "next"}) {
             assertThat((Object) actual.jsonPath().get(field))
