@@ -83,15 +83,16 @@ On SIGTERM (e.g. `docker stop`), RowStore stops accepting requests and lets runn
 
 ### Docker
 
-The Docker image `metasolutions/rowstore:<version>` (Docker Hub) is built from the `Dockerfile` in this repository and reads its configuration from `/srv/rowstore/rowstore.json` (environment variable `ROWSTORE_CONFIG_URI`). Like the 1.x images, it listens on port 8080 (environment variable `SERVER_PORT`; the JAR itself defaults to 8282):
+The Docker image `metasolutions/rowstore:<version>` (Docker Hub) is built from the `Dockerfile` in this repository and reads its configuration from `/srv/rowstore/rowstore.json`, or from `/srv/rowstore/etc/rowstore.json` if only that exists (where the 1.x images found it), unless the environment variable `ROWSTORE_CONFIG_URI` or the argument `--rowstore.config.uri` names another location. Like the 1.x images, it listens on port 8080 (environment variable `SERVER_PORT`; the JAR itself defaults to 8282):
 
 ```
 docker run -p 8080:8080 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json --stop-timeout 70 metasolutions/rowstore:<version>
 ```
 
-- Arguments after the image name are passed to RowStore, e.g. `--server.port=9000`, which takes precedence over port 8080; the configuration is still read from `/srv/rowstore/rowstore.json`.
+- Arguments after the image name are passed to RowStore, e.g. `--server.port=9000`, which takes precedence over port 8080; the configuration is still found as described above.
 - Tags: `<version>` (e.g. `2.0.0`) for every build, `<major.minor>` (e.g. `2.0`) and `latest` for the latest release, `develop` for the latest development build. `latest` moved from 1.7 to 2.0 with the 2.0 release; pull `1.7` to stay on 1.x. The 1.x images were built in a separate repository and run `bin/rowstore --port 8080` as root.
 - JVM options are passed with the environment variable `JAVA_OPTS`, e.g. `-e JAVA_OPTS="-Xmx2g -Duser.timezone=Europe/Stockholm"`. By default, the maximum heap is 75% of the container's memory limit (`-XX:MaxRAMPercentage=75`); options in `JAVA_OPTS` take precedence.
+- As in 1.x (the entrypoint of the base image `eclipse-temurin` is kept), `-e USE_SYSTEM_CA_CERTS=1` imports the certificates mounted as `/certificates/*.crt` into the truststore of the JVM, e.g. for `"ssl": true` with a database certificate of a private CA. Since RowStore does not run as root, they are added to a copy of the truststore in `/tmp` (set with `JAVA_TOOL_OPTIONS`), which needs a writable `/tmp`; the system's CA store (used by tools such as `wget`) is not changed.
 - RowStore runs as the unprivileged user `rowstore` (UID and GID 10001). The mounted configuration must be readable for it; if it is readable only by root or the host user, make it readable for the group 10001 (`chgrp 10001 rowstore.json && chmod 0640 rowstore.json`) or run the container as a user that can read it (`docker run --user <uid> ...`). Uploads are buffered in `/tmp` of the container.
 
 To build the image yourself, build the JAR first (the `Dockerfile` copies `target/rowstore-*.jar`):
