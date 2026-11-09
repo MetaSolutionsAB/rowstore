@@ -313,9 +313,9 @@ taken for an empty line, although the legacy parser returns the same record for 
 
 ## CSV Without Columns
 
-ETL-4.10 (ROWS-180). TC-CSV-047 to TC-CSV-051 and TC-CSV-NEW1 run with the default parser (`CsvNoColumnsIT`),
-TC-CSV-052 to TC-CSV-056 and TC-CSV-NEW2 repeat them in the same order with `legacyparser: true`
-(`CsvNoColumnsLegacyParserIT`). The datasets of TC-CSV-047 to TC-CSV-049, TC-CSV-051 and TC-CSV-NEW1 are created
+ETL-4.10 (ROWS-180). TC-CSV-047 to TC-CSV-051 and TC-CSV-057 run with the default parser (`CsvNoColumnsIT`),
+TC-CSV-052 to TC-CSV-056 and TC-CSV-058 repeat them in the same order with `legacyparser: true`
+(`CsvNoColumnsLegacyParserIT`). The datasets of TC-CSV-047 to TC-CSV-049, TC-CSV-051 and TC-CSV-057 are created
 from `name,value\nA1,1\nA2,2\n`; "the previous data" means status ERROR (4) with `rowcount` 2, the `columnnames`
 `name`, `value` and exactly the rows `{name: A1, value: 1}`, `{name: A2, value: 2}`.
 
@@ -351,15 +351,15 @@ with a column named U+FEFF):
 2. `POST /dataset/{id}` with `name,value\nB1,1\n` → `202`; the status becomes AVAILABLE (3) with `rowcount` 1 and the
    `columnnames` `name`, `value`
 
-### TC-CSV-NEW1: A replace whose header contains a control character fails and keeps the previous data
+### TC-CSV-057: A replace whose header contains a control character fails and keeps the previous data
 
 For each body `na<NUL>me,value\n` (U+0000, header only) and `name,value<ESC>\nB1,1\n` (U+001B):
 1. `PUT /dataset/{id}` → `202`
 2. The status becomes ERROR (4) and the dataset keeps the previous data
 
-### TC-CSV-052 to TC-CSV-056, TC-CSV-NEW2: Datasets without columns with the legacy parser
+### TC-CSV-052 to TC-CSV-056, TC-CSV-058: Datasets without columns with the legacy parser
 
-As TC-CSV-047 to TC-CSV-051 and TC-CSV-NEW1 (in this order), with a RowStore instance configured with
+As TC-CSV-047 to TC-CSV-051 and TC-CSV-057 (in this order), with a RowStore instance configured with
 `legacyparser: true`.
 
 Unit tests (`DatasetUtilBinaryDataTest`, without IDs) cover the gzip and zip signatures, the control characters

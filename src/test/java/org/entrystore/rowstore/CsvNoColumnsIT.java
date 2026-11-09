@@ -55,7 +55,7 @@ class CsvNoColumnsIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("TC-CSV-NEW1: A replace whose header contains a control character fails and keeps the previous data")
+    @DisplayName("TC-CSV-057: A replace whose header contains a control character fails and keeps the previous data")
     void replaceWithControlCharacterInHeader_failsAndKeepsPreviousData() {
         testCases().replaceWithControlCharacterInHeader_failsAndKeepsPreviousData();
     }

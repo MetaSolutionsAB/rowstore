@@ -226,7 +226,7 @@ less than 4096 bytes.
 3. No dataset was created; the existing dataset is AVAILABLE with its previous row count
 4. `PUT /dataset/{id}` with a compressed CSV whose decoded size is below the limit → `202`, then AVAILABLE
 
-### TC-ENCODING-NEW1: An alias body larger than 1 MiB is rejected with 413, also when compressed
+### TC-ENCODING-010: An alias body larger than 1 MiB is rejected with 413, also when compressed
 
 Spec: API-3.09, API-3.17.
 1. `PUT /dataset/{id}/aliases` with a body of exactly 1 MiB (1048576 bytes): `["bigalias"` padded with spaces and

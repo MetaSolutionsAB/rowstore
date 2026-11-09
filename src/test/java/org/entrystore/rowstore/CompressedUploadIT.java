@@ -168,7 +168,7 @@ class CompressedUploadIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("TC-ENCODING-NEW1: An alias body larger than 1 MiB is rejected with 413, also when compressed")
+    @DisplayName("TC-ENCODING-010: An alias body larger than 1 MiB is rejected with 413, also when compressed")
     void largeAliasBody_isRejectedWith413() throws IOException {
         DatasetUrls urls = createDatasetAndWait(CSV);
         try {
