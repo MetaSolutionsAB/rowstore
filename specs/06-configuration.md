@@ -56,7 +56,7 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-3.08** [REMOVED] `exportpagesize` — Was never used by the export implementation. The key is ignored if present.
 
-> **CFG-3.09** `maxuploadsize` (long, default `104857600`) — Maximum CSV upload size in bytes (default 100 MB). Uploads exceeding this limit are rejected. Must be greater than 0; there is no setting for unlimited uploads (RowStore 1.x had no limit), so set a large value instead. See [SEC-4.09](07-security.md#sec-4-input-validation).
+> **CFG-3.09** `maxuploadsize` (long, default `104857600`) — Maximum CSV upload size in bytes (default 100 MB), measured after decoding a `Content-Encoding` ([ETL-9.02](04-etl-pipeline.md#etl-9-temp-file-lifecycle)). Uploads exceeding this limit are rejected. Must be greater than 0; there is no setting for unlimited uploads (RowStore 1.x had no limit), so set a large value instead. See [SEC-4.09](07-security.md#sec-4-input-validation).
 
 > **CFG-3.10** `cors.allowedorigins` (JSON array, default `["*"]`) — List of allowed origins for CORS. When set to `["*"]`, all origins are permitted. See [SEC-6.01](07-security.md#sec-6-cors).
 

@@ -49,6 +49,10 @@ public class DatasetUtil {
 
 	static Logger log = LoggerFactory.getLogger(DatasetUtil.class);
 
+	private static final byte[] GZIP_SIGNATURE = {0x1f, (byte) 0x8b};
+
+	private static final byte[] ZIP_SIGNATURE = {0x50, 0x4b, 0x03, 0x04};
+
 	public static String buildDatasetURL(String baseURL, String datasetId) {
 		if (baseURL == null || datasetId == null) {
 			throw new IllegalArgumentException("Arguments must not be null");
@@ -70,10 +74,18 @@ public class DatasetUtil {
 		Path tmpPath = Files.createTempFile(RowStoreApplication.NAME, ".csv");
 		tmpPath.toFile().deleteOnExit();
 		log.info("Writing request body to temporary file at " + tmpPath);
-		if (maxSize > 0) {
-			Files.copy(new BoundedInputStream(inputStream, maxSize), tmpPath, StandardCopyOption.REPLACE_EXISTING);
-		} else {
-			Files.copy(inputStream, tmpPath, StandardCopyOption.REPLACE_EXISTING);
+		try {
+			if (maxSize > 0) {
+				// limits the bytes as read by the controller, i.e., after decoding a Content-Encoding (API-3.17)
+				Files.copy(new BoundedInputStream(inputStream, maxSize), tmpPath, StandardCopyOption.REPLACE_EXISTING);
+			} else {
+				Files.copy(inputStream, tmpPath, StandardCopyOption.REPLACE_EXISTING);
+			}
+		} catch (Throwable t) {
+			// e.g., the upload is too large or its compressed data is corrupt, or a decoder failed with an error such
+			// as a StackOverflowError: the caller gets no file to delete
+			Files.deleteIfExists(tmpPath);
+			throw t;
 		}
 		return tmpPath.toFile();
 	}
@@ -84,12 +96,15 @@ public class DatasetUtil {
 		}
 	}
 
-	private static class BoundedInputStream extends InputStream {
+	/**
+	 * A stream that throws a {@link PayloadTooLargeException} when more than a maximum number of bytes are read.
+	 */
+	public static class BoundedInputStream extends InputStream {
 		private final InputStream delegate;
 		private final long maxSize;
 		private long bytesRead = 0;
 
-		BoundedInputStream(InputStream delegate, long maxSize) {
+		public BoundedInputStream(InputStream delegate, long maxSize) {
 			this.delegate = delegate;
 			this.maxSize = maxSize;
 		}
@@ -163,10 +178,9 @@ public class DatasetUtil {
 	public static Charset detectCharset(File f) throws IOException {
 		byte[] data;
 		try (InputStream is = Files.newInputStream(f.toPath())) {
-			byte[] tmpData = new byte[524288]; // we try to read up to 512 kB
-			int byteCount = is.read(tmpData);
-			data = Arrays.copyOf(tmpData, byteCount);
-			log.debug("Read " + byteCount + " bytes from " + f.getAbsolutePath() + " to detect charset");
+			// up to 512 kB; an empty file yields no bytes (and the fallback UTF-8)
+			data = is.readNBytes(524288);
+			log.debug("Read " + data.length + " bytes from " + f.getAbsolutePath() + " to detect charset");
 		}
 
 		UniversalDetector detector = new UniversalDetector(null);
@@ -193,6 +207,27 @@ public class DatasetUtil {
 		}
 
 		return Charset.forName(name);
+	}
+
+	/**
+	 * @return Returns true if the file starts with the signature of gzip data ({@code 1f 8b}) or of a zip archive
+	 * ({@code 50 4b 03 04}), e.g., a compressed upload sent without Content-Encoding (ETL-4.10).
+	 */
+	public static boolean isCompressed(File f) throws IOException {
+		byte[] start;
+		try (InputStream is = Files.newInputStream(f.toPath())) {
+			start = is.readNBytes(4);
+		}
+		return Arrays.equals(start, 0, Math.min(start.length, 2), GZIP_SIGNATURE, 0, 2)
+				|| Arrays.equals(start, ZIP_SIGNATURE);
+	}
+
+	/**
+	 * @return Returns true if the string contains a C0 control character other than tab, line feed and carriage
+	 * return, e.g., a NUL, which a CSV header of text does not contain, but one of binary data does (ETL-4.10).
+	 */
+	public static boolean containsControlCharacter(String s) {
+		return s.chars().anyMatch(c -> c < 0x20 && c != '\t' && c != '\n' && c != '\r');
 	}
 
 	/**

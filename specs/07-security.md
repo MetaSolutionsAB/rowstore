@@ -42,7 +42,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 
 > **SEC-4.08** [REMOVED] (2026-10-23) **ReDoS protection**: regex filter values were validated by `DatasetUtil.isSafeRegex()`, which rejected patterns longer than 200 characters or matching supposedly dangerous constructs with 400. The check rejected common regular expressions (e.g. `^(B|C)(o|e)*`) and, in full mode, long literal values detected as regex (e.g. URLs) that 1.x accepted, while PostgreSQL's regex engine is not susceptible to catastrophic backtracking. The run time of queries is limited by `querytimeout` only if it is configured (default: no limit, ROWS-118), see [QUERY-4.05](05-querying.md#query-4-regex-modes) (ROWS-153).
 
-> **SEC-4.09** **Upload size limit**: CSV uploads are limited to `maxuploadsize` bytes (default 100 MB, configurable). Uploads exceeding this limit are rejected.
+> **SEC-4.09** **Upload size limit**: CSV uploads are limited to `maxuploadsize` bytes (default 100 MB, configurable), measured after decoding a `Content-Encoding`, which also limits decompression bombs ([ETL-9.02](04-etl-pipeline.md#etl-9-temp-file-lifecycle)); the limit applies to the input of each decoder as well, and at most two compressions may be stacked ([API-3.17](03-api.md#api-3-endpoint-catalog)). Uploads exceeding this limit are rejected. Alias bodies are limited to 1 MiB after decoding ([API-3.09](03-api.md#api-3-endpoint-catalog)).
 
 > **SEC-4.10** **Alias row locking**: Alias mutation operations (PUT, POST, DELETE) use `SELECT ... FOR UPDATE` on the dataset row to prevent concurrent modification and ensure consistency.
 
@@ -112,7 +112,7 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 - [Configuration](06-configuration.md#cfg-6-rate-limit-configuration) — Rate limit configuration options
 - [Glossary](12-glossary.md#glo-1-terms) — Rate Limit (Average), Rate Limit (Sliding Window), CORS
 - [README Security section](../README.md#security) — Reverse proxy requirements and nginx example
-- Source: `PathParameterFilter.java`, `ParameterParsingFilter.java`, `TunnelFilter.java`, `RateLimitFilter.java`, `TrustedProxyFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
+- Source: `PathParameterFilter.java`, `ParameterParsingFilter.java`, `TunnelFilter.java`, `RateLimitFilter.java`, `RequestDecodingFilter.java`, `TrustedProxyFilter.java`, `CorsConfig.java`, `DatasetController.java`, `AliasController.java`, `PgDataset.java`, `DatasetUtil.java`
 
 ## Change Log
 
@@ -129,3 +129,4 @@ Covers all security-related aspects of the current system. This is a cross-cutti
 | 2026-10-23 | Added SEC-6.02 (403 for origins that are not listed, ROWS-168) |
 | 2026-11-05 | SEC-6.02: body of the 403, forwarding headers not evaluated (ROWS-168) |
 | 2026-11-05 | SEC-9.05: method tunnel only for requests without Origin or from the origin of `baseurl` or a listed CORS origin, otherwise 403 (CSRF, ROWS-158); SEC-4.08 note: `querytimeout` has no default |
+| 2026-11-09 | SEC-4.09: `maxuploadsize` also limits the input of each decoder, at most two stacked compressions, alias bodies limited to 1 MiB (ROWS-173) |

@@ -19,8 +19,10 @@ package org.entrystore.rowstore.resources;
 import jakarta.servlet.http.HttpServletRequest;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
+import org.entrystore.rowstore.util.DatasetUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -46,6 +48,11 @@ public class AliasController {
 	private static final TypeReference<Set<String>> ALIASES = new TypeReference<>() {
 	};
 
+	/**
+	 * The maximum size of the body of an alias update in bytes, after decoding a Content-Encoding (API-3.09).
+	 */
+	static final int MAX_BODY_SIZE = 1024 * 1024;
+
 	private final RowStore rowStore;
 
 	private final ObjectMapper objectMapper;
@@ -67,7 +74,13 @@ public class AliasController {
 
 	@PutMapping
 	public ResponseEntity<Void> setAliases(@PathVariable("id") String id, HttpServletRequest request) {
-		Set<String> aliases = readAliases(request);
+		Set<String> aliases;
+		try {
+			aliases = readAliases(request);
+		} catch (DatasetUtil.PayloadTooLargeException e) {
+			log.info(e.getMessage());
+			return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).build();
+		}
 		if (aliases == null) {
 			return ResponseEntity.badRequest().build();
 		}
@@ -90,7 +103,13 @@ public class AliasController {
 
 	@PostMapping
 	public ResponseEntity<Void> addAliases(@PathVariable("id") String id, HttpServletRequest request) {
-		Set<String> newAliases = readAliases(request);
+		Set<String> newAliases;
+		try {
+			newAliases = readAliases(request);
+		} catch (DatasetUtil.PayloadTooLargeException e) {
+			log.info(e.getMessage());
+			return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).build();
+		}
 		if (newAliases == null) {
 			return ResponseEntity.badRequest().build();
 		}
@@ -127,13 +146,22 @@ public class AliasController {
 	/**
 	 * Reads the aliases from the request body, a JSON array, regardless of the Content-Type, as in 1.x (API-3.09):
 	 * e.g., fetch() sends text/plain and jQuery application/x-www-form-urlencoded by default. The body is read from
-	 * the input stream, since the parameters of a form POST would consume it.
+	 * the input stream, since the parameters of a form POST would consume it. At most {@link #MAX_BODY_SIZE} bytes
+	 * are read, so that a compressed body cannot exhaust the memory.
 	 *
 	 * @return Returns the aliases, or null if the body is not a JSON array.
+	 * @throws DatasetUtil.PayloadTooLargeException If the body is larger than {@link #MAX_BODY_SIZE} bytes, or the
+	 *                                              compressed body is larger than {@code maxuploadsize} (API-3.17).
 	 */
-	private Set<String> readAliases(HttpServletRequest request) {
+	private Set<String> readAliases(HttpServletRequest request) throws DatasetUtil.PayloadTooLargeException {
 		try {
-			return objectMapper.readValue(request.getInputStream().readAllBytes(), ALIASES);
+			byte[] body = request.getInputStream().readNBytes(MAX_BODY_SIZE + 1);
+			if (body.length > MAX_BODY_SIZE) {
+				throw new DatasetUtil.PayloadTooLargeException(MAX_BODY_SIZE);
+			}
+			return objectMapper.readValue(body, ALIASES);
+		} catch (DatasetUtil.PayloadTooLargeException e) {
+			throw e;
 		} catch (IOException | JacksonException e) {
 			log.info("Unable to read aliases from request body: {}", e.getMessage());
 			return null;

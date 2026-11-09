@@ -65,10 +65,11 @@ Covers the system from a structural and architectural perspective. For detailed 
 >           → TrustedProxyFilter (client address from X-Forwarded-For if the peer is a trusted proxy, by default any peer)
 >             → TunnelFilter (media parameter replaces Accept, method tunnel of POST requests, API-4.05, API-4.06)
 >               → RateLimitFilter (optional, if configured)
->                 → DispatcherServlet
->                   → Controller handler method
+>                 → RequestDecodingFilter (decodes request bodies by Content-Encoding, 415 for unsupported codings, API-3.17)
+>                   → DispatcherServlet
+>                     → Controller handler method
 > ```
-> The `RateLimitFilter` is only active when rate limiting is enabled (timerange > 0 AND (global > 0 OR dataset > 0)). `CorsFilter` runs before it, so `429` responses carry CORS headers. There is no authentication filter; authentication is done by the reverse proxy ([SEC-9](07-security.md#sec-9-reverse-proxy-contract)).
+> The `RateLimitFilter` is only active when rate limiting is enabled (timerange > 0 AND (global > 0 OR dataset > 0)). `CorsFilter` runs before it, so `429` responses carry CORS headers. `RequestDecodingFilter` runs after both, so that its `415` responses carry CORS headers and requests rejected by the rate limit are not inspected; it only wraps the request, the body is decoded while the controllers read it. There is no authentication filter; authentication is done by the reverse proxy ([SEC-9](07-security.md#sec-9-reverse-proxy-contract)).
 
 > **ARCH-5.02** Read path (query): `GET /dataset/{id}?col=value` → `DatasetController` → `PgDataset.query()` → PostgreSQL prepared statement → JSON response with pagination envelope.
 
@@ -159,3 +160,4 @@ Covers the system from a structural and architectural perspective. For detailed 
 | 2026-11-05 | ARCH-7.03: requests blocked by a long lock on one dataset can use up the query connections if they arrive faster than the lock timeout releases them (ROWS-168) |
 | 2026-11-05 | ARCH-7.03: condition under which requests behind a swap lock attempt succeed, startup warning otherwise; ARCH-7.08: the first SQL state decides which failures are retried, also behind a connection pool |
 | 2026-11-09 | ARCH-3.01: Spring Boot 4.1.2 (ROWS-143) |
+| 2026-11-09 | ARCH-5.01: RequestDecodingFilter added (ROWS-173) |

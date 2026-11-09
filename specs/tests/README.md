@@ -59,8 +59,9 @@ Tests are organized into profiles based on server configuration:
 | `regex-disabled` | `regexpqueries=disabled` | Regex disabled mode (TC-REGEX-DIS-*) |
 | `regex-simple` | `regexpqueries=simple` | Simple regex mode (TC-REGEX-SIM-*) |
 | `ratelimit` | Rate limiting enabled | Rate limit tests (09-rate-limiting.md) |
-| `legacy-parser` | `legacyparser=true` | CSV tests repeated with the legacy parser (TC-CSV-017 to TC-CSV-022, TC-CSV-030 to TC-CSV-036, TC-CSV-044 to TC-CSV-046) |
+| `legacy-parser` | `legacyparser=true` | CSV tests repeated with the legacy parser (TC-CSV-017 to TC-CSV-022, TC-CSV-030 to TC-CSV-036, TC-CSV-044 to TC-CSV-046, TC-CSV-052 to TC-CSV-056) |
 | `cors-restricted` | `cors.allowedorigins=["https://app.example.com"]` | Restricted origins (TC-CORS-008 to TC-CORS-012) |
+| `upload-size-limit` | `maxuploadsize=4096` | Upload size limit after decoding (TC-ENCODING-007) |
 | `connection-pool` | `connectionPoolMax=3`, separate `queryDatabase` | HikariCP pools (TC-POOL-*, TC-EXPORT-014) |
 | Connection limits | small `maxQueryConnections`, `maxExportConnections`, `maxetlprocesses` and wait timeouts | Connection budgets (integration test cases of 12-connection-limits.md) |
 | Unit tests | none (no server, no Docker) | `*Test.java` classes, e.g. TC-CFG-*, TC-DS-*, TC-CSV-037 to TC-CSV-040 and the unit test cases of 11-etl-processing.md and 12-connection-limits.md |

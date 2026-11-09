@@ -240,6 +240,9 @@ public class ConfigurableTestEnvironment {
             jsonConfig.put("querytimeout", config.queryTimeout);
             jsonConfig.put("querymaxlimit", config.queryMaxLimit);
             jsonConfig.put("legacyparser", config.legacyParser);
+            if (config.maxUploadSize > 0) {
+                jsonConfig.put("maxuploadsize", config.maxUploadSize);
+            }
             jsonConfig.put("loglevel", "INFO");
 
             // Rate limiting configuration
@@ -356,6 +359,7 @@ public class ConfigurableTestEnvironment {
         private final boolean separateQueryDatabase;
         private final List<String> trustedProxies;
         private final List<String> allowedOrigins;
+        private final long maxUploadSize;
 
         private Configuration(Builder builder) {
             this.regexpQueries = builder.regexpQueries;
@@ -378,6 +382,7 @@ public class ConfigurableTestEnvironment {
             this.separateQueryDatabase = builder.separateQueryDatabase;
             this.trustedProxies = builder.trustedProxies;
             this.allowedOrigins = builder.allowedOrigins;
+            this.maxUploadSize = builder.maxUploadSize;
         }
 
         public String getRegexpQueries() {
@@ -397,11 +402,11 @@ public class ConfigurableTestEnvironment {
          */
         public String getCacheKey() {
             return String.format("regexp=%s,rateLimit=%b,timeRange=%d,global=%d,dataset=%d,clientIp=%d,type=%s,poolMax=%d,legacyParser=%b," +
-                            "socketTimeout=%d,queryDb=%b,trustedProxies=%s,allowedOrigins=%s," +
+                            "socketTimeout=%d,queryDb=%b,trustedProxies=%s,allowedOrigins=%s,maxUploadSize=%d," +
                             "maxEtl=%d,maxQueryConnections=%d,maxExportConnections=%d,connectionWaitTimeout=%d,queryDatabasePort=%d",
                     regexpQueries, rateLimitEnabled, rateLimitTimeRange,
                     rateLimitRequestsGlobal, rateLimitRequestsDataset, rateLimitRequestsClientIp, rateLimitType,
-                    connectionPoolMax, legacyParser, socketTimeout, separateQueryDatabase, trustedProxies, allowedOrigins,
+                    connectionPoolMax, legacyParser, socketTimeout, separateQueryDatabase, trustedProxies, allowedOrigins, maxUploadSize,
                     maxEtlProcesses, maxQueryConnections, maxExportConnections, connectionWaitTimeout, queryDatabasePort);
         }
 
@@ -435,6 +440,7 @@ public class ConfigurableTestEnvironment {
         private boolean separateQueryDatabase = false;
         private List<String> trustedProxies = null;
         private List<String> allowedOrigins = null;
+        private long maxUploadSize = -1;
 
         public Builder regexpQueries(String regexpQueries) {
             this.regexpQueries = regexpQueries;
@@ -545,6 +551,14 @@ public class ConfigurableTestEnvironment {
          */
         public Builder allowedOrigins(List<String> allowedOrigins) {
             this.allowedOrigins = allowedOrigins;
+            return this;
+        }
+
+        /**
+         * Sets "maxuploadsize" in bytes; -1 (the default) omits the key so that the built-in default applies.
+         */
+        public Builder maxUploadSize(long maxUploadSize) {
+            this.maxUploadSize = maxUploadSize;
             return this;
         }
 

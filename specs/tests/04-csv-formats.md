@@ -311,6 +311,61 @@ As TC-CSV-011 to TC-CSV-016 (in this order), with a RowStore instance configured
 results must be the same as with the default parser; in particular, a quoted empty value (TC-CSV-022) must not be
 taken for an empty line, although the legacy parser returns the same record for both.
 
+## CSV Without Columns
+
+ETL-4.10 (ROWS-180). TC-CSV-047 to TC-CSV-051 and TC-CSV-057 run with the default parser (`CsvNoColumnsIT`),
+TC-CSV-052 to TC-CSV-056 and TC-CSV-058 repeat them in the same order with `legacyparser: true`
+(`CsvNoColumnsLegacyParserIT`). The datasets of TC-CSV-047 to TC-CSV-049, TC-CSV-051 and TC-CSV-057 are created
+from `name,value\nA1,1\nA2,2\n`; "the previous data" means status ERROR (4) with `rowcount` 2, the `columnnames`
+`name`, `value` and exactly the rows `{name: A1, value: 1}`, `{name: A2, value: 2}`.
+
+### TC-CSV-047: A replace without a header line fails and keeps the previous data
+
+1. `PUT /dataset/{id}` with the body `\n` → `202`
+2. The status becomes ERROR (4) and the dataset keeps the previous data
+
+### TC-CSV-048: A replace with a gzip or zip body sent without Content-Encoding fails and keeps the previous data
+
+For each body, without `Content-Encoding`: `dataset1_utf8.csv` compressed with gzip (before ROWS-180, it ended as
+AVAILABLE with 0 rows and 0 columns), `name,value\nC1,3\n` compressed with gzip (its header yielded a label, so it
+ended as AVAILABLE with 0 rows), and `name,value\nA1,1\nA2,2\n` as a zip archive:
+1. `PUT /dataset/{id}` → `202`
+2. The status becomes ERROR (4) and the dataset keeps the previous data
+
+### TC-CSV-049: An append without columns fails and adds nothing
+
+1. `POST /dataset/{id}` with the body `\n` → `202`; the status becomes ERROR (4) and the dataset keeps the previous data
+2. The same with `dataset1_utf8.csv` compressed with gzip
+
+### TC-CSV-050: A new dataset whose header has no label fails
+
+For each body `,,,\n`, `,,\n1,2,3\n`, ` \n` (a single space), `\n\n` and a UTF-8 byte order mark only (1.7: AVAILABLE
+with a column named U+FEFF):
+1. `POST /datasets` → `202`
+2. The status becomes ERROR (4), with `rowcount` 0 and no column names
+
+### TC-CSV-051: A header-only CSV with column names is available with 0 rows
+
+1. `PUT /dataset/{id}` with `name,value\n` → `202`; the status becomes AVAILABLE (3) with `rowcount` 0, and queries
+   return no rows
+2. `POST /dataset/{id}` with `name,value\nB1,1\n` → `202`; the status becomes AVAILABLE (3) with `rowcount` 1 and the
+   `columnnames` `name`, `value`
+
+### TC-CSV-057: A replace whose header contains a control character fails and keeps the previous data
+
+For each body `na<NUL>me,value\n` (U+0000, header only) and `name,value<ESC>\nB1,1\n` (U+001B):
+1. `PUT /dataset/{id}` → `202`
+2. The status becomes ERROR (4) and the dataset keeps the previous data
+
+### TC-CSV-052 to TC-CSV-056, TC-CSV-058: Datasets without columns with the legacy parser
+
+As TC-CSV-047 to TC-CSV-051 and TC-CSV-057 (in this order), with a RowStore instance configured with
+`legacyparser: true`.
+
+Unit tests (`DatasetUtilBinaryDataTest`, without IDs) cover the gzip and zip signatures, the control characters
+(tab, CR, LF and C1 control characters are allowed), and headers without control characters for UTF-16 with byte
+order mark, UTF-16 without byte order mark (ASCII text), Windows-1252 and ISO-8859-1.
+
 ## Byte Order Mark and Soft Hyphen Tests
 
 `<BOM>` denotes U+FEFF (in UTF-8 the bytes `EF BB BF`), `<SHY>` a soft hyphen U+00AD, and `\n` a line break. See
