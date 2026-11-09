@@ -47,7 +47,7 @@ class CsvNoColumnsLegacyParserIT extends ConfigurableTestBase {
     }
 
     @Test
-    @DisplayName("TC-CSV-053: Legacy parser: a replace with a gzip body sent without Content-Encoding fails and keeps the previous data")
+    @DisplayName("TC-CSV-053: Legacy parser: a replace with a gzip or zip body sent without Content-Encoding fails and keeps the previous data")
     void replaceWithUndecodedGzip_failsAndKeepsPreviousData() {
         testCases().replaceWithUndecodedGzip_failsAndKeepsPreviousData();
     }
@@ -62,6 +62,12 @@ class CsvNoColumnsLegacyParserIT extends ConfigurableTestBase {
     @DisplayName("TC-CSV-055: Legacy parser: a new dataset whose header has no label fails")
     void headerWithoutLabel_fails() {
         testCases().headerWithoutLabel_fails();
+    }
+
+    @Test
+    @DisplayName("TC-CSV-NEW2: Legacy parser: a replace whose header contains a control character fails and keeps the previous data")
+    void replaceWithControlCharacterInHeader_failsAndKeepsPreviousData() {
+        testCases().replaceWithControlCharacterInHeader_failsAndKeepsPreviousData();
     }
 
     @Test

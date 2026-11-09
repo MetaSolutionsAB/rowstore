@@ -55,11 +55,24 @@ final class CsvNoColumnsTestCases {
     }
 
     /**
-     * A compressed body sent without Content-Encoding is not decoded and yields no columns, which fails the replace;
-     * before ROWS-180, the gzip-compressed dataset1_utf8.csv emptied the dataset (AVAILABLE with 0 rows, 0 columns).
+     * A compressed body sent without Content-Encoding is not decoded and fails the replace; before ROWS-180, the
+     * gzip-compressed dataset1_utf8.csv emptied the dataset (AVAILABLE with 0 rows, 0 columns), and so did the
+     * gzip-compressed one-row CSV, whose header yielded a label.
      */
     void replaceWithUndecodedGzip_failsAndKeepsPreviousData() {
-        replace_failsAndKeepsPreviousData(gzippedDataset1());
+        for (byte[] body : List.of(gzippedDataset1(), encode(bytes("name,value\nC1,3\n"), "gzip"), encode(CSV, "zip"))) {
+            replace_failsAndKeepsPreviousData(body);
+        }
+    }
+
+    /**
+     * A header with a control character other than tab, CR and LF (e.g., a NUL) indicates binary data and fails the
+     * replace, also if no rows follow.
+     */
+    void replaceWithControlCharacterInHeader_failsAndKeepsPreviousData() {
+        for (String csv : List.of("na\u0000me,value\n", "name,value\u001b\nB1,1\n")) {
+            replace_failsAndKeepsPreviousData(bytes(csv));
+        }
     }
 
     void appendWithoutColumns_failsAndAddsNothing() {
@@ -79,7 +92,8 @@ final class CsvNoColumnsTestCases {
      * A new dataset whose header has no label (empty labels only, whitespace only, or empty lines only) fails.
      */
     void headerWithoutLabel_fails() {
-        for (String csv : List.of(",,,\n", ",,\n1,2,3\n", " \n", "\n\n")) {
+        // the last body is a byte order mark only, which 1.7 loaded as a column named U+FEFF
+        for (String csv : List.of(",,,\n", ",,\n1,2,3\n", " \n", "\n\n", "\uFEFF")) {
             Response response = TestUtils.createDataset(bytes(csv), csvSpec);
             response.then().statusCode(202);
             try {
@@ -143,8 +157,12 @@ final class CsvNoColumnsTestCases {
     }
 
     private static byte[] gzippedDataset1() {
+        return encode(TestUtils.loadTestData("dataset1_utf8.csv", CsvNoColumnsTestCases.class), "gzip");
+    }
+
+    private static byte[] encode(byte[] data, String coding) {
         try {
-            return ContentCodings.encode(TestUtils.loadTestData("dataset1_utf8.csv", CsvNoColumnsTestCases.class), "gzip");
+            return ContentCodings.encode(data, coding);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
