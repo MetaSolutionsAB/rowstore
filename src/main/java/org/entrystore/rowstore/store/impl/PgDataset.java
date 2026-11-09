@@ -321,7 +321,9 @@ public class PgDataset implements Dataset {
 			Integer count = rowstore.getLoadJdbcTemplate().queryForObject(
 					"SELECT COUNT(*) FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ?::uuid", Integer.class, id);
 			if (count == null || count == 0) {
-				log.info("Dataset {} does not exist anymore, skipping its load", getId());
+				// e.g., deleted between the acceptance of the upload and its load; the load must not touch any table,
+				// since the data table is dropped or about to be dropped (ETL-12.04)
+				log.error("Dataset {} does not exist anymore, discarding its upload", getId());
 				return false;
 			}
 			log.warn("Dataset {} is already in status {}({}) without an active load, taking it over",
@@ -1092,6 +1094,69 @@ public class PgDataset implements Dataset {
 	}
 
 	/**
+	 * Drops the data table and the shadow table (if any) of a dataset whose row in the datasets table has been deleted
+	 * (ETL-12.01). Runs as a job of the dataset (EtlProcessor#runExclusively) on the load budget, so it never runs
+	 * concurrently with a load of the dataset and holds no query connection. The data table is locked like for a
+	 * replace ({@link #lockDataTableForReplace(Connection)}): readers that are still running, e.g., an export that
+	 * started before the deletion, finish first, and while it waits, queries of the data table are blocked for at most
+	 * one short attempt at a time. A table that is still referenced by a row in the datasets table is never dropped.
+	 * Failures are logged at ERROR level and not thrown; the startup drops what is left (ETL-12.03).
+	 *
+	 * @return Returns true if the tables were dropped or did not exist, false otherwise.
+	 */
+	public boolean dropTablesOfDeletedDataset() {
+		long before = System.currentTimeMillis();
+		String shadowTable = PgDatasets.shadowTableName(dataTable);
+		try (Connection conn = rowstore.getLoadConnection()) {
+			conn.setAutoCommit(false);
+			try {
+				boolean exists;
+				try (PreparedStatement ps = conn.prepareStatement("SELECT to_regclass(?) IS NOT NULL")) {
+					ps.setString(1, dataTable);
+					try (ResultSet rs = ps.executeQuery()) {
+						exists = rs.next() && rs.getBoolean(1);
+					}
+				}
+				if (exists && !lockDataTable(conn, "drop it")) {
+					conn.rollback();
+					log.error("Data table {} of deleted dataset {} was not dropped, it will be dropped at the next start", dataTable, getId());
+					return false;
+				}
+				// a safeguard: the data table of an existing dataset must never be dropped
+				try (PreparedStatement ps = conn.prepareStatement("SELECT 1 FROM " + PgDatasets.DATASETS_TABLE_NAME +
+						" WHERE trim(data_table) = ?")) {
+					ps.setString(1, dataTable);
+					try (ResultSet rs = ps.executeQuery()) {
+						if (rs.next()) {
+							conn.rollback();
+							log.error("Not dropping data table {}, it belongs to a dataset in the datasets table", dataTable);
+							return false;
+						}
+					}
+				}
+				try (Statement stmt = conn.createStatement()) {
+					executeDdl(stmt, "DROP TABLE IF EXISTS " + shadowTable);
+					executeDdl(stmt, "DROP TABLE IF EXISTS " + dataTable);
+				}
+				conn.commit();
+			} catch (SQLException | RuntimeException e) {
+				try {
+					conn.rollback();
+				} catch (SQLException e1) {
+					e.addSuppressed(e1);
+				}
+				throw e;
+			}
+			log.info("Dropped data table {} of deleted dataset {} in {} ms", dataTable, getId(), System.currentTimeMillis() - before);
+			return true;
+		} catch (SQLException | RuntimeException e) {
+			log.error("Unable to drop data table {} of deleted dataset {}, it will be dropped at the next start: {}",
+					dataTable, getId(), e.getMessage(), e);
+			return false;
+		}
+	}
+
+	/**
 	 * @return Returns the delay after the given (0-based) attempt to lock the data table: the configured delays first,
 	 * then the last of them doubled per further attempt, at most {@link #maxSwapRetryDelayMillis}.
 	 */
@@ -1462,7 +1527,14 @@ public class PgDataset implements Dataset {
 			// Acquire row-level lock to serialize concurrent alias modifications
 			try (PreparedStatement lockStmt = conn.prepareStatement("SELECT 1 FROM " + PgDatasets.DATASETS_TABLE_NAME + " WHERE id = ? FOR UPDATE")) {
 				lockStmt.setObject(1, uuid);
-				lockStmt.executeQuery();
+				try (ResultSet rs = lockStmt.executeQuery()) {
+					if (!rs.next()) {
+						// deleted after it was looked up; its aliases must not outlive it (DOM-2.04)
+						log.info("Dataset {} does not exist anymore, not setting its aliases", getId());
+						conn.rollback();
+						return false;
+					}
+				}
 			}
 
 			// all reads use this connection, since a request must not hold more than one connection at a time (ARCH-7.04)

@@ -178,6 +178,7 @@ public class PgRowStore implements RowStore {
 		runStartupMaintenance(startupRetry, "check the version of the database", this::checkServerVersion);
 		runStartupMaintenance(startupRetry, "reset datasets with interrupted loads or lost uploads", this::resetInterruptedLoadsOrThrow);
 		runStartupMaintenance(startupRetry, "drop leftover shadow tables", this::dropLeftoverShadowTablesOrThrow);
+		runStartupMaintenance(startupRetry, "drop leftover data tables of deleted datasets", this::dropLeftoverDataTablesOrThrow);
 		log.info("Started RowStore {}", versionInfo.getVersion());
 	}
 
@@ -404,6 +405,56 @@ public class PgRowStore implements RowStore {
 		}
 		if (!dropped.isEmpty()) {
 			log.warn("Dropped {} leftover shadow table(s): {}", dropped.size(), dropped);
+		}
+		return dropped;
+	}
+
+	/**
+	 * Drops data tables of deleted datasets (ETL-12.03): tables in the current schema matching
+	 * {@link PgDatasets#DATA_TABLE_PATTERN} that no row of the datasets table references, e.g., because RowStore stopped
+	 * before the background drop after a deletion (ETL-12.01) succeeded. Called at startup, before requests are
+	 * served. A dataset's registry row and its data table are created in one transaction (PgDatasets#createDataset()),
+	 * so the data table of an existing dataset is never without its row. A table that cannot be dropped within
+	 * queryLockTimeout, e.g., because a backup reads it, is skipped until the next startup.
+	 *
+	 * @return Returns the names of the dropped tables.
+	 */
+	public List<String> dropLeftoverDataTables() {
+		try {
+			return dropLeftoverDataTablesOrThrow();
+		} catch (DataAccessException e) {
+			log.error("Unable to drop leftover data tables of deleted datasets: {}", e.getMessage());
+			return List.of();
+		}
+	}
+
+	/**
+	 * Like {@link #dropLeftoverDataTables()}.
+	 *
+	 * @throws DataAccessException If the database could not be accessed.
+	 */
+	private List<String> dropLeftoverDataTablesOrThrow() {
+		List<String> dropped = new ArrayList<>();
+		// data_table is CHAR(37), compared trimmed
+		List<String> tables = jdbcTemplate.queryForList(
+				"SELECT t.tablename::text FROM pg_tables t WHERE t.schemaname = current_schema() AND t.tablename ~ ? " +
+						"AND NOT EXISTS (SELECT 1 FROM " + PgDatasets.DATASETS_TABLE_NAME + " d " +
+						"WHERE trim(d.data_table) = t.tablename::text)",
+				String.class, "^" + PgDatasets.DATA_TABLE_PATTERN + "$");
+		for (String table : tables) {
+			if (!table.matches(PgDatasets.DATA_TABLE_PATTERN)) {
+				continue;
+			}
+			try {
+				jdbcTemplate.execute("DROP TABLE IF EXISTS " + table);
+				dropped.add(table);
+			} catch (TransientDataAccessResourceException e) {
+				// lock or statement timeout
+				log.error("Unable to drop leftover data table {}, it will be dropped at the next start: {}", table, e.getMessage());
+			}
+		}
+		if (!dropped.isEmpty()) {
+			log.warn("Dropped {} leftover data table(s) of deleted datasets: {}", dropped.size(), dropped);
 		}
 		return dropped;
 	}

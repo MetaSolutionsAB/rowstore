@@ -266,6 +266,8 @@ public class DatasetController {
 			}
 			EtlResource etlResource = new EtlResource(dataset, tmpFile, "text/csv", append);
 			rowStore.getEtlProcessor().submit(etlResource);
+			// the ETL job deletes the file from now on
+			accepted = true;
 
 			String datasetURL = DatasetUtil.buildDatasetURL(rowStore.getConfig().getBaseURL(), dataset.getId());
 
@@ -276,11 +278,15 @@ public class DatasetController {
 					datasetURL + "/info"
 			);
 
-			accepted = true;
 			HttpHeaders headers = new HttpHeaders();
 			headers.add(HttpHeaders.LOCATION, datasetURL);
 			headers.add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
 			return new ResponseEntity<>(body, headers, HttpStatus.ACCEPTED);
+		} catch (IllegalStateException e) {
+			// thrown by getStatus() if the dataset was deleted while the upload was received; a load that was
+			// submitted already finds no dataset and is discarded (ETL-12.04)
+			log.info("Dataset {} was deleted while its upload was received", dataset.getId());
+			return ResponseEntity.notFound().build();
 		} finally {
 			if (tmpFile != null && !accepted) {
 				log.info("Deleting temporary file " + tmpFile);
@@ -289,26 +295,25 @@ public class DatasetController {
 		}
 	}
 
+	/**
+	 * Deletes a dataset (API-3.07): 204 without waiting for readers of its data table, which is dropped in the
+	 * background (ETL-12.01), 423 unless its status is AVAILABLE or ERROR, 404 if it does not exist. Database failures
+	 * propagate (503 for connectivity failures and lock or statement timeouts, see DatabaseExceptionHandler).
+	 */
 	@DeleteMapping(value = {"/dataset/{id}", "/dataset/{id}/json"})
 	public ResponseEntity<Void> purgeDataset(@PathVariable("id") String id) {
+		// resolves an alias to the dataset's ID
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {
 			return ResponseEntity.notFound().build();
 		}
 
-		if (dataset.getStatus() != EtlStatus.AVAILABLE && dataset.getStatus() != EtlStatus.ERROR) {
-			return ResponseEntity.status(HttpStatus.LOCKED).build();
-		}
-
-		log.info("Purging dataset " + dataset.getId());
-		boolean successful = rowStore.getDatasets().purgeDataset(dataset.getId());
-		if (successful) {
-			log.info("Dataset " + dataset.getId() + " successfully purged");
-			return ResponseEntity.noContent().build();
-		} else {
-			log.error("An error occurred while purging dataset " + dataset.getId());
-			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-		}
+		// the status is checked by purgeDataset() in the same transaction as the deletion
+		return switch (rowStore.getDatasets().purgeDataset(dataset.getCanonicalId())) {
+			case PURGED -> ResponseEntity.noContent().build();
+			case LOCKED -> ResponseEntity.status(HttpStatus.LOCKED).build();
+			case NOT_FOUND -> ResponseEntity.notFound().build();
+		};
 	}
 
 	private int parseLimit(Map<String, String> parameters) {

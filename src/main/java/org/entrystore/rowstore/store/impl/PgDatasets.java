@@ -25,15 +25,19 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.TransientDataAccessResourceException;
+import org.springframework.jdbc.core.ConnectionCallback;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * A PostgreSQL-specific implementation of the Datasets interface.
@@ -144,49 +148,129 @@ public class PgDatasets implements Datasets {
 	}
 
 	/**
+	 * Deletes the dataset's row in the datasets table and its aliases in one transaction on the query budget of the
+	 * primary database, and then submits a job of the dataset to the ETL processor that drops its data table (see
+	 * {@link PgDataset#dropTablesOfDeletedDataset()}). The transaction takes only row locks, so it does not wait for
+	 * readers of the data table; it waits at most queryLockTimeout for a concurrent change of the dataset's row (e.g.,
+	 * a status change or an alias update), and its statements are limited by querytimeout. The status condition is
+	 * part of the DELETE, so an upload accepted concurrently either sets ACCEPTED_DATA first (LOCKED) or finds no
+	 * dataset anymore (its load is skipped, see PgDataset#populate(java.io.File, boolean)).
+	 *
 	 * @see Datasets#purgeDataset(String)
 	 */
 	@Override
-	public boolean purgeDataset(String id) {
+	public PurgeResult purgeDataset(String id) {
 		if (id == null) {
 			throw new IllegalArgumentException("Dataset ID must not be null");
 		}
 		long before = System.currentTimeMillis();
-		try (Connection conn = getRowStore().getConnection()) {
-			conn.setAutoCommit(false);
-
-			String dataTable = constructDataTableName(id);
-			try (PreparedStatement ps = conn.prepareStatement("DROP TABLE IF EXISTS " + shadowTableName(dataTable))) {
-				log.debug("Executing: " + ps);
-				ps.execute();
+		try {
+			// lock and statement timeouts are translated to TransientDataAccessResourceException (503), connection
+			// failures to DataAccessResourceFailureException (503), other failures to other DataAccessExceptions (500)
+			Purge purge = rowstore.getJdbcTemplate().execute((ConnectionCallback<Purge>) conn -> {
+				conn.setAutoCommit(false);
+				try {
+					Purge result = deleteRegistryRows(conn, id);
+					if (result.result() == PurgeResult.PURGED) {
+						conn.commit();
+					} else {
+						conn.rollback();
+					}
+					return result;
+				} catch (SQLException | RuntimeException e) {
+					try {
+						conn.rollback();
+					} catch (SQLException e1) {
+						e.addSuppressed(e1);
+					}
+					throw e;
+				}
+			});
+			if (purge.result() == PurgeResult.PURGED) {
+				log.info("Deleted dataset {} and {} alias(es), its data table {} is dropped in the background",
+						purge.id(), purge.aliases(), purge.dataTable());
+				submitDropOfDataTable(purge.id(), purge.dataTable());
 			}
-
-			try (PreparedStatement ps = conn.prepareStatement("DROP TABLE " + dataTable)) {
-				log.debug("Executing: " + ps);
-				ps.execute();
-			}
-
-			try (PreparedStatement ps = conn.prepareStatement("DELETE FROM " + DATASETS_TABLE_NAME + " WHERE id = ?")) {
-				PGobject uuid = new PGobject();
-				uuid.setType("uuid");
-				uuid.setValue(id);
-				ps.setObject(1, uuid);
-				log.debug("Executing: " + ps);
-				ps.execute();
-			}
-
-			conn.commit();
-			log.info("Purged dataset " + id);
-			return true;
-		} catch (SQLException e) {
-			if (PgRowStore.isTemporarilyUnavailable(e)) {
-				// the data table is in use, e.g., by an export (503, ARCH-7.03)
-				throw new TransientDataAccessResourceException("Data table of dataset " + id + " is locked", e);
-			}
-			log.error(e.getMessage());
-			return false;
+			return purge.result();
 		} finally {
 			log.debug("Purging dataset took {} ms", System.currentTimeMillis() - before);
+		}
+	}
+
+	/**
+	 * Outcome of the deletion of a dataset's registry rows.
+	 *
+	 * @param id The canonical ID of the deleted dataset, null unless PURGED.
+	 * @param dataTable The name of its data table, null unless PURGED.
+	 * @param aliases The number of deleted aliases.
+	 */
+	private record Purge(PurgeResult result, String id, String dataTable, int aliases) {
+	}
+
+	/**
+	 * Deletes the dataset's row in the datasets table if its status is AVAILABLE or ERROR, and its aliases, in the
+	 * caller's transaction. The caller commits only if the result is PURGED.
+	 */
+	private Purge deleteRegistryRows(Connection conn, String id) throws SQLException {
+		String canonicalId;
+		String storedTable;
+		try (PreparedStatement ps = conn.prepareStatement("DELETE FROM " + DATASETS_TABLE_NAME +
+				" WHERE id = ?::uuid AND status IN (?, ?) RETURNING id::text, data_table")) {
+			ps.setString(1, id);
+			ps.setInt(2, EtlStatus.AVAILABLE);
+			ps.setInt(3, EtlStatus.ERROR);
+			log.debug("Executing: " + ps);
+			try (ResultSet rs = ps.executeQuery()) {
+				if (!rs.next()) {
+					canonicalId = null;
+					storedTable = null;
+				} else {
+					canonicalId = rs.getString(1);
+					storedTable = rs.getString(2);
+				}
+			}
+		}
+		if (canonicalId == null) {
+			try (PreparedStatement ps = conn.prepareStatement("SELECT 1 FROM " + DATASETS_TABLE_NAME + " WHERE id = ?::uuid")) {
+				ps.setString(1, id);
+				try (ResultSet rs = ps.executeQuery()) {
+					return new Purge(rs.next() ? PurgeResult.LOCKED : PurgeResult.NOT_FOUND, null, null, 0);
+				}
+			}
+		}
+		int aliases;
+		try (PreparedStatement ps = conn.prepareStatement("DELETE FROM " + ALIAS_TABLE_NAME + " WHERE dataset_id = ?::uuid")) {
+			ps.setString(1, canonicalId);
+			log.debug("Executing: " + ps);
+			aliases = ps.executeUpdate();
+		}
+		String dataTable = storedTable != null ? storedTable.trim() : null;
+		if (dataTable == null || !dataTable.matches(DATA_TABLE_PATTERN)) {
+			// a corrupt row (API-6.06); the table named after the ID is the only one the dataset can have had
+			dataTable = constructDataTableName(canonicalId);
+			log.error("Dataset {} has an invalid data table name in the datasets table, dropping {} instead", canonicalId, dataTable);
+		}
+		return new Purge(PurgeResult.PURGED, canonicalId, dataTable, aliases);
+	}
+
+	/**
+	 * Submits the drop of the data table of a deleted dataset as a job of the dataset (ETL-12.01), so that it runs
+	 * after the dataset's earlier jobs and never concurrently with one of them. If the job cannot run because RowStore
+	 * is shutting down, the table is dropped at the next startup (ETL-12.03).
+	 */
+	private void submitDropOfDataTable(String id, String dataTable) {
+		PgDataset dataset = new PgDataset(rowstore, id, EtlStatus.ERROR, null, dataTable);
+		try {
+			rowstore.getEtlProcessor().runExclusively(dataset, dataset::dropTablesOfDeletedDataset)
+					.whenComplete((result, e) -> {
+						if (e instanceof CancellationException) {
+							log.error("Data table {} of deleted dataset {} was not dropped, RowStore is shutting down; " +
+									"it will be dropped at the next start", dataTable, id);
+						}
+					});
+		} catch (RejectedExecutionException e) {
+			log.error("Unable to drop data table {} of deleted dataset {}, RowStore is shutting down; it will be " +
+					"dropped at the next start", dataTable, id);
 		}
 	}
 

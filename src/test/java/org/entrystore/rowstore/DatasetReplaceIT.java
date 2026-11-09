@@ -304,8 +304,11 @@ class DatasetReplaceIT extends BaseIntegrationTest {
 
             deleteDatasetAndVerify(urls.datasetUrl);
 
-            assertThat(tableExists(db, shadowTable)).isFalse();
-            assertThat(tableExists(db, dataTable(urls))).isFalse();
+            // the tables are dropped in the background after the deletion (ETL-12.01)
+            await().atMost(MAX_WAIT).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
+                assertThat(tableExists(db, shadowTable)).isFalse();
+                assertThat(tableExists(db, dataTable(urls))).isFalse();
+            });
         }
     }
 
@@ -346,6 +349,8 @@ class DatasetReplaceIT extends BaseIntegrationTest {
                         .containsExactly("1");
             } finally {
                 deleteDataset(urls.datasetUrl);
+                // the roles can only be dropped with the data table, which is dropped in the background (ETL-12.01)
+                await().atMost(MAX_WAIT).pollInterval(POLL_INTERVAL).until(() -> !tableExists(db, dataTable));
                 execute(db, "DROP ROLE " + reader);
                 execute(db, "DROP ROLE " + owner);
             }
