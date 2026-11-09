@@ -16,8 +16,6 @@
 
 package org.entrystore.rowstore.resources;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.entrystore.rowstore.store.Dataset;
 import org.entrystore.rowstore.store.RowStore;
@@ -32,6 +30,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.util.Set;
@@ -133,7 +134,7 @@ public class AliasController {
 	private Set<String> readAliases(HttpServletRequest request) {
 		try {
 			return objectMapper.readValue(request.getInputStream().readAllBytes(), ALIASES);
-		} catch (IOException e) {
+		} catch (IOException | JacksonException e) {
 			log.info("Unable to read aliases from request body: {}", e.getMessage());
 			return null;
 		}

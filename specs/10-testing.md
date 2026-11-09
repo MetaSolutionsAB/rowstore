@@ -15,10 +15,10 @@ Covers the Java integration test suite and its relationship to the framework-agn
 ## TEST-2 Infrastructure
 
 > **TEST-2.01** Test stack:
-> - **JUnit 5** — Test framework with `@TestMethodOrder(OrderAnnotation.class)` for sequential execution
-> - **REST Assured 5.4.0** — HTTP client for sending requests and asserting responses
-> - **Testcontainers 1.20.4** — Manages a PostgreSQL 16-alpine Docker container per test environment; another image can be set with `-Drowstore.test.postgresImage`, and CI additionally runs a subset of the integration tests against `postgres:9.6-alpine`, the oldest supported version (DEPL-3.01, DEPL-4.01)
-> - **Awaitility 4.2.0** — Polling-based assertions for async ETL completion
+> - **JUnit Jupiter 6** — Test framework with `@TestMethodOrder(OrderAnnotation.class)` for sequential execution
+> - **REST Assured 6.3.0** — HTTP client for sending requests and asserting responses
+> - **Testcontainers 2.0.5** — Manages a PostgreSQL 16-alpine Docker container per test environment; another image can be set with `-Drowstore.test.postgresImage`, and CI additionally runs a subset of the integration tests against `postgres:9.6-alpine`, the oldest supported version (DEPL-3.01, DEPL-4.01)
+> - **Awaitility 4.3.0** — Polling-based assertions for async ETL completion
 > - **AssertJ 3.27.7** — Fluent assertion library
 
 ## TEST-3 Test Organization
@@ -128,3 +128,4 @@ Covers the Java integration test suite and its relationship to the framework-agn
 | 2026-11-05 | TEST-3.01, TEST-9.01 counts updated for the swap lock retries, the startup retry and the 503 handling |
 | 2026-11-05 | TEST-3.01, TEST-9.01 counts updated; TEST-8.01: CORS test spec `15-cors.md` and CorsRestrictedIT (ROWS-170) |
 | 2026-11-05 | TEST-3.01 counts updated from a full run (ROWS-169, ROWS-170); TEST-8.01: tests of logging unknown dataset IDs |
+| 2026-11-09 | TEST-2.01: versions of the test stack with Spring Boot 4.1 (ROWS-143) |

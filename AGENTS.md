@@ -95,7 +95,7 @@ Framework-agnostic test specifications are in `specs/tests/`. Each spec contains
 ## Architecture
 
 RowStore is a CSV-to-JSON pipeline with a REST query interface, storing tabular data in PostgreSQL's JSONB columns.
-It is a Spring Boot 3.5 application (Java 25, embedded Tomcat, virtual threads) built as a single Maven module that
+It is a Spring Boot 4.1 application (Java 25, embedded Tomcat, virtual threads) built as a single Maven module that
 produces an executable JAR. See `specs/01-system-architecture.md` for the full architecture specification.
 
 ### Key Components

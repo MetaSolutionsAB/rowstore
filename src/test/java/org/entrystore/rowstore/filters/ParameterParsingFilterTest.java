@@ -16,7 +16,7 @@
 
 package org.entrystore.rowstore.filters;
 
-import org.apache.catalina.Globals;
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -24,11 +24,13 @@ import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+import java.util.Enumeration;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Unit tests for {@link ParameterParsingFilter}. Tomcat's parsing itself is covered by QueryParsingIT; here the
- * attribute that Tomcat sets on a parse failure is set directly.
+ * exception that Tomcat throws on a parse failure is thrown by the request directly.
  * Specification: QUERY-9.04
  */
 @DisplayName("ParameterParsingFilter Tests")
@@ -49,11 +51,16 @@ class ParameterParsingFilterTest {
     })
     void rejectsRequestsWhoseParametersCouldNotBeParsed(String method, String contentType, boolean parseFailed,
                                                         int expectedStatus) throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest(method, "/dataset/x");
+        MockHttpServletRequest request = new MockHttpServletRequest(method, "/dataset/x") {
+            @Override
+            public Enumeration<String> getParameterNames() {
+                if (parseFailed) {
+                    throw new InvalidParameterException("Invalid query string");
+                }
+                return super.getParameterNames();
+            }
+        };
         request.setContentType(contentType);
-        if (parseFailed) {
-            request.setAttribute(Globals.PARAMETER_PARSE_FAILED_ATTR, Boolean.TRUE);
-        }
         MockHttpServletResponse response = new MockHttpServletResponse();
         MockFilterChain chain = new MockFilterChain();
         new ParameterParsingFilter().doFilter(request, response, chain);
