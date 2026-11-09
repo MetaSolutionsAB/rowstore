@@ -100,6 +100,8 @@ RowStore 2.0 is a rewrite of the application layer on Spring Boot. The REST API 
 
 [ROWS-171](https://metasolutions.atlassian.net/browse/ROWS-171) GET /dataset/{id} with Accept */* or without Accept redirects to the HTML view; 1.x returned JSON (content negotiation differs from Restlet)
 
+[ROWS-172](https://metasolutions.atlassian.net/browse/ROWS-172) PUT, POST and DELETE on /dataset/{id}/json return 405; 1.x replaced, appended and deleted as on /dataset/{id}
+
 ### Upgrade notes
 
 Changes visible to operators and clients when upgrading from 1.7:

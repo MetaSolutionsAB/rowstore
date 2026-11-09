@@ -1,8 +1,8 @@
 # Test Specification: HTTP Compatibility with 1.x
 
-Content negotiation and method tunnelling as in RowStore 1.x (Restlet). Implemented in `ContentNegotiationIT.java`
-and `MethodTunnelIT.java`; the negotiation rules are also covered by `ContentNegotiationTest.java` and
-`TunnelFilterTest.java` (unit tests).
+Content negotiation, writes to `/dataset/{id}/json` and method tunnelling as in RowStore 1.x (Restlet). Implemented in
+`ContentNegotiationIT.java`, `DatasetJsonPathIT.java` and `MethodTunnelIT.java`; the negotiation rules are also covered by
+`ContentNegotiationTest.java` and `TunnelFilterTest.java` (unit tests).
 
 ## Content Negotiation
 
@@ -77,6 +77,35 @@ Spec: API-4.01, API-4.04
 
 **Expected Response:**
 - Status: `200`, Content-Type `application/json`, `resultCount` 5
+
+## Writes to /dataset/{id}/json
+
+Implemented in `DatasetJsonPathIT.java`.
+
+### TC-JSONPATH-001: POST appends and PUT replaces, also tunnelled, with the Location of the dataset
+
+Spec: API-3.16, API-4.06
+
+**Steps** (dataset with 2 rows; every response: `202`, `Location` and `url` `{datasetUrl}` without `/json`, `info`
+`{datasetUrl}/info`):
+1. `POST /dataset/{id}/json` with the same 2 rows; once available, `rowcount` is 4
+2. `PUT /dataset/{id}/json` with the same 2 rows; once available, `rowcount` is 2
+3. `POST /dataset/{id}/json`, then `POST /dataset/{id}/json?method=PUT`; once available, `rowcount` is 2
+
+### TC-JSONPATH-002: DELETE deletes the dataset, also tunnelled
+
+Spec: API-3.16, API-4.06
+
+1. `DELETE /dataset/{id}/json` → `204`; `GET /dataset/{id}/info` → `404`
+2. `POST /dataset/{id}/json?method=DELETE` (another dataset) → `204`; `GET /dataset/{id}/info` → `404`
+3. `DELETE /dataset/{id}/json` of the deleted dataset → `404`
+
+### TC-JSONPATH-003: OPTIONS lists the same methods as for the dataset resource
+
+Spec: API-3.16
+
+`OPTIONS /dataset/{id}/json` → `200`, `Allow` contains `GET`, `PUT`, `POST` and `DELETE` and equals the `Allow` of
+`OPTIONS /dataset/{id}`
 
 ## Method Tunnel
 

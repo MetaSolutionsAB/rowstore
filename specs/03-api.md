@@ -42,6 +42,8 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.07** `DELETE /dataset/{id}` — Deletes a dataset, its data table, and all aliases. Only permitted when status is AVAILABLE (3) or ERROR (4). Returns **204 No Content** on success, 423 Locked if dataset is still processing.
 
+> **API-3.16** `PUT`, `POST` and `DELETE /dataset/{id}/json` — Same as on `/dataset/{id}` (API-3.06, API-3.05, API-3.07), as in 1.x, where both paths were routed to the same resource: same status codes and response body, and the `Location` header of a replace or append is `/dataset/{id}` (without `/json`). The method tunnel applies as on `/dataset/{id}` (API-4.06, e.g. `POST /dataset/{id}/json?method=DELETE`), and `OPTIONS` lists the same methods for both paths.
+
 > **API-3.08** `GET /dataset/{id}/info` — Returns dataset metadata in JSON-LD format: status, created timestamp, column names, row count, identifier, aliases, `@context`, and `@id`.
 
 > **API-3.09** `GET|PUT|POST|DELETE /dataset/{id}/aliases` — Alias management:
@@ -194,3 +196,4 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 | 2026-11-09 | API-3.04: `resultCount` is 0 for an offset beyond the last match (ROWS-170) |
 | 2026-11-09 | API-9.01: `_callback` is no longer listed in the per-dataset Swagger; added API-10.01: `Range` is ignored (ROWS-177) |
 | 2026-11-09 | API-4.01, API-4.04: selection rule of Restlet's flexible content negotiation; `/dataset/{id}` returns JSON without `Accept` and for `*/*` (ROWS-171) |
+| 2026-11-09 | Added API-3.16: `PUT`, `POST` and `DELETE` on `/dataset/{id}/json` as on `/dataset/{id}` (ROWS-172) |

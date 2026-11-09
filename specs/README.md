@@ -178,6 +178,7 @@ Current limitations relevant to this area.
 | API-3.13 | GET / — 404 fallback |
 | API-3.14 | GET /status — additive `connections` field with budget usage |
 | API-3.15 | GET /status and health — additive `queuedEtlProcesses` field (queued, not started ETL jobs) |
+| API-3.16 | PUT, POST, DELETE /dataset/{id}/json — same as on /dataset/{id} |
 | API-4.01 | Accept header determines response format |
 | API-4.02 | [REMOVED] format param overrides Accept header — never implemented |
 | API-4.03 | Accept: text/html redirects 303 to /html |

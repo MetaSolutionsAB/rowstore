@@ -82,7 +82,8 @@ public class DatasetController {
 	}
 
 	/**
-	 * Always responds with JSON, regardless of the Accept header (API-4.04).
+	 * Always responds with JSON, regardless of the Accept header (API-4.04). Otherwise, /dataset/{id}/json is the same
+	 * resource as /dataset/{id}, as in 1.x: PUT, POST and DELETE are mapped to both paths (API-3.16).
 	 */
 	@GetMapping(value = "/dataset/{id}/json")
 	public ResponseEntity<?> representJson(@PathVariable("id") String id, HttpServletRequest request) {
@@ -209,12 +210,12 @@ public class DatasetController {
 		));
 	}
 
-	@PostMapping(value = "/dataset/{id}")
+	@PostMapping(value = {"/dataset/{id}", "/dataset/{id}/json"})
 	public ResponseEntity<?> acceptCSVPost(@PathVariable("id") String id, HttpServletRequest request) {
 		return acceptCSV(id, request, true);
 	}
 
-	@PutMapping(value = "/dataset/{id}")
+	@PutMapping(value = {"/dataset/{id}", "/dataset/{id}/json"})
 	public ResponseEntity<?> acceptCSVPut(@PathVariable("id") String id, HttpServletRequest request) {
 		return acceptCSV(id, request, false);
 	}
@@ -274,7 +275,7 @@ public class DatasetController {
 		}
 	}
 
-	@DeleteMapping(value = "/dataset/{id}")
+	@DeleteMapping(value = {"/dataset/{id}", "/dataset/{id}/json"})
 	public ResponseEntity<Void> purgeDataset(@PathVariable("id") String id) {
 		Dataset dataset = rowStore.getDatasets().getDataset(id);
 		if (dataset == null) {

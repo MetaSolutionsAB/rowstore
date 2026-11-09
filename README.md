@@ -137,6 +137,8 @@ As in 1.x, clients that cannot set headers or methods can tunnel them: the query
 
 Uploads to the same dataset are processed one after another in the order in which they were received. A replace (`PUT`) supersedes uploads to the same dataset that are still waiting to be processed; they are discarded.
 
+`/dataset/{id}/json` accepts the same methods, as in 1.x; its `GET` always returns JSON, whatever the `Accept` header.
+
 An alias may be used in the URL instead of the ID above, see below for handling of aliases.
 
 #### Querying
