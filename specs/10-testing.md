@@ -23,7 +23,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-3 Test Organization
 
-> **TEST-3.01** The test suite contains **44 `*IT.java` integration test classes** with **386 tests** and **24 `*Test.java` unit test classes** with **324 tests** (as executed by Maven Failsafe and Surefire, including the tests of nested classes). Integration test classes follow the Maven Failsafe `*IT.java` naming convention, unit test classes the Maven Surefire `*Test.java` convention; `mvn test` runs only the unit tests, `mvn verify` runs both.
+> **TEST-3.01** The test suite contains **51 `*IT.java` integration test classes** with **455 tests** and **26 `*Test.java` unit test classes** with **427 tests** (as executed by Maven Failsafe and Surefire, including the tests of nested classes). Integration test classes follow the Maven Failsafe `*IT.java` naming convention, unit test classes the Maven Surefire `*Test.java` convention; `mvn test` runs only the unit tests, `mvn verify` runs both.
 
 > **TEST-3.02** Tests within each class are executed **sequentially** using JUnit Jupiter's `@Order` annotation. This is necessary because many tests depend on prior test state (e.g., a dataset created in test 1 is queried in test 2).
 
@@ -95,7 +95,7 @@ Covers the Java integration test suite and its relationship to the framework-agn
 
 ## TEST-9 Framework-Agnostic Specs
 
-> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **338 test cases** across 15 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
+> **TEST-9.01** Framework-agnostic test specifications are maintained in [`specs/tests/`](tests/README.md). These contain **369 test cases** across 15 spec files (plus a README), counted as test case IDs without the retired (`[REMOVED]`) ones. Each spec defines test case IDs (`TC-{MODULE}-{NUMBER}`), request/response details, assertions, and retry logic. They serve as the authoritative definition of expected behavior, independent of the JUnit implementation.
 
 ## Known Limitations
 
@@ -131,4 +131,4 @@ Covers the Java integration test suite and its relationship to the framework-agn
 | 2026-11-05 | TEST-3.01 counts updated from a full run (ROWS-169, ROWS-170); TEST-8.01: tests of logging unknown dataset IDs |
 | 2026-11-09 | TEST-2.01: versions of the test stack with Spring Boot 4.1; TEST-3.01 count updated for a non-UTF-8 percent-encoding in TC-QUERY-022; TEST-3.02 names JUnit Jupiter (ROWS-143) |
 | 2026-11-09 | TEST-3.01, TEST-9.01 counts updated for the pagination and `Range` test cases; TEST-8.01 row for HTTP compatibility (ROWS-177) |
-| 2026-11-09 | TEST-3.01, TEST-9.01 counts updated from a full run (ROWS-171 to ROWS-176, ROWS-180) |
+| 2026-11-09 | TEST-3.01, TEST-9.01 counts updated from a full run (ROWS-171 to ROWS-176, ROWS-180); TC-QUERY-027 replaces the second TC-QUERY-025, which reused a retired ID |
