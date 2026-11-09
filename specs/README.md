@@ -180,7 +180,7 @@ Current limitations relevant to this area.
 | API-3.14 | GET /status — additive `connections` field with budget usage |
 | API-3.15 | GET /status and health — additive `queuedEtlProcesses` field (queued, not started ETL jobs) |
 | API-3.16 | PUT, POST, DELETE /dataset/{id}/json — same as on /dataset/{id} |
-| API-3.17 | Request bodies decoded by `Content-Encoding` (gzip, x-gzip, deflate, deflate-no-wrap, zip, identity); other codings 415, undecodable bodies 400 |
+| API-3.17 | Request bodies decoded by `Content-Encoding` (gzip, x-gzip, deflate, deflate-no-wrap, zip, identity); other codings and more than two compressions 415, undecodable bodies 400 |
 | API-4.01 | Accept header determines response format |
 | API-4.02 | [REMOVED] format param overrides Accept header — never implemented |
 | API-4.03 | Accept: text/html redirects 303 to /html |
@@ -217,7 +217,7 @@ Current limitations relevant to this area.
 | ETL-4.07 | Labels sanitized: U+FEFF and U+00AD removed anywhere; also used by the append check; affected names change |
 | ETL-4.08 | Columns keep their position; cells of columns with an empty label skipped, no shifting |
 | ETL-4.09 | Duplicate labels after normalization fail the load (ERROR), also for appends; replace keeps the previous data |
-| ETL-4.10 | A load without columns (no header line, or no non-empty label) fails (ERROR); replace keeps the previous data, append adds nothing |
+| ETL-4.10 | A load without columns (no header line, or no non-empty label) or of binary data (gzip/zip signature, control characters in the header) fails (ERROR); replace keeps the previous data, append adds nothing |
 | ETL-5.01 | Batch insert every 200 rows, rollback on error |
 | ETL-6.01 | POST = append (validates column match) |
 | ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate); owner and privileges kept |
@@ -234,7 +234,7 @@ Current limitations relevant to this area.
 | ETL-8.06 | Startup reset: PROCESSING → ERROR, ACCEPTED_DATA untouched |
 | ETL-8.07 | Error in a job: remaining queued jobs of the dataset discarded, new worker for later jobs |
 | ETL-9.01 | Temp file: deleteOnExit + explicit deletion (after load, on discard, on early failure) |
-| ETL-9.02 | maxuploadsize limits the decoded upload; temp file deleted if writing it fails (413, 400) |
+| ETL-9.02 | maxuploadsize limits the decoded upload and each decoder's input; temp file deleted if writing it fails (413, 400) |
 | ETL-10.01 | Final status from locally tracked outcome; exceptions logged with stack trace |
 | ETL-10.02 | Final status write retried with backoff (96 s of delays plus connection timeouts) |
 | ETL-11.01 | Background cleanup of column names after startup; affected = first-row key not clean; skipped datasets |
@@ -246,9 +246,9 @@ Current limitations relevant to this area.
 | ETL-11.07 | Completed run recorded in maintenance_tasks, cleanup skipped at later startups |
 | ETL-11.08 | Only BOM and soft hyphens cleaned; whitespace and upper case of stored names kept |
 | ETL-11.09 | Stored names that clean to empty kept; ignored by appends |
-| ETL-12.01 | Data table of a deleted dataset dropped by attempts as jobs of the dataset (NOWAIT lock, load budget), no permit or connection held between attempts; INFO, ERROR on failure |
+| ETL-12.01 | Data table of a deleted dataset dropped by attempts as jobs of the dataset (3 s lock timeout, load budget), no permit or connection held between attempts, retried up to 30 min; INFO, ERROR when giving up |
 | ETL-12.02 | Status condition part of the DELETE; no load runs on a deleted dataset's tables |
-| ETL-12.03 | Startup drops data tables that no datasets row references by lower-case stored or ID-derived name (WARN), 3 s lock timeout per table |
+| ETL-12.03 | Startup drops data tables that no datasets row references by lower-case stored or ID-derived name (WARN), 3 s lock timeout per table, failing tables skipped |
 | ETL-12.04 | Uploads and alias updates racing with a delete: 404, or load discarded with ERROR, no table touched |
 
 ### QUERY — Query Processing

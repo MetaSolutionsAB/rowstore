@@ -152,7 +152,7 @@ exhausted budget until the wait timeout. Budget usage is reported by `/status` (
 loads into a shadow table `<dataTable>_new` and swaps it for the data table at the end of the same transaction, so
 the previous data is served during the load and kept if it fails (see ETL-6 in `specs/04-etl-pipeline.md`).
 A DELETE only deletes the dataset's rows in `datasets` and `aliases` (`PgDatasets.purgeDataset()`); its data table is
-dropped afterwards by attempts that lock it without waiting (NOWAIT) and run as jobs of the dataset in `EtlProcessor`; between
+dropped afterwards by attempts that wait up to 3 seconds for its lock and run as jobs of the dataset in `EtlProcessor`; between
 attempts, no ETL permit or connection is held (ETL-12.01).
 At startup, `PgRowStore` sets datasets left in PROCESSING or ACCEPTED_DATA to ERROR (ETL-8.06), drops leftover shadow
 tables and data tables of deleted datasets (ETL-12.03), and starts a
@@ -174,7 +174,7 @@ completed run is recorded in `maintenance_tasks` (ETL-11.07).
 5. `TrustedProxyFilter` - Takes the client address from `X-Forwarded-For`: by default the last entry, written by the connecting peer (the reverse proxy); with `trustedproxies`, only for listed peers, walked from the right
 6. `TunnelFilter` - Restlet-compatible tunnel of 1.x: `media` query parameter replaces `Accept`; `method` parameter or `X-HTTP-Method-Override` replaces the method of POST requests (only POST, and only without `Origin` or from the `baseurl` origin or a listed CORS origin, SEC-9.05)
 7. `RateLimitFilter` - Request rate limiting (sliding window or average), active only when configured
-8. `RequestDecodingFilter` - Decodes the bodies of POST and PUT requests by `Content-Encoding` (gzip, x-gzip, deflate, deflate-no-wrap, zip, identity) as Restlet did in 1.x, rejects other codings with 415, and closes the decoders after the request; corrupt data surfaces as `MalformedContentException` while the controller reads the body (400), and `maxuploadsize` applies to the decoded bytes (API-3.17)
+8. `RequestDecodingFilter` - Decodes the bodies of POST and PUT requests by `Content-Encoding` (gzip, x-gzip, deflate, deflate-no-wrap, zip, identity) as Restlet did in 1.x, rejects other codings and more than two stacked compressions with 415, and closes the decoders after the request; corrupt data surfaces as `MalformedContentException` while the controller reads the body (400), and `maxuploadsize` applies to the decoded bytes and to the input of each decoder (API-3.17)
 
 **Utilities** (`util/`):
 - `DatasetUtil` - Dataset URL building, charset detection, byte order mark skipping, regex heuristics

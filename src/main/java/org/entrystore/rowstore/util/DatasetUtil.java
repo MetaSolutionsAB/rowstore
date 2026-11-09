@@ -39,6 +39,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Arrays;
 import java.util.UUID;
 
 /**
@@ -47,6 +48,10 @@ import java.util.UUID;
 public class DatasetUtil {
 
 	static Logger log = LoggerFactory.getLogger(DatasetUtil.class);
+
+	private static final byte[] GZIP_SIGNATURE = {0x1f, (byte) 0x8b};
+
+	private static final byte[] ZIP_SIGNATURE = {0x50, 0x4b, 0x03, 0x04};
 
 	public static String buildDatasetURL(String baseURL, String datasetId) {
 		if (baseURL == null || datasetId == null) {
@@ -76,10 +81,11 @@ public class DatasetUtil {
 			} else {
 				Files.copy(inputStream, tmpPath, StandardCopyOption.REPLACE_EXISTING);
 			}
-		} catch (IOException | RuntimeException e) {
-			// e.g., the upload is too large or its compressed data is corrupt: the caller gets no file to delete
+		} catch (Throwable t) {
+			// e.g., the upload is too large or its compressed data is corrupt, or a decoder failed with an error such
+			// as a StackOverflowError: the caller gets no file to delete
 			Files.deleteIfExists(tmpPath);
-			throw e;
+			throw t;
 		}
 		return tmpPath.toFile();
 	}
@@ -90,12 +96,15 @@ public class DatasetUtil {
 		}
 	}
 
-	private static class BoundedInputStream extends InputStream {
+	/**
+	 * A stream that throws a {@link PayloadTooLargeException} when more than a maximum number of bytes are read.
+	 */
+	public static class BoundedInputStream extends InputStream {
 		private final InputStream delegate;
 		private final long maxSize;
 		private long bytesRead = 0;
 
-		BoundedInputStream(InputStream delegate, long maxSize) {
+		public BoundedInputStream(InputStream delegate, long maxSize) {
 			this.delegate = delegate;
 			this.maxSize = maxSize;
 		}
@@ -198,6 +207,27 @@ public class DatasetUtil {
 		}
 
 		return Charset.forName(name);
+	}
+
+	/**
+	 * @return Returns true if the file starts with the signature of gzip data ({@code 1f 8b}) or of a zip archive
+	 * ({@code 50 4b 03 04}), e.g., a compressed upload sent without Content-Encoding (ETL-4.10).
+	 */
+	public static boolean isCompressed(File f) throws IOException {
+		byte[] start;
+		try (InputStream is = Files.newInputStream(f.toPath())) {
+			start = is.readNBytes(4);
+		}
+		return Arrays.equals(start, 0, Math.min(start.length, 2), GZIP_SIGNATURE, 0, 2)
+				|| Arrays.equals(start, ZIP_SIGNATURE);
+	}
+
+	/**
+	 * @return Returns true if the string contains a C0 control character other than tab, line feed and carriage
+	 * return, e.g., a NUL, which a CSV header of text does not contain, but one of binary data does (ETL-4.10).
+	 */
+	public static boolean containsControlCharacter(String s) {
+		return s.chars().anyMatch(c -> c < 0x20 && c != '\t' && c != '\n' && c != '\r');
 	}
 
 	/**

@@ -182,6 +182,41 @@ class DatasetDeleteIT extends BaseIntegrationTest {
     }
 
     @Test
+    @DisplayName("TC-ETL-082: A leftover table that cannot be dropped at startup is skipped, the other leftover tables are dropped")
+    void leftoverTableThatCannotBeDropped_isSkipped_othersAreDropped() throws SQLException {
+        PgRowStore rowStore = RowStoreTestEnvironment.getInstance().getBean(PgRowStore.class);
+        String blocked = dataTable(UUID.randomUUID().toString());
+        String leftover = dataTable(UUID.randomUUID().toString());
+        String blockedShadow = dataTable(UUID.randomUUID().toString()) + "_new";
+        String leftoverShadow = dataTable(UUID.randomUUID().toString()) + "_new";
+        List<String> tables = List.of(blocked, leftover, blockedShadow, leftoverShadow);
+        try (Connection db = openDatabaseConnection()) {
+            for (String table : tables) {
+                execute(db, "CREATE TABLE " + table + " (rownr BIGSERIAL PRIMARY KEY, data JSONB NOT NULL)");
+            }
+            // a dependent view makes DROP TABLE fail (2BP01)
+            execute(db, "CREATE VIEW " + blocked + "_view AS SELECT * FROM " + blocked);
+            execute(db, "CREATE VIEW " + blockedShadow + "_view AS SELECT * FROM " + blockedShadow);
+            try {
+                // invoked by PgRowStore's constructor at startup
+                assertThat(rowStore.dropLeftoverShadowTables()).contains(leftoverShadow).doesNotContain(blockedShadow);
+                assertThat(rowStore.dropLeftoverDataTables()).contains(leftover).doesNotContain(blocked);
+
+                assertThat(tableExists(db, leftover)).isFalse();
+                assertThat(tableExists(db, leftoverShadow)).isFalse();
+                assertThat(tableExists(db, blocked)).isTrue();
+                assertThat(tableExists(db, blockedShadow)).isTrue();
+            } finally {
+                execute(db, "DROP VIEW IF EXISTS " + blocked + "_view");
+                execute(db, "DROP VIEW IF EXISTS " + blockedShadow + "_view");
+                for (String table : tables) {
+                    execute(db, "DROP TABLE IF EXISTS " + table);
+                }
+            }
+        }
+    }
+
+    @Test
     @DisplayName("TC-ETL-078: The upgrade of a 1.x database removes aliases and data tables of deleted datasets")
     void upgradeOf1xDatabase_removesLeftoversOfDeletedDatasets() throws Exception {
         RowStoreTestEnvironment env = RowStoreTestEnvironment.getInstance();

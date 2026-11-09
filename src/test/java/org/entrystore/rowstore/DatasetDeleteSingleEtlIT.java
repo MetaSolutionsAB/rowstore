@@ -34,8 +34,8 @@ import static org.awaitility.Awaitility.await;
 
 /**
  * Integration test for the background drop of a deleted dataset's data table (ETL-12.01) with a single ETL permit
- * ({@code maxetlprocesses} 1): while the drop waits for a reader of the table, it holds neither the permit nor a
- * connection, so that uploads of other datasets are not delayed.
+ * ({@code maxetlprocesses} 1): while the drop waits for a reader of the table, it holds the permit and a connection
+ * only during its attempts (at most 3 seconds each), so that uploads of other datasets are loaded between them.
  * Specification: 11-etl-processing.md
  */
 @DisplayName("Dataset Delete Tests with a single ETL permit")
@@ -70,9 +70,9 @@ class DatasetDeleteSingleEtlIT extends ConfigurableTestBase {
             }
             try {
                 given().delete(deleted.datasetUrl).then().statusCode(204);
-                // the first attempts of the drop (right away and after 1 s) find the data table in use
+                // the first attempt of the drop finds the data table in use and holds the only ETL permit while it
+                // waits for the lock (at most 3 s), the upload gets the permit between the attempts
                 Thread.sleep(2000);
-                assertThat(lockWaiters(db, "LOCK TABLE " + dataTable)).as("attempts of the drop do not wait").isZero();
 
                 given().spec(csvSpec).body(csv("C", 2)).put(other.datasetUrl).then().statusCode(202);
                 waitForDatasetAvailable(other.infoUrl);
@@ -103,20 +103,6 @@ class DatasetDeleteSingleEtlIT extends ConfigurableTestBase {
             ps.setString(1, table);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next();
-            }
-        }
-    }
-
-    /**
-     * @return The number of sessions whose statement starts with the given text and waits for a lock.
-     */
-    private static int lockWaiters(Connection conn, String statementStart) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement("SELECT count(*) FROM pg_stat_activity " +
-                "WHERE datname = current_database() AND wait_event_type = 'Lock' AND position(?::text in query) = 1")) {
-            ps.setString(1, statementStart);
-            try (ResultSet rs = ps.executeQuery()) {
-                rs.next();
-                return rs.getInt(1);
             }
         }
     }

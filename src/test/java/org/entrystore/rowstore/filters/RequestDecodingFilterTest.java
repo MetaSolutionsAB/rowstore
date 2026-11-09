@@ -20,6 +20,9 @@ import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import org.entrystore.rowstore.ContentCodings;
+import org.entrystore.rowstore.store.RowStoreConfig;
+import org.entrystore.rowstore.util.DatasetUtil;
+import org.json.JSONObject;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -29,11 +32,17 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.Random;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,9 +56,11 @@ class RequestDecodingFilterTest {
 
     static final byte[] CSV = "name,value\nA,1\nB,2\n".getBytes(StandardCharsets.UTF_8);
 
+    static final long MAX_UPLOAD_SIZE = 10_000;
+
     @ParameterizedTest(name = "[{index}] {0}")
     @ValueSource(strings = {"gzip", "x-gzip", "GZip", "deflate", "deflate-no-wrap", "zip", "identity", "gzip, identity",
-            "identity,gzip", "deflate, gzip"})
+            "identity,gzip", "deflate, gzip", "gzip, identity, identity, identity, identity, identity, identity, gzip"})
     void decodesSupportedCodings(String contentEncoding) throws Exception {
         HttpServletRequest decoded = filter(request(contentEncoding, ContentCodings.encode(CSV, contentEncoding)), 200);
 
@@ -79,10 +90,70 @@ class RequestDecodingFilterTest {
         assertThat(filter(request, 200).getReader().readLine()).isEqualTo("name,value");
     }
 
+    @Test
+    void decodesZipEntryWithNameThatIsNotUtf8() throws Exception {
+        // e.g., an archive created by Windows Explorer, which writes the name in the code page of the system
+        ByteArrayOutputStream zip = new ByteArrayOutputStream();
+        try (ZipOutputStream out = new ZipOutputStream(zip, StandardCharsets.ISO_8859_1)) {
+            out.putNextEntry(new ZipEntry("Äpfel.csv"));
+            out.write(CSV);
+        }
+
+        assertThat(filter(request("zip", zip.toByteArray()), 200).getInputStream().readAllBytes()).isEqualTo(CSV);
+    }
+
     @ParameterizedTest(name = "[{index}] {0}")
-    @ValueSource(strings = {"br", "zstd", "compress", "gzip, br"})
+    @ValueSource(strings = {"br", "zstd", "compress", "gzip, br",
+            // more than two compressions or more than eight codings
+            "gzip, gzip, gzip", "deflate, identity, gzip, deflate-no-wrap",
+            "gzip, identity, identity, identity, identity, identity, identity, identity, identity",
+            "identity, identity, identity, identity, identity, identity, identity, identity, identity"})
     void rejectsUnsupportedCodings(String contentEncoding) throws Exception {
-        filter(request(contentEncoding, CSV), 415);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter(request(contentEncoding, CSV), response, 415);
+
+        assertThat(response.getHeader("Accept-Encoding")).isEqualTo("gzip, x-gzip, deflate, deflate-no-wrap, zip, identity");
+    }
+
+    @Test
+    void countsCodingsOfAllHeaderLines() throws Exception {
+        MockHttpServletRequest request = request("gzip, gzip", CSV);
+        request.addHeader("Content-Encoding", "gzip");
+
+        filter(request, 415);
+    }
+
+    @Test
+    void limitsInputOfEachDecoder() throws Exception {
+        // the inner gzip stream (about 20 kB) is larger than the limit, the request body is not
+        byte[] nested = ContentCodings.encode(new byte[20_000_000], "gzip, gzip");
+        assertThat(nested.length).isLessThan((int) MAX_UPLOAD_SIZE);
+        InputStream nestedBody = filter(request("gzip, gzip", nested), 200).getInputStream();
+
+        assertThatThrownBy(() -> nestedBody.transferTo(OutputStream.nullOutputStream()))
+                .isInstanceOf(DatasetUtil.PayloadTooLargeException.class);
+
+        // a request body that is larger than the limit, although its decoded size is not
+        byte[] random = new byte[(int) MAX_UPLOAD_SIZE];
+        new Random(1).nextBytes(random);
+        InputStream body = filter(request("gzip", ContentCodings.encode(random, "gzip")), 200).getInputStream();
+
+        assertThatThrownBy(() -> body.transferTo(OutputStream.nullOutputStream()))
+                .isInstanceOf(DatasetUtil.PayloadTooLargeException.class);
+    }
+
+    @Test
+    void closesDecodersWhenDecodingFailsWithError() {
+        StackOverflowError error = new StackOverflowError();
+        TrackingInputStream source = new TrackingInputStream(new byte[0]) {
+            @Override
+            public int read() {
+                throw error;
+            }
+        };
+
+        assertThatThrownBy(() -> RequestDecodingFilter.decode(source, List.of("gzip"), MAX_UPLOAD_SIZE)).isSameAs(error);
+        assertThat(source.closed).isTrue();
     }
 
     @Test
@@ -135,7 +206,7 @@ class RequestDecodingFilterTest {
         request.addHeader("Transfer-Encoding", "chunked");
         byte[][] read = new byte[1][];
 
-        new RequestDecodingFilter().doFilter(request, new MockHttpServletResponse(),
+        new RequestDecodingFilter(config()).doFilter(request, new MockHttpServletResponse(),
                 (req, res) -> read[0] = req.getInputStream().readNBytes(5));
 
         assertThat(read[0]).isEqualTo(Arrays.copyOf(CSV, 5));
@@ -213,7 +284,7 @@ class RequestDecodingFilterTest {
     /**
      * A request body that records whether it has been closed.
      */
-    private static final class TrackingInputStream extends ServletInputStream {
+    private static class TrackingInputStream extends ServletInputStream {
 
         private final ByteArrayInputStream data;
 
@@ -266,13 +337,25 @@ class RequestDecodingFilterTest {
      * @return Returns the request passed on by the filter, or null if it answered the request itself.
      */
     private static HttpServletRequest filter(MockHttpServletRequest request, int expectedStatus) throws Exception {
-        MockHttpServletResponse response = new MockHttpServletResponse();
+        return filter(request, new MockHttpServletResponse(), expectedStatus);
+    }
+
+    private static HttpServletRequest filter(MockHttpServletRequest request, MockHttpServletResponse response,
+                                             int expectedStatus) throws Exception {
         MockFilterChain chain = new MockFilterChain();
-        new RequestDecodingFilter().doFilter(request, response, chain);
+        new RequestDecodingFilter(config()).doFilter(request, response, chain);
 
         assertThat(response.getStatus()).isEqualTo(expectedStatus);
         assertThat(chain.getRequest() != null).isEqualTo(expectedStatus == 200);
         return (HttpServletRequest) chain.getRequest();
+    }
+
+    private static RowStoreConfig config() {
+        return new RowStoreConfig(new JSONObject()
+                .put("baseurl", "http://localhost:8282/")
+                .put("maxuploadsize", MAX_UPLOAD_SIZE)
+                .put("database", new JSONObject()
+                        .put("host", "localhost").put("database", "rowstore").put("user", "rowstore").put("password", "pw")));
     }
 
 }
