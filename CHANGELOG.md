@@ -26,7 +26,7 @@ RowStore 2.0 is a rewrite of the application layer on Spring Boot. The REST API 
 
 [ROWS-167](https://metasolutions.atlassian.net/browse/ROWS-167) Connection budgets: Retry-After and no per-request ERROR log on 503, no false Hikari leak warnings, warn when connectionPoolMax enables a pool
 
-[ROWS-176](https://metasolutions.atlassian.net/browse/ROWS-176) Docker image: listen on port 8080 like the 1.x images, push `latest` on master releases, keep `USE_SYSTEM_CA_CERTS`; the docker repository is to build only 1.x images (planned change in that repository)
+[ROWS-180](https://metasolutions.atlassian.net/browse/ROWS-180) An upload that yields no columns or is binary data (e.g. an undecoded compressed body) ends as AVAILABLE with 0 rows instead of failing
 
 [ROWS-183](https://metasolutions.atlassian.net/browse/ROWS-183) Publish release-candidate Docker images (`<major.minor>-rc`) from release branches
 
@@ -40,7 +40,13 @@ RowStore 2.0 is a rewrite of the application layer on Spring Boot. The REST API 
 
 [ROWS-168](https://metasolutions.atlassian.net/browse/ROWS-168) Correct and complete the 2.0 upgrade notes and specs after the PR #4 review
 
+[ROWS-170](https://metasolutions.atlassian.net/browse/ROWS-170) Align TC-QUERY test IDs between QueryAdvancedIT and the spec, and specify the CORS tests
+
+[ROWS-176](https://metasolutions.atlassian.net/browse/ROWS-176) Docker image: listen on port 8080 like the 1.x images, push `latest` on master releases, keep `USE_SYSTEM_CA_CERTS`; the docker repository is to build only 1.x images (planned change in that repository)
+
 [ROWS-177](https://metasolutions.atlassian.net/browse/ROWS-177) Correct specs and upgrade notes found in the 2.0 compatibility check (pagination links, ~ regex prefix, 404 texts, Range, _callback)
+
+[ROWS-181](https://metasolutions.atlassian.net/browse/ROWS-181) Use the Testcontainers 2 PostgreSQL module API instead of the deprecated org.testcontainers.containers.PostgreSQLContainer
 
 ### Bug
 
@@ -106,13 +112,11 @@ RowStore 2.0 is a rewrite of the application layer on Spring Boot. The REST API 
 
 [ROWS-172](https://metasolutions.atlassian.net/browse/ROWS-172) PUT, POST and DELETE on /dataset/{id}/json return 405; 1.x replaced, appended and deleted as on /dataset/{id}
 
-[ROWS-175](https://metasolutions.atlassian.net/browse/ROWS-175) A filter value consisting of whitespace only (?col=%20, ?col=+) returns 400; 1.x matched empty cells
-
 [ROWS-173](https://metasolutions.atlassian.net/browse/ROWS-173) Compressed uploads (Content-Encoding gzip, deflate, zip) are no longer decoded: 202 and an empty dataset (status 3, 0 rows) or status 4
 
-[ROWS-180](https://metasolutions.atlassian.net/browse/ROWS-180) An upload that yields no columns or is binary data (e.g. an undecoded compressed body) ends as AVAILABLE with 0 rows instead of failing
-
 [ROWS-174](https://metasolutions.atlassian.net/browse/ROWS-174) DELETE of a dataset whose table is in use (export, long query, pg_dump) returns 503 after queryLockTimeout; 1.x waited and returned 204
+
+[ROWS-175](https://metasolutions.atlassian.net/browse/ROWS-175) A filter value consisting of whitespace only (?col=%20, ?col=+) returns 400; 1.x matched empty cells
 
 [ROWS-182](https://metasolutions.atlassian.net/browse/ROWS-182) Distrust the eMudhra root CAs (CVE-2026-114820) in the Docker image
 

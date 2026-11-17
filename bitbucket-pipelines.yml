@@ -44,6 +44,9 @@ stepdefinitions:
   - deploy: &deploy
       name: Deploy
       script:
+        # the Maven Alpine image has neither gpg nor GNU grep (BusyBox grep has no -P for the version check below);
+        # 1.x used metasolutions/jdk-node, which has both
+        - apk add --no-cache gnupg grep
         - gpg --version
         - echo $GPG_SIGN_KEY | base64 -d | gpg --import
         - gpg --list-secret-keys
