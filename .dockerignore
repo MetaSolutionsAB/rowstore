@@ -1,0 +1,12 @@
+.git
+.gitignore
+*.md
+src/test
+target/surefire-reports
+target/failsafe-reports
+target/maven-status
+target/classes
+target/test-classes
+target/generated-sources
+target/generated-test-sources
+target/maven-archiver

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Tests for query functionality including filters, pagination, JSONP callbacks, and regex modes.
+Tests for query functionality including filters, pagination, and regex modes. The former JSONP callback tests are retired.
 
 ## Prerequisites
 
@@ -54,13 +54,43 @@ Tests for query functionality including filters, pagination, JSONP callbacks, an
 
 ### TC-QUERY-005: queryTime field present
 
+Spec: API-5.01
+
 **Request:**
 - Method: `GET`
-- URL: `/dataset/{id}`
+- URL: `/dataset/{id}` with `Accept: application/json`
 
 **Expected Response:**
 - Status: `200`
-- Body contains `queryTime` field >= 0
+- `queryTime` is present (not null) and >= 0
+
+### TC-QUERY-015: Default query returns all rows
+
+Spec: API-5.01, QUERY-3.01
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}` with `Accept: application/json` (dataset with 5 rows, no filters, default limit)
+
+**Expected Response:**
+- Status: `200`, Content-Type `application/json`
+- `resultCount` is `5`, `results` has 5 rows
+
+### TC-QUERY-016: Response includes standard fields
+
+Spec: API-5.01
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}` with `Accept: application/json`
+
+**Expected Response:**
+- Status: `200`
+- `results`, `resultCount`, `offset`, `limit` and `queryTime` are present
+
+### TC-QUERY-025: [REMOVED] queryTime field present and valid
+
+Retired: the same check as TC-QUERY-005, which now has its details.
 
 ## Pagination Tests
 
@@ -72,8 +102,8 @@ Tests for query functionality including filters, pagination, JSONP callbacks, an
 
 **Expected Response:**
 - Status: `200`
-- `results` array is empty
-- `resultCount` shows total count
+- `results` array is empty, `offset` is `1000`
+- `resultCount` is `0`: it is read from the returned rows, of which there are none (as in 1.x)
 
 ### TC-QUERY-007: Zero limit
 
@@ -82,26 +112,28 @@ Tests for query functionality including filters, pagination, JSONP callbacks, an
 - URL: `/dataset/{id}?_limit=0`
 
 **Expected Response:**
-- Status: `200` or `400`
-- If 200: empty results or treated as default
+- Status: `200`
+- The default limit is used: `limit` is `100`, and all 5 rows are returned
 
 ### TC-QUERY-008: Negative limit
 
 **Request:**
 - Method: `GET`
-- URL: `/dataset/{id}?_limit=-1`
+- URL: `/dataset/{id}?_limit=-5`
 
 **Expected Response:**
-- Status: `200` or `400`
+- Status: `200`
+- The default limit is used: `limit` is `100`, and all 5 rows are returned
 
 ### TC-QUERY-009: Negative offset
 
 **Request:**
 - Method: `GET`
-- URL: `/dataset/{id}?_offset=-1`
+- URL: `/dataset/{id}?_offset=-5`
 
 **Expected Response:**
-- Status: `200` (treated as 0) or `400`
+- Status: `200`
+- The offset is corrected to 0: `offset` is `0`, and all 5 rows are returned
 
 ### TC-QUERY-010: Non-numeric limit
 
@@ -141,74 +173,160 @@ Tests for query functionality including filters, pagination, JSONP callbacks, an
 
 **Expected Response:**
 - Status: `200`
-- `prev` link present
-- `next` absent when offset+limit >= resultCount
+- `prev` link present (with `_offset=2`)
+- `next` absent when offset+limit > resultCount (QUERY-6.02; with offset+limit = resultCount, `next` links to an empty page)
 
-### TC-QUERY-014: Format parameter
+### TC-QUERY-014: [REMOVED] Format parameter
+
+Retired: the `format` parameter was never implemented (API-4.02, QUERY-3.04 removed).
+
+### TC-QUERY-017: [REMOVED] Middle page has both prev and next links
+
+Retired: this ID was only used in `QueryAdvancedIT`, never in this specification; the test is TC-QUERY-012. Not to be reused.
+
+### TC-QUERY-018: Reserved _callback parameter is ignored
+
+Spec: QUERY-3.05
 
 **Request:**
 - Method: `GET`
-- URL: `/dataset/{id}?format=application/json`
+- URL: `/dataset/{id}?_callback=x`
 
 **Expected Response:**
 - Status: `200`
-- Content-Type: `application/json`
+- Content-Type: `application/json`, body is plain JSON (not wrapped in `x(...)`)
+- `results`, `resultCount`, `offset`, `limit`, `prev`, `next` equal those of `/dataset/{id}` without `_callback`
+
+### TC-QUERY-019: Reserved _callback parameter is ignored together with column filters
+
+Spec: QUERY-3.05
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}/json?_callback=x&Name=McLoud`
+
+**Expected Response:**
+- Status: `200`
+- Content-Type: `application/json`, body is plain JSON
+- `results`, `resultCount`, `offset`, `limit`, `prev`, `next` equal those of `/dataset/{id}/json?Name=McLoud`
+
+### TC-QUERY-020: Reserved _callback parameter is carried over to prev/next links
+
+Spec: QUERY-3.05, QUERY-6.02
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}?_callback=x&_limit=2&_offset=2`
+
+**Expected Response:**
+- Status: `200`
+- `prev` and `next` URLs contain `_callback=x`
+
+### TC-QUERY-021: Unencoded regex characters in the query string are accepted
+
+Spec: QUERY-9.03
+
+**Setup:** `dataset1_utf8.csv`, `regexpqueries=full`. The request line is sent byte for byte (e.g. over a raw socket),
+since HTTP clients encode or reject these characters.
+
+**Requests and expected results** (status `200`, the same results as the percent-encoded form):
+
+| Raw query string | Names in `results` |
+|------------------|--------------------|
+| `Name=^M` | McLoud, Martinsson |
+| `Name=^(McLoud\|Martinsson)$` | McLoud, Martinsson |
+| `Name=^[MB]` | Béringer, McLoud, Martinsson |
+| `Name=^M.{5}$` | McLoud |
+| `Name=^Mc\w+` | McLoud |
+| `Name=~^(M\|%C3%9C)` | McLoud, Martinsson, Überhuber |
+
+`Name="x"`, ``Name=`x` `` and `Name=<x>` return `200` with no results. Non-ASCII characters must be percent-encoded.
+
+### TC-QUERY-022: A malformed percent-encoding is rejected with 400
+
+Spec: QUERY-9.04
+
+**Requests** (raw query strings, on `/dataset/{id}` and `/dataset/{id}/json`): `Name=100%`, `Name=%zz`, `Name=%C`,
+`Name=McLoud&Telephone=%zz`, `Telephone=%zz&Name=McLoud`, `Na%zzme=McLoud`, `Name=%C5kesson` (ISO-8859-1, not UTF-8)
+
+**Expected Response:**
+- Status: `400` (not `200` with the malformed filter dropped)
+
+### TC-QUERY-023: Parameter names and values are trimmed as in 1.x
+
+Spec: QUERY-2.03
+
+**Requests:** `Name=McLoud%20`, `Name=+McLoud`, `Name=%20McLoud%20`, `%20Name=McLoud`, `Name+=McLoud`,
+`Name=McLoud&_limit=%201`, `Name=McLoud&%20=x`, `Name=Martinsson&Name=McLoud`
+
+**Expected Response:**
+- Status: `200`
+- `results` contains exactly McLoud (the last value of a repeated parameter is used)
+
+### TC-QUERY-024: Tunnel parameters of 1.x are not column filters
+
+Spec: QUERY-3.06
+
+**Requests:**
+1. `/dataset/{id}?Name=McLoud&media=json&charset=utf-8&language=sv&encoding=identity` → `200`, exactly McLoud
+2. `/dataset/{id}?media=json&charset=utf-8&_limit=2&_offset=2` → `200`, 2 results, `prev` and `next` contain neither `media` nor `charset`
+3. A dataset with a column `language` (`language,n` / `sv,1` / `en,2`): `?language=sv` → `200`, exactly the row with `n` = `1`
+
+### TC-QUERY-026: No prev link when the offset is smaller than the limit
+
+Spec: QUERY-6.02
+
+**Request:** `/dataset/{id}?_limit=2&_offset=1` (dataset with 5 rows)
+
+**Expected Response:**
+- Status: `200`
+- 2 results, no `prev`, `next` with `_offset=3`
+
+### TC-QUERY-027: An exactly full last page links to an empty page
+
+Spec: QUERY-6.02
+
+**Requests** (dataset with 5 rows):
+1. `/dataset/{id}?_limit=5` → `200`, 5 results, `next` with `_offset=5`, no `prev`
+2. `/dataset/{id}?_limit=5&_offset=5` → `200`, no results, no `next`, `prev` with `_offset=0`
+
+### TC-QUERY-028: A value consisting of spaces matches empty cells as in 1.x
+
+Spec: QUERY-2.03, QUERY-3.01, QUERY-3.02
+
+**Requests** (dataset1_utf8.csv, sent unencoded with `TestUtils.rawRequest()`):
+1. `some%20other%20column=%20`, `some%20other%20column=+`, `some%20other%20column=%20%20` → `200`, exactly
+   Béringer, Åkesson and Martinsson (the rows whose cell is empty)
+2. `Telephone=+&some%20other%20column=%20` → `200`, exactly Åkesson
+3. `some%20other%20column=`, `some%20other%20column` (no `=`), `Name=McLoud&Telephone=`, `_limit=%20`, `_offset=+`,
+   `_limit=`, `_offset` → `400`
+
+### TC-QUERY-029: The page links of a value consisting of spaces match empty cells
+
+Spec: QUERY-2.03, QUERY-6.02
+
+1. `some%20other%20column=+&_limit=1` → `200`, exactly Béringer; `next` contains `some+other+column=+`
+2. `GET` of `next` → `200`, exactly Åkesson (1.x wrote `some+other+column=` and returned 400)
+
+### TC-QUERY-030: An empty _callback or _sort and an empty value followed by a value are accepted
+
+Spec: QUERY-2.03, QUERY-3.05
+
+**Requests:** `_callback=`, `_sort=`, `Name=&Name=McLoud` → `200` (1.x: 400)
 
 ## JSONP Callback Tests
 
-### TC-JSONP-001: Query with _callback wraps response
+JSONP support has been removed (API-7.01, QUERY-3.03), so these test cases, which expected wrapped responses as in 1.x, are retired. `_callback` is accepted and ignored (QUERY-3.05, see TC-QUERY-018 to TC-QUERY-020).
 
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}?_callback=myCallback`
+### TC-JSONP-001: [REMOVED] Query with _callback wraps response
 
-**Expected Response:**
-- Status: `200`
-- Body: `myCallback({...})`
-- Inner content is valid JSON
+### TC-JSONP-002: [REMOVED] Callback with valid JS function name
 
-### TC-JSONP-002: Callback with valid JS function name
+### TC-JSONP-003: [REMOVED] Empty _callback behavior
 
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}?_callback=myFunc`
+### TC-JSONP-004: [REMOVED] Callback on info endpoint
 
-**Expected Response:**
-- Status: `200`
-- Response wrapped with callback name
-
-Note: Valid names include `myFunc`, `my_func`, `myFunc123`
-
-### TC-JSONP-003: Empty _callback behavior
-
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}?_callback=`
-
-**Expected Response:**
-- Status: `200` or `400`
-- If 200: may use default "callback" or return plain JSON
-
-### TC-JSONP-004: Callback on info endpoint
-
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}/info?_callback=infoCallback`
-
-**Expected Response:**
-- Status: `200` or `400`
-- If 200: response may or may not be wrapped
-
-### TC-JSONP-005: Callback combined with query filters
-
-**Request:**
-- Method: `GET`
-- URL: `/dataset/{id}?_callback=filterCallback&Name=Åkesson`
-
-**Expected Response:**
-- Status: `200`
-- Body: `filterCallback({...})`
-- Inner JSON contains filtered results
+### TC-JSONP-005: [REMOVED] Callback combined with query filters
 
 ## Regex Mode Tests (Full Mode)
 
@@ -241,6 +359,41 @@ Note: Valid names include `myFunc`, `my_func`, `myFunc123`
 **Expected Response:**
 - Status: `200`
 - Results include "Åkesson"
+
+### TC-REGEX-FULL-004: Regular expressions with quantified groups are accepted
+
+Spec: QUERY-4.05
+
+**Requests and expected results** (status `200`):
+
+| Filter | Names in `results` |
+|--------|--------------------|
+| `Name=^(Mc\|Ma)(L\|r)+` | McLoud, Martinsson |
+| `Name=^M[a-z]+(,[0-9]+)*$` | Martinsson |
+| `Name=^(M\|B)(c\|é)*` | Béringer, McLoud, Martinsson |
+| `Name=~(a\|e)+` | Béringer, Åkesson, Martinsson, Überhuber |
+
+### TC-REGEX-FULL-005: A value longer than 200 characters that is detected as a regex is accepted
+
+Spec: QUERY-4.05
+
+**Setup:** A dataset with the rows `https://example.org/<250 × a>/data.csv,1` and `https://example.org/other,2`
+(columns `url,n`).
+
+**Request:** `GET /dataset/{id}?url=https://example.org/<250 × a>/data.csv` (detected as a regex because of `/`)
+
+**Expected Response:**
+- Status: `200`
+- `results`: exactly the row with `n` = `1`
+
+### TC-REGEX-FULL-006: An invalid regular expression is rejected with 400
+
+Spec: QUERY-4.05
+
+**Request:** `GET /dataset/{id}?Name=^(M`
+
+**Expected Response:**
+- Status: `400`
 
 ## Regex Mode Tests (Disabled Mode)
 
@@ -363,3 +516,23 @@ Note: Tilde (~) only triggers regex in FULL mode, not SIMPLE mode.
 
 **Assertions:**
 - Response contains "Regular expressions may be used"
+
+### TC-REGEX-SIM-007: Regular expressions with quantified groups are accepted
+
+Spec: QUERY-4.05
+
+**Request:** `GET /dataset/{id}?Name=^(Mc|Ma)(L|r)+`
+
+**Expected Response:**
+- Status: `200`
+- Results: McLoud, Martinsson
+
+### TC-REGEX-SIM-008: Unencoded regex characters in the query string are accepted
+
+Spec: QUERY-9.03
+
+**Request:** `GET /dataset/{id}?Name=^(McLoud|Martinsson)$`, request line sent byte for byte
+
+**Expected Response:**
+- Status: `200`
+- Results: McLoud, Martinsson

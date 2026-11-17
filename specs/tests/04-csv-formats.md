@@ -4,6 +4,11 @@
 
 Tests for various CSV format variations: different delimiters, encodings, and edge cases in CSV parsing.
 
+The empty line tests (TC-CSV-011 to TC-CSV-022) use inline CSV content. TC-CSV-011 to TC-CSV-016 run with the
+default parser (`CsvEmptyLineIT`), TC-CSV-017 to TC-CSV-022 repeat them with `legacyparser: true`
+(`CsvEmptyLineLegacyParserIT`, requires a separate RowStore instance and is skipped when testing an external
+instance). See ETL-4.05.
+
 ## Test Data Files
 
 | File | Encoding | Delimiter | Rows | Notes |
@@ -150,9 +155,10 @@ Note: Characters like `é`, `Å`, `ä`, `ö`, `å`, `Ü` correctly converted fro
 - Body: Contents of `duplicate_cols.csv`
 
 **Expected Response:**
-- Status: `202` (accepted) or `400` (rejected)
+- Status: `202`
 
-Note: Behavior depends on implementation (last wins or error).
+**After Processing:**
+- `status` = 4 (ERROR), duplicate labels fail the load (ETL-4.09)
 
 ### TC-CSV-EDGE-003: Very long field value (>256 chars)
 
@@ -230,3 +236,251 @@ Note: Behavior depends on implementation (last wins or error).
 **Expected Response:**
 - Status: `200`
 - Dataset queryable despite edge case headers
+
+## Empty Line Tests
+
+In the CSV content below, `\n` denotes a line break.
+
+### TC-CSV-011: An empty line between rows fails the load and a failed replace keeps the previous data
+
+**Steps:**
+1. Create a dataset from `name,value\nA1,1\nA2,2\n` and wait until it is available
+2. `PUT /dataset/{id}` with `name,value\nB1,1\nB2,2\n\nB3,3\nB4,4\n`
+
+**Assertions:**
+1. The status becomes ERROR (4); the line number of the empty line (4) is logged at ERROR level
+2. Queries return exactly the rows `{name: A1, value: 1}`, `{name: A2, value: 2}`
+
+### TC-CSV-012: An empty line directly after the header fails the load
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `name,value\n\nA1,1\nA2,2\n`
+
+**Assertions:**
+1. The status becomes ERROR (4)
+
+### TC-CSV-013: Empty lines at the end of the file are ignored
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `name,value\nA1,1\nA2,2\n\n\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3)
+2. Queries return exactly the rows `{name: A1, value: 1}`, `{name: A2, value: 2}` (no rows for the empty lines)
+
+### TC-CSV-014: An empty line inside a quoted value is part of the value
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `name,value\n"first\n\nthird",1\nA2,2\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3)
+2. Queries return exactly the rows `{name: "first\n\nthird", value: 1}`, `{name: A2, value: 2}`
+
+### TC-CSV-015: A line consisting of whitespace only is a data row
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `name,value\nA1,1\n \nA2,2\n` (the third line is a single space)
+
+**Assertions:**
+1. The status becomes AVAILABLE (3)
+2. Queries return exactly the rows `{name: A1, value: 1}`, `{name: " "}`, `{name: A2, value: 2}`
+
+### TC-CSV-016: A quoted empty value in a single-column CSV is a data row
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `name\nA1\n""\nA2\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3)
+2. Queries return exactly the rows `{name: A1}`, `{name: ""}`, `{name: A2}`
+
+### TC-CSV-017 to TC-CSV-022: Empty lines with the legacy parser
+
+As TC-CSV-011 to TC-CSV-016 (in this order), with a RowStore instance configured with `legacyparser: true`. The
+results must be the same as with the default parser; in particular, a quoted empty value (TC-CSV-022) must not be
+taken for an empty line, although the legacy parser returns the same record for both.
+
+## CSV Without Columns
+
+ETL-4.10 (ROWS-180). TC-CSV-047 to TC-CSV-051 and TC-CSV-057 run with the default parser (`CsvNoColumnsIT`),
+TC-CSV-052 to TC-CSV-056 and TC-CSV-058 repeat them in the same order with `legacyparser: true`
+(`CsvNoColumnsLegacyParserIT`). The datasets of TC-CSV-047 to TC-CSV-049, TC-CSV-051 and TC-CSV-057 are created
+from `name,value\nA1,1\nA2,2\n`; "the previous data" means status ERROR (4) with `rowcount` 2, the `columnnames`
+`name`, `value` and exactly the rows `{name: A1, value: 1}`, `{name: A2, value: 2}`.
+
+### TC-CSV-047: A replace without a header line fails and keeps the previous data
+
+1. `PUT /dataset/{id}` with the body `\n` → `202`
+2. The status becomes ERROR (4) and the dataset keeps the previous data
+
+### TC-CSV-048: A replace with a gzip or zip body sent without Content-Encoding fails and keeps the previous data
+
+For each body, without `Content-Encoding`: `dataset1_utf8.csv` compressed with gzip (before ROWS-180, it ended as
+AVAILABLE with 0 rows and 0 columns), `name,value\nC1,3\n` compressed with gzip (its header yielded a label, so it
+ended as AVAILABLE with 0 rows), and `name,value\nA1,1\nA2,2\n` as a zip archive:
+1. `PUT /dataset/{id}` → `202`
+2. The status becomes ERROR (4) and the dataset keeps the previous data
+
+### TC-CSV-049: An append without columns fails and adds nothing
+
+1. `POST /dataset/{id}` with the body `\n` → `202`; the status becomes ERROR (4) and the dataset keeps the previous data
+2. The same with `dataset1_utf8.csv` compressed with gzip
+
+### TC-CSV-050: A new dataset whose header has no label fails
+
+For each body `,,,\n`, `,,\n1,2,3\n`, ` \n` (a single space), `\n\n` and a UTF-8 byte order mark only (1.7: AVAILABLE
+with a column named U+FEFF):
+1. `POST /datasets` → `202`
+2. The status becomes ERROR (4), with `rowcount` 0 and no column names
+
+### TC-CSV-051: A header-only CSV with column names is available with 0 rows
+
+1. `PUT /dataset/{id}` with `name,value\n` → `202`; the status becomes AVAILABLE (3) with `rowcount` 0, and queries
+   return no rows
+2. `POST /dataset/{id}` with `name,value\nB1,1\n` → `202`; the status becomes AVAILABLE (3) with `rowcount` 1 and the
+   `columnnames` `name`, `value`
+
+### TC-CSV-057: A replace whose header contains a control character fails and keeps the previous data
+
+For each body `na<NUL>me,value\n` (U+0000, header only) and `name,value<ESC>\nB1,1\n` (U+001B):
+1. `PUT /dataset/{id}` → `202`
+2. The status becomes ERROR (4) and the dataset keeps the previous data
+
+### TC-CSV-052 to TC-CSV-056, TC-CSV-058: Datasets without columns with the legacy parser
+
+As TC-CSV-047 to TC-CSV-051 and TC-CSV-057 (in this order), with a RowStore instance configured with
+`legacyparser: true`.
+
+Unit tests (`DatasetUtilBinaryDataTest`, without IDs) cover the gzip and zip signatures, the control characters
+(tab, CR, LF and C1 control characters are allowed), and headers without control characters for UTF-16 with byte
+order mark, UTF-16 without byte order mark (ASCII text), Windows-1252 and ISO-8859-1.
+
+## Byte Order Mark and Soft Hyphen Tests
+
+`<BOM>` denotes U+FEFF (in UTF-8 the bytes `EF BB BF`), `<SHY>` a soft hyphen U+00AD, and `\n` a line break. See
+ETL-4.06 to ETL-4.09. TC-CSV-023 to TC-CSV-029 and TC-CSV-041 to TC-CSV-043 run with the default parser (`CsvBomIT`),
+TC-CSV-030 to TC-CSV-036 and TC-CSV-044 to TC-CSV-046 repeat them in the same order with `legacyparser: true`
+(`CsvBomLegacyParserIT`, requires a separate RowStore instance and is skipped when testing an external instance); the
+results must be the same.
+
+### TC-CSV-023: A UTF-8 byte order mark before a quoted first label yields clean column names
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body (UTF-8): `<BOM>"kopare_id",namn\n1,Anna\n2,Bo\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3)
+2. `columnnames` of `/dataset/{id}/info` are exactly `kopare_id`, `namn`
+3. `GET /dataset/{id}?kopare_id=1` returns exactly `{kopare_id: 1, namn: Anna}`
+4. The query parameters of `/dataset/{id}/swagger` contain `kopare_id` and `namn`, and no parameter name contains
+   U+FEFF or a quote
+
+### TC-CSV-024: A UTF-8 byte order mark before an unquoted first label yields clean column names
+
+As TC-CSV-023 with the body `<BOM>kopare_id,namn\n1,Anna\n2,Bo\n`.
+
+### TC-CSV-025: A semicolon-separated CSV with a UTF-8 byte order mark is parsed with the detected separator
+
+As TC-CSV-023 with the body `<BOM>"kopare_id";"namn"\n1;Anna\n2;Bo\n`.
+
+### TC-CSV-026: A UTF-16LE byte order mark before a quoted first label yields clean column names
+
+As TC-CSV-023 with the body `"kopare_id",namn\n1,Anna\n2,Bo\n` encoded as UTF-16LE with the byte order mark `FF FE`
+(charset detection returns UTF-16LE, whose decoder keeps the byte order mark).
+
+### TC-CSV-027: Soft hyphens are removed from labels and kept in values
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `ko<SHY>pare_id,na<SHY>mn<SHY>\n1,An<SHY>na\n`
+
+**Assertions:**
+1. `columnnames` are exactly `kopare_id`, `namn`
+2. `GET /dataset/{id}?kopare_id=1` returns exactly `{kopare_id: 1, namn: An<SHY>na}`
+
+### TC-CSV-028: An append with byte order mark and quoted first label matches the column names
+
+**Steps:**
+1. Create a dataset from `<BOM>"kopare_id",namn\n1,Anna\n2,Bo\n` and wait until it is available
+2. `POST /dataset/{id}` with `<BOM>"kopare_id",namn\n3,Cecilia\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3) and `rowcount` = 3
+2. `columnnames` are exactly `kopare_id`, `namn`; `?kopare_id=3` returns `{kopare_id: 3, namn: Cecilia}`
+
+### TC-CSV-029: A first line consisting of a byte order mark only is an empty line
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body: `<BOM>\nkopare_id,namn\n1,Anna\n`
+
+**Assertions:**
+1. The status becomes ERROR (4), as for an empty first line followed by rows (ETL-4.05)
+
+### TC-CSV-030 to TC-CSV-036: Byte order marks and soft hyphens with the legacy parser
+
+As TC-CSV-023 to TC-CSV-029 (in this order), with a RowStore instance configured with `legacyparser: true`.
+
+### TC-CSV-041: A first label consisting of a byte order mark only skips its column without shifting the others
+
+The index column written by pandas with `to_csv(encoding="utf-8-sig")` (ETL-4.08).
+
+**Request:**
+- Method: `POST`
+- URL: `/datasets`
+- Body (UTF-8): `<BOM>,a,b\n0,1,2\n1,3,4\n`
+
+**Assertions:**
+1. The status becomes AVAILABLE (3) and `rowcount` = 2
+2. `columnnames` are exactly `a`, `b`
+3. `?a=1` returns exactly `{a: 1, b: 2}`, `?b=4` exactly `{a: 3, b: 4}`
+
+### TC-CSV-042: Columns with an empty label are skipped without shifting the others
+
+As TC-CSV-041 with the bodies `,a,b\n0,1,2\n1,3,4\n` and `a,<U+3000>,b\n1,x,2\n3,y,4\n` (a label of Unicode whitespace
+only is empty, ETL-4.04).
+
+### TC-CSV-043: Labels that are equal after normalization fail the load
+
+**Steps:**
+1. `POST /datasets` with each of the headers `id,ID,b`, `name, Name,b` and `id,id<SHY>,b`, followed by the rows
+   `1,2,3` and `4,5,6`
+2. Create a dataset from `id,b\n1,3\n`; `POST /dataset/{id}` (append) with `id,id<SHY>,b\n4,5,6\n`; then `PUT
+   /dataset/{id}` (replace) with the same file
+
+**Assertions:**
+1. Each load of step 1 ends with status ERROR (4) (ETL-4.09)
+2. The append and the replace each end with status ERROR (4); the dataset keeps `rowcount` = 1, the `columnnames` `id`,
+   `b`, and `?b=3` returns exactly `{id: 1, b: 3}`
+
+### TC-CSV-044 to TC-CSV-046: Empty and duplicate labels with the legacy parser
+
+As TC-CSV-041 to TC-CSV-043 (in this order), with a RowStore instance configured with `legacyparser: true`
+(`CsvBomLegacyParserIT`).
+
+### TC-CSV-037 to TC-CSV-040: Reader that skips a byte order mark (unit tests)
+
+Unit tests of `DatasetUtil.newReaderSkippingBom()` (`DatasetUtilBomReaderTest`), no RowStore instance needed:
+
+- **TC-CSV-037:** a leading byte order mark is skipped for UTF-8, UTF-16LE and UTF-16BE
+- **TC-CSV-038:** text without a leading byte order mark is read unchanged, including a U+FEFF later in the text; of
+  two leading byte order marks only the first is skipped
+- **TC-CSV-039:** an empty file and a file consisting of a byte order mark only are read as empty text; `<BOM>\n`
+  is read as `\n`
+- **TC-CSV-040:** malformed input is reported as `MalformedInputException`, both in the first character (when the
+  reader is opened) and later in the file

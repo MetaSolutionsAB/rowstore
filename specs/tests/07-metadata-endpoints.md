@@ -39,12 +39,15 @@ Tests for metadata endpoints: Swagger API documentation and WebGui HTML interfac
 
 ### TC-SWAGGER-004: Swagger contains standard parameters
 
+Spec: API-9.01
+
 **Request:**
 - Method: `GET`
 - URL: `/dataset/{id}/swagger`
 
 **Assertions:**
-- Response contains: `_limit`, `_offset`, `_callback`
+- Response contains: `_limit`, `_offset`
+- Response does not contain `_callback` (accepted and ignored, but not listed since 2.0)
 - Parameters have descriptions
 
 ### TC-SWAGGER-005: Swagger contains dataset ID
@@ -64,6 +67,26 @@ Tests for metadata endpoints: Swagger API documentation and WebGui HTML interfac
 
 **Assertions:**
 - `info.version` is present and not null
+
+### TC-SWAGGER-007: Swagger handles column names with quote, backslash and dollar sign
+
+**Setup:**
+- Create a dataset from this CSV (the quote is escaped by doubling it inside a quoted header, RFC 4180):
+  ```csv
+  id,"a ""b""",c\d,$1
+  1,2,3,4
+  ```
+
+**Request:**
+- Method: `GET`
+- URL: `/dataset/{id}/swagger`
+
+**Expected Response:**
+- Status: `200`
+
+**Assertions:**
+- Response body parses as JSON
+- `paths./dataset/{id}.get.parameters[*].name` contains the exact names `id`, `a "b"`, `c\d` and `$1`
 
 ## WebGui Endpoint (`/dataset/{id}/html`)
 

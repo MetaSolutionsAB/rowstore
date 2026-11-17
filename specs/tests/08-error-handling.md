@@ -176,6 +176,92 @@ Note: UUID-like aliases might be rejected to prevent confusion with actual datas
 **Expected Response:**
 - Status: `404`
 
+## Path Parameters
+
+### TC-ERROR-017: Request paths with path parameters (;) are rejected with 400
+
+**Request (one per case, URL not encoded by the client):**
+- Method: `GET`
+- URL: `/v3;x/api-docs`, `/status;x?jvm`, `/status;x`, `/swagger-ui;x/index.html`, `/actuator;x/health`, `/actuator/health;x`, `/datasets;a`, `/;x`
+
+**Expected Response:**
+- Status: `400` (before SEC-4.11 these were served like the paths without `;...`)
+
+### TC-ERROR-018: Dataset paths with path parameters are rejected, other requests are unaffected
+
+**Setup:** An available dataset.
+
+**Assertions:**
+1. `GET /dataset/{id};x`, `GET /dataset/{id};1/info` and `DELETE /dataset/{id};x` return `400`
+2. `GET /dataset/{id}` and `GET /dataset/{id}/info` return `200`
+3. `GET /dataset/{id}?Name=a;b` returns `200` (`;` in the query string is not a path parameter)
+4. `GET /dataset/{id}%3Bx` returns `404` (encoded `;` is not a delimiter, the ID does not exist)
+
+### TC-ERROR-021: Encoded slashes and backslashes in dataset paths return 404
+
+Spec: QUERY-9.03
+
+**Setup:** An available dataset. Requests are sent raw, without re-encoding or normalization by the client.
+
+**Assertions:**
+1. `GET` of `/dataset/a%2Fb`, `/dataset/a%2fb`, `/dataset/a%5Cb`, `/dataset/a%5cb`, and of `/info`, `/export`, `/aliases` (`%2F` and `%5C`), `/json`, `/html` below `/dataset/a%2Fb` return `404` (not Tomcat's `400`)
+2. `GET /dataset/x%2F..%2Fstatus`, `/dataset/x%5C..%5Cstatus`, `/dataset/%2E%2E%2Fstatus`, `/dataset/{id}%2Finfo`, `/dataset/{id}%5Cinfo`, `/dataset%2F{id}` and `/actuator%2Fhealth` return `404` (no traversal to another resource)
+3. `DELETE` of `/dataset/x%2F..%2F{id}`, `/dataset/x%5C..%5C{id}`, `/dataset/{id}%2F` and `/dataset/x%2F..%2F{id}/aliases` return `404`, and `GET /dataset/{id}` still returns `200`
+
+### TC-ERROR-019: Uploads without Content-Type are read as CSV
+
+Spec: API-3.03, SEC-4.04
+
+**Steps** (requests without Content-Type header, CSV `name,n` / `a,1` / `b,2`):
+1. `POST /datasets` → `202` with `Location`; once available, `rowcount` is 2
+2. `POST /dataset/{id}` → `202`; once available, `rowcount` is 4
+3. `PUT /dataset/{id}` → `202`; once available, `rowcount` is 2
+4. `POST /datasets` without Content-Type and without body → `400`
+
+### TC-ERROR-020: Uploads with another Content-Type than text/csv are rejected with 415
+
+Spec: SEC-4.04
+
+**Requests:** `POST /datasets` with a CSV body and Content-Type `text/plain`, `application/octet-stream` or `application/json`
+
+**Expected Response:**
+- Status: `415`
+
+### TC-ERROR-022: Unknown and malformed dataset IDs return 404 without log messages at WARN or ERROR level
+
+Spec: API-6.06
+
+Integration test (`DatasetLookupLoggingIT`).
+
+**Setup:** The log of the in-process server is captured (skipped against an external instance). Requests are sent raw, without re-encoding by the client.
+
+**Assertions:**
+1. `GET` of `/dataset/not-a-uuid`, `/dataset/wp-login.php`, `/dataset/a%2Fb`, `/dataset/%C3%A5%C3%A4%C3%B6`, `/dataset/{random UUID}` (also in upper case, and with its last character replaced by `x`), and of `/json`, `/info`, `/export`, `/aliases`, `/swagger`, `/html` below `/dataset/{random UUID}` return `404`
+2. `DELETE /dataset/{random UUID}` returns `404`
+3. None of these requests produces a log message at WARN or ERROR level in the threads that handle the requests (the access log records them at INFO level); messages of other threads, e.g., of ETL jobs left by earlier tests, are not considered
+
+### TC-ERROR-023: Database failures while looking up a dataset are not treated as unknown datasets
+
+Spec: API-6.05, API-6.06
+
+Unit test (`PgDatasetLookupTest`) with a fake database.
+
+**Assertions:**
+1. A connectivity failure while resolving the alias or while loading the dataset propagates (503)
+2. An alias rejected by the database with a data exception (SQL state class `22`, e.g. an invalid byte sequence) is an unknown dataset (404)
+3. Another database error while loading the dataset (e.g. missing privileges, `42501`) propagates (500)
+
+### TC-ERROR-024: An invalid data table name in the datasets table is a server fault, not an unknown dataset
+
+Spec: API-6.06
+
+Unit test (`PgDatasetLookupTest`) with a fake database.
+
+**Input:** A row of the datasets table whose `data_table` does not match the data table name pattern (e.g. `data_x; DROP TABLE datasets`).
+
+**Assertions:**
+1. Loading the dataset throws `DataIntegrityViolationException` (500) whose message names the dataset ID, instead of an exception that means an unknown dataset (404)
+
 ## Corrupt CSV Error Handling
 
 These tests are in `DatasetCorruptIT.java`.

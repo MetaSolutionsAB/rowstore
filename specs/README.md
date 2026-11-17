@@ -1,8 +1,8 @@
 # RowStore Specification Suite
 
-This specification suite is the canonical reference for the RowStore system. It documents the **current state** of the software (version 1.8-SNAPSHOT, commit `9cffb9f`) and serves all four user personas: data publishers, API consumers, operators/admins, and embedded viewers.
+This specification suite is the canonical reference for the RowStore system. It documents the **current state** of the software (version 2.0-SNAPSHOT, branch `develop`) and serves all four user personas: data publishers, API consumers, operators/admins, and embedded viewers.
 
-The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (121 test cases across 9 files) are preserved alongside these specs.
+The existing framework-agnostic test specifications in [`specs/tests/`](tests/README.md) (375 test cases across 15 files) are preserved alongside these specs.
 
 ## Reading Paths by Persona
 
@@ -20,11 +20,11 @@ The existing framework-agnostic test specifications in [`specs/tests/`](tests/RE
 | [01-system-architecture.md](01-system-architecture.md) | `ARCH` | What RowStore is, technology stack, module and component architecture |
 | [02-domain-model.md](02-domain-model.md) | `DOM` | Conceptual model, entity relationships, database schema, indexes |
 | [03-api.md](03-api.md) | `API` | REST API design, endpoint catalog, error conventions |
-| [04-etl-pipeline.md](04-etl-pipeline.md) | `ETL` | CSV upload processing: queue, parsing, batch inserts, indexing |
+| [04-etl-pipeline.md](04-etl-pipeline.md) | `ETL` | CSV upload processing: virtual threads, parsing, batch inserts, indexing |
 | [05-querying.md](05-querying.md) | `QUERY` | Query filters, regex modes, pagination, timeouts |
 | [06-configuration.md](06-configuration.md) | `CFG` | All config options, defaults, env vars, CLI args, examples |
-| [07-security.md](07-security.md) | `SEC` | Auth state, input validation, rate limiting, SQL safety |
-| [08-deployment.md](08-deployment.md) | `DEPL` | Standalone Jetty, Docker, CI/CD, monitoring, logging |
+| [07-security.md](07-security.md) | `SEC` | Auth state, input validation, rate limiting, CORS, SQL safety |
+| [08-deployment.md](08-deployment.md) | `DEPL` | Spring Boot standalone, Docker, CI/CD, monitoring, logging |
 | [09-ui-ux.md](09-ui-ux.md) | `UIX` | Web GUI features and display modes |
 | [10-testing.md](10-testing.md) | `TEST` | Test strategy, infrastructure, coverage matrix |
 | [11-user-stories.md](11-user-stories.md) | `USR` | Scenario-based stories for all 4 personas |
@@ -110,17 +110,26 @@ Current limitations relevant to this area.
 | ARCH-2.03 | Export as JSON or CSV |
 | ARCH-2.04 | Web GUI for browsing |
 | ARCH-2.05 | Rate limiting |
-| ARCH-3.01 | Core: Java 21, Restlet 2.5.1, PostgreSQL, Jetty 9.4.57 |
+| ARCH-3.01 | Core: Java 25, Spring Boot 4.1.2, PostgreSQL, Tomcat (embedded), optional HikariCP, Flyway |
 | ARCH-3.02 | Libraries: OpenCSV, Guava, Log4j2, juniversalchardet, ICU4J |
-| ARCH-4.01 | webapp — core application |
-| ARCH-4.02 | standalone/jetty — embedded server |
-| ARCH-4.03 | standalone/common — shared standalone utilities |
-| ARCH-5.01 | Filter chain: JSCallbackFilter → RateLimitFilter → Router |
-| ARCH-5.02 | Read path: GET → resource → PgDataset.query → PostgreSQL |
-| ARCH-5.03 | Write path: POST CSV → temp file → ETL queue → async processing |
+| ARCH-4.01 | Single Maven module — executable JAR |
+| ARCH-4.02 | [REMOVED] standalone/jetty — replaced by Spring Boot embedded server |
+| ARCH-4.03 | [REMOVED] standalone/common — replaced by Spring Boot embedded server |
+| ARCH-5.01 | Filter chain: AccessLogFilter → PathParameterFilter → CorsFilter → ParameterParsingFilter → TrustedProxyFilter → TunnelFilter → RateLimitFilter → RequestDecodingFilter → DispatcherServlet → Controllers |
+| ARCH-5.02 | Read path: GET → controller → PgDataset.query → PostgreSQL |
+| ARCH-5.03 | Write path: POST CSV → temp file → EtlProcessor.submit → virtual thread → PgDataset.populate |
 | ARCH-6.01 | Why JSONB (schemaless, per-column indexing) |
-| ARCH-6.02 | Why queue-based ETL (async, configurable concurrency) |
-| ARCH-6.03 | Why Restlet (lightweight REST framework) |
+| ARCH-6.02 | Why virtual-thread ETL (immediate dispatch, Semaphore concurrency control) |
+| ARCH-6.03 | Why Spring Boot (industry standard, optional HikariCP, Flyway, Actuator, virtual threads) |
+| ARCH-7.01 | Unpooled by default; connections per instance limited by connection budgets at the data source level |
+| ARCH-7.02 | Budgets: query (maxQueryConnections), export (maxExportConnections), load (maxetlprocesses), per database block |
+| ARCH-7.03 | FIFO wait up to connectionWaitTimeout, then 503; querytimeout and lock timeout bound query connections |
+| ARCH-7.04 | A request or ETL job holds at most one connection at a time |
+| ARCH-7.05 | Aggregated WARN for slow waits and timeouts; usage in /status and health details; health of both databases with short wait |
+| ARCH-7.06 | Sizing formula per instance and database; PgBouncer for many instances (queryLockTimeout 0, server-side lock_timeout) |
+| ARCH-7.07 | Budgets apply on top of an enabled HikariCP pool; pool size warning; warning when pooling where 1.x did not; no leak detection |
+| ARCH-7.08 | Database not reachable at startup: migration and startup maintenance retried with backoff, port not open meanwhile |
+| ARCH-7.09 | 503 for an unavailable database with Retry-After; logging of wait, lock and statement timeouts without flooding |
 
 ### DOM — Domain Model
 
@@ -133,14 +142,17 @@ Current limitations relevant to this area.
 | DOM-2.01 | Dataset 1:N Alias |
 | DOM-2.02 | Dataset 1:N Row |
 | DOM-2.03 | Dataset has ETL Status |
+| DOM-2.04 | Aliases deleted with their dataset; orphan aliases removed by migration V3 |
 | DOM-3.01 | Status lifecycle: CREATED→ACCEPTED_DATA→PROCESSING→AVAILABLE\|ERROR |
 | DOM-4.01 | datasets table schema |
 | DOM-4.02 | aliases table schema |
 | DOM-4.03 | Per-dataset data table schema |
+| DOM-4.04 | maintenance_tasks table: completed one-time maintenance tasks, skipped at later startups |
 | DOM-5.01 | text_pattern_ops indexes per column |
 | DOM-5.02 | MD5-hashed index names |
 | DOM-5.03 | Fields > 256 chars not indexed |
 | DOM-6.01 | Data table naming: data_ + UUID without hyphens |
+| DOM-6.02 | Shadow table naming: data table + _new, separate strict pattern, never stored |
 | DOM-7.01 | JSON-LD output with @context and @id |
 
 ### API — REST API
@@ -149,8 +161,8 @@ Current limitations relevant to this area.
 |----|-------------|
 | API-1.01 | RESTful resource-oriented design |
 | API-1.02 | JSON default response format |
-| API-1.03 | Content negotiation via Accept header and format param |
-| API-1.04 | JSONP via _callback param |
+| API-1.03 | Content negotiation via Accept header and media param |
+| API-1.04 | [REMOVED] JSONP via _callback param — replaced by CORS |
 | API-2.01 | Base URL from config, used in response links |
 | API-3.01 | GET /status — service status, exempt from rate limiting |
 | API-3.02 | GET /datasets — list dataset UUIDs |
@@ -158,45 +170,86 @@ Current limitations relevant to this area.
 | API-3.04 | GET /dataset/{id} and /json — query with filters |
 | API-3.05 | POST /dataset/{id} — append CSV data |
 | API-3.06 | PUT /dataset/{id} — replace CSV data |
-| API-3.07 | DELETE /dataset/{id} — delete dataset |
+| API-3.07 | DELETE /dataset/{id} — delete dataset and aliases (204) without waiting for readers; data table dropped in the background |
 | API-3.08 | GET /dataset/{id}/info — dataset metadata (JSON-LD) |
 | API-3.09 | GET\|PUT\|POST\|DELETE /dataset/{id}/aliases — alias management |
 | API-3.10 | GET /dataset/{id}/export — export JSON or CSV |
 | API-3.11 | GET /dataset/{id}/swagger — dynamic OpenAPI spec |
 | API-3.12 | GET /dataset/{id}/html — web GUI |
 | API-3.13 | GET / — 404 fallback |
+| API-3.14 | GET /status — additive `connections` field with budget usage |
+| API-3.15 | GET /status and health — additive `queuedEtlProcesses` field (queued, not started ETL jobs) |
+| API-3.16 | PUT, POST, DELETE /dataset/{id}/json — same as on /dataset/{id} |
+| API-3.17 | Request bodies decoded by `Content-Encoding` (gzip, x-gzip, deflate, deflate-no-wrap, zip, identity); other codings and more than two compressions 415, undecodable bodies 400 |
 | API-4.01 | Accept header determines response format |
-| API-4.02 | format param overrides Accept header |
+| API-4.02 | [REMOVED] format param overrides Accept header — never implemented |
 | API-4.03 | Accept: text/html redirects 303 to /html |
+| API-4.04 | No 406: single-representation resources ignore Accept, fallback by top-level type as in 1.x |
+| API-4.05 | media query parameter replaces the Accept header (Restlet tunnel) |
+| API-4.06 | method parameter / X-HTTP-Method-Override tunnel the method of POST requests only |
 | API-5.01 | Response envelope: results, limit, offset, resultCount, queryTime, prev, next |
 | API-6.01 | Success: 200, 202, 204 |
 | API-6.02 | Client errors: 400, 404, 415 |
 | API-6.03 | Constraints: 423, 424, 429 |
 | API-6.04 | Server errors: 500, 503 |
-| API-7.01 | _callback wraps JSON in function call |
-| API-8.01 | Server header: RowStore/\<version\> |
+| API-6.05 | Database connectivity failure → 503, not 404 |
+| API-6.06 | Unknown or malformed dataset IDs: 404, logged at DEBUG at most |
+| API-7.01 | [REMOVED] _callback wraps JSON in function call — JSONP removed |
+| API-8.01 | Server header: RowStore |
 | API-9.01 | Per-dataset OpenAPI spec from column names |
+| API-10.01 | Range header ignored: 200 with full body, no Accept-Ranges |
 
 ### ETL — ETL Pipeline
 
 | ID | Description |
 |----|-------------|
-| ETL-1.01 | Pipeline: upload → temp file → queue → parse → batch insert → index |
-| ETL-2.01 | ConcurrentLinkedQueue, 5s poll interval |
+| ETL-1.01 | Pipeline: upload → temp file → virtual thread → parse → batch insert → index |
+| ETL-2.01 | Virtual threads with Semaphore-based concurrency limiting |
 | ETL-2.02 | Max concurrent from maxetlprocesses (default 5) |
 | ETL-3.01 | Status transitions: CREATED→ACCEPTED_DATA→PROCESSING→AVAILABLE\|ERROR |
 | ETL-3.02 | Error handling: status set to ERROR, temp file deleted |
 | ETL-4.01 | Charset detection: juniversalchardet → ICU4J → UTF-8 |
 | ETL-4.02 | Separator detection: semicolon if consistent in first 2 lines, else comma |
 | ETL-4.03 | Parser: RFC4180Parser (default) or CSVParser (legacy) |
-| ETL-4.04 | Column names: lowercase, trimmed, empty skipped |
+| ETL-4.04 | Column names: lowercase, ends trimmed (trim and Unicode whitespace), BOM and soft hyphens removed, empty skipped |
+| ETL-4.05 | Empty lines: trailing ignored, otherwise the load fails (line number logged), both parsers alike |
+| ETL-4.06 | Leading byte order mark skipped before parsing and separator detection |
+| ETL-4.07 | Labels sanitized: U+FEFF and U+00AD removed anywhere; also used by the append check; affected names change |
+| ETL-4.08 | Columns keep their position; cells of columns with an empty label skipped, no shifting |
+| ETL-4.09 | Duplicate labels after normalization fail the load (ERROR), also for appends; replace keeps the previous data |
+| ETL-4.10 | A load without columns (no header line, or no non-empty label) or of binary data (gzip/zip signature, control characters in the header) fails (ERROR); replace keeps the previous data, append adds nothing |
 | ETL-5.01 | Batch insert every 200 rows, rollback on error |
 | ETL-6.01 | POST = append (validates column match) |
-| ETL-6.02 | PUT = truncate + reload |
+| ETL-6.02 | PUT = load into shadow table, then replace data table (no truncate); owner and privileges kept |
+| ETL-6.03 | Replace status: PROCESSING, AVAILABLE or ERROR; previous data served until replaced and kept on failure |
+| ETL-6.04 | Swap lock: 3 s lock_timeout attempts retried with growing delays for at most 30 minutes, giving up with ERROR and previous data; lock holders logged; replica query cancellation |
+| ETL-6.05 | Leftover shadow tables dropped at next replace, after a delete and at startup |
 | ETL-7.01 | text_pattern_ops index per column, escapeString for DDL |
 | ETL-7.02 | Skip index for fields > 256 chars |
-| ETL-8.01 | Concurrency: runningConversions counter, busy-wait if PROCESSING |
-| ETL-9.01 | Temp file: deleteOnExit + explicit deletion |
+| ETL-8.01 | [REMOVED] Busy-wait if PROCESSING — superseded by ETL-8.02 to ETL-8.07 |
+| ETL-8.02 | Per-dataset job queue (canonical ID): one job at a time per dataset, in submission order |
+| ETL-8.03 | Replace discards queued (not started) loads of the same dataset |
+| ETL-8.04 | Semaphore permit only for the next job of a dataset; activeEtlProcesses counts running jobs |
+| ETL-8.05 | Stale PROCESSING taken over via conditional UPDATE (one instance per database) |
+| ETL-8.06 | Startup reset: PROCESSING → ERROR, ACCEPTED_DATA untouched |
+| ETL-8.07 | Error in a job: remaining queued jobs of the dataset discarded, new worker for later jobs |
+| ETL-9.01 | Temp file: deleteOnExit + explicit deletion (after load, on discard, on early failure) |
+| ETL-9.02 | maxuploadsize limits the decoded upload and each decoder's input; temp file deleted if writing it fails (413, 400) |
+| ETL-10.01 | Final status from locally tracked outcome; exceptions logged with stack trace |
+| ETL-10.02 | Final status write retried with backoff (96 s of delays plus connection timeouts) |
+| ETL-11.01 | Background cleanup of column names after startup; affected = first-row key not clean; skipped datasets |
+| ETL-11.02 | Cleaning rule for names with BOM or soft hyphens per configured parser, derived from the parsers: unquote only after a leading BOM directly followed by a quote, remove BOM and soft hyphens, trim like 1.x; residual ambiguity |
+| ETL-11.03 | Rename per dataset as exclusive ETL task, one dataset at a time, one transaction; old indexes dropped last with the swap lock pattern; rewrite cost; stop on connection failures |
+| ETL-11.04 | Append matches labels with normalized cleaned stored names; renames BOM/soft hyphen names, keeps the others |
+| ETL-11.05 | Colliding cleaned names, also old and new name in any row: dataset skipped with WARN, no change |
+| ETL-11.06 | Idempotent; PUT yields clean names; column names of affected datasets change |
+| ETL-11.07 | Completed run recorded in maintenance_tasks, cleanup skipped at later startups |
+| ETL-11.08 | Only BOM and soft hyphens cleaned; whitespace and upper case of stored names kept |
+| ETL-11.09 | Stored names that clean to empty kept; ignored by appends |
+| ETL-12.01 | Data table of a deleted dataset dropped by attempts as jobs of the dataset (3 s lock timeout, load budget), no permit or connection held between attempts, retried up to 30 min; INFO, ERROR when giving up |
+| ETL-12.02 | Status condition part of the DELETE; no load runs on a deleted dataset's tables |
+| ETL-12.03 | Startup drops data tables that no datasets row references by lower-case stored or ID-derived name (WARN), 3 s lock timeout per table, failing tables skipped |
+| ETL-12.04 | Uploads and alias updates racing with a delete: 404, or load discarded with ERROR, no table touched |
 
 ### QUERY — Query Processing
 
@@ -205,14 +258,18 @@ Current limitations relevant to this area.
 | QUERY-1.01 | Column filters via query params with regex and pagination |
 | QUERY-2.01 | Case-insensitive column name matching |
 | QUERY-2.02 | Unrecognized params → 400 |
+| QUERY-2.03 | Names and values trimmed, empty names skipped, last value of repeated params, blank values match empty cells (as in 1.x) |
 | QUERY-3.01 | _limit: default 100, max from querymaxlimit |
 | QUERY-3.02 | _offset: default 0, negatives corrected to 0 |
-| QUERY-3.03 | _callback: JSONP function name |
-| QUERY-3.04 | format: response format override |
+| QUERY-3.03 | [REMOVED] _callback: JSONP function name — JSONP removed |
+| QUERY-3.04 | [REMOVED] format: response format override — never implemented |
+| QUERY-3.05 | _callback: reserved, accepted and ignored (no JSONP wrapping) |
+| QUERY-3.06 | media, charset, encoding, language: tunnel params, not filters unless a column has the name |
 | QUERY-4.01 | disabled: exact match only (=) |
 | QUERY-4.02 | simple: ^-prefixed values become regex (~) |
 | QUERY-4.03 | full: heuristic detection OR ~ prefix forces regex |
 | QUERY-4.04 | Heuristic chars: ^ $ ( \| [ * + { ? / |
+| QUERY-4.05 | Regexes not validated, run time limited by querytimeout; invalid regex → 400 |
 | QUERY-5.01 | Prepared statements: data->>? = ? or data->>? ~ ? |
 | QUERY-6.01 | count(*) OVER() window function for total count |
 | QUERY-6.02 | Prev/next URLs with original query params |
@@ -220,13 +277,17 @@ Current limitations relevant to this area.
 | QUERY-8.01 | getQueryConnection() routes to queryDatabase if configured |
 | QUERY-9.01 | Empty filter values → 400 |
 | QUERY-9.02 | Non-numeric _limit/_offset → 400 |
+| QUERY-9.03 | Unencoded ^ \| [ ] { } \ " < > ` accepted in query strings |
+| QUERY-9.04 | Malformed percent-encoding in the query string → 400 |
 
 ### CFG — Configuration
 
 | ID | Description |
 |----|-------------|
 | CFG-1.01 | JSON configuration file format |
-| CFG-2.01 | Resolution: CLI → env var → classpath |
+| CFG-1.02 | Startup fails on invalid config; error names the offending key |
+| CFG-1.03 | Missing, unreadable or invalid config: one error message, no stack trace, exit code 1 |
+| CFG-2.01 | Resolution: Spring property → env var → classpath |
 | CFG-2.02 | Schemes: file, http, https |
 | CFG-3.01 | baseurl (String, required) |
 | CFG-3.02 | regexpqueries (disabled/simple/full, default false) |
@@ -235,68 +296,100 @@ Current limitations relevant to this area.
 | CFG-3.05 | legacyparser (boolean, default false) |
 | CFG-3.06 | querytimeout (int seconds, default -1) |
 | CFG-3.07 | querymaxlimit (int, default 100) |
-| CFG-3.08 | exportpagesize (int, default 100000) |
+| CFG-3.08 | [REMOVED] exportpagesize — never used, key ignored |
+| CFG-3.09 | maxuploadsize (long bytes, default 104857600) |
+| CFG-3.10 | cors.allowedorigins (JSON array, default ["*"]) |
+| CFG-3.11 | trustedproxies (IPs/CIDR ranges; default: trust the connecting peer; [] trusts nobody) |
+| CFG-3.12 | accesslog (boolean, default true) |
 | CFG-4.01 | database object: type, host, port, database, user, password |
-| CFG-4.02 | ssl (boolean, default false) |
-| CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1) |
+| CFG-4.02 | ssl (boolean, optional) → sslmode require/disable, prefer when not set |
+| CFG-4.03 | connectionPoolInit, connectionPoolMax (default -1: no pool) |
 | CFG-4.04 | socketTimeout (0), connectTimeout (5), loginTimeout (5) |
-| CFG-5.01 | queryDatabase (optional, falls back to database) |
+| CFG-4.05 | maxQueryConnections (int, default 10) |
+| CFG-4.06 | maxExportConnections (int, default 2) |
+| CFG-4.07 | connectionWaitTimeout (int seconds, default querytimeout or 30) |
+| CFG-4.08 | queryLockTimeout (int seconds, default connectionWaitTimeout / 2, 0 disables) |
+| CFG-5.01 | queryDatabase (optional, falls back to database, read-only) |
 | CFG-6.01 | ratelimit.type (slidingwindow/average) |
 | CFG-6.02 | ratelimit.timerange (seconds) |
 | CFG-6.03 | ratelimit.global, .dataset, .clientip (requests per timerange) |
 | CFG-6.04 | Enable: timerange > 0 AND (global > 0 OR dataset > 0) |
-| CFG-7.01 | -c/--config — config file URI |
-| CFG-7.02 | -p/--port — listen port (default 8282) |
-| CFG-7.03 | -l/--log-level — log level override |
-| CFG-7.04 | --connector-params — Jetty connector params |
+| CFG-7.01 | --rowstore.config.uri — config file URI (Spring property) |
+| CFG-7.02 | --server.port — listen port (default 8282) |
+| CFG-7.03 | [REMOVED] -l/--log-level — CLI log level override |
+| CFG-7.04 | [REMOVED] --connector-params — Jetty connector params |
+| CFG-7.05 | Only --name=value arguments; 1.x options prevent the startup and name their replacement |
 | CFG-8.01 | ROWSTORE_CONFIG_URI env var |
-| CFG-8.02 | ROWSTORE_CONNECTOR_PARAMS env var |
+| CFG-8.02 | [REMOVED] ROWSTORE_CONNECTOR_PARAMS — Jetty connector params |
 | CFG-9.01 | Annotated example config |
 
 ### SEC — Security
 
 | ID | Description |
 |----|-------------|
-| SEC-1.01 | ApiKeyFilter is a stub — always CONTINUE |
-| SEC-1.02 | No authentication enforced |
+| SEC-1.01 | [REMOVED] ApiKeyFilter stub — deleted, authentication by reverse proxy |
+| SEC-1.02 | No authentication in the application; reverse proxy authenticates (SEC-9) |
 | SEC-2.01 | No RBAC, no user management, no access control |
 | SEC-3.01 | Prepared statements for all data queries |
 | SEC-3.02 | escapeString() for dynamic DDL |
 | SEC-4.01 | Dataset IDs: UUID validation |
 | SEC-4.02 | Aliases: alphanumeric only → 400 |
 | SEC-4.03 | Query params: validated against column names → 400 |
-| SEC-4.04 | CSV Content-Type enforced → 415 |
+| SEC-4.04 | CSV Content-Type (or none) required, others → 415 |
 | SEC-4.05 | Empty query values → 400 |
 | SEC-4.06 | _limit/_offset integer validation → 400 |
+| SEC-4.07 | Data table name validation: regex `data_[a-f0-9]{32}` |
+| SEC-4.08 | [REMOVED] ReDoS protection by isSafeRegex() — rejected valid regexes, querytimeout limits queries |
+| SEC-4.09 | Upload size limit: maxuploadsize (default 100 MB) |
+| SEC-4.10 | Alias row locking: SELECT FOR UPDATE prevents concurrent modification |
+| SEC-4.11 | Path parameters (";" in the request path) rejected with 400 |
 | SEC-5.01 | Sliding window: Guava Cache, Retry-After header |
 | SEC-5.02 | Average: Guava RateLimiter, no Retry-After |
 | SEC-5.03 | Scopes: global, per-dataset, per-client-IP |
 | SEC-5.04 | GET/HEAD only; /status exempt; cache max 32768 |
-| SEC-6.01 | CORS not implemented |
-| SEC-7.01 | JSONP via _callback param |
+| SEC-5.05 | Client address: X-Forwarded-For only from trusted proxies; last entry by default, walked right to left with a list |
+| SEC-5.06 | Trusted proxy default: the connecting peer, last X-Forwarded-For entry; empty array trusts nobody |
+| SEC-6.01 | CORS: configurable allowed origins via cors.allowedorigins |
+| SEC-6.02 | 403 for origins that are not listed; public origin must be listed behind TLS proxies |
+| SEC-7.01 | [REMOVED] JSONP via _callback param — replaced by CORS |
 | SEC-8.01 | Temp files: deleteOnExit + explicit deletion |
+| SEC-9.01 | Always behind a reverse proxy, never directly reachable |
+| SEC-9.02 | Proxy authenticates all non-GET/HEAD requests |
+| SEC-9.03 | Proxy blocks /actuator/**, /swagger-ui*, /v3/api-docs*, /status?jvm (and `;` paths, defence in depth) |
+| SEC-9.04 | Proxy is the only X-Forwarded-For source (and listed in trustedproxies if set) |
+| SEC-9.05 | Method tunnel on POST: proxies authorizing methods differently must strip it; cross-origin tunnel refused with 403 |
 
 ### DEPL — Deployment
 
 | ID | Description |
 |----|-------------|
-| DEPL-1.01 | Build: mvn install |
-| DEPL-1.02 | Run: bin/rowstore \<config\> [port] |
-| DEPL-1.03 | CLI options and connector params |
-| DEPL-1.04 | HTTP/2, useForwardedForHeader |
+| DEPL-1.01 | Build: mvn -Dmaven.test.skip=true install |
+| DEPL-1.02 | Run: java -jar rowstore-\<version\>.jar --rowstore.config.uri=file:///path/to/config.json |
+| DEPL-1.03 | Spring Boot standard properties (--server.port, etc.) |
+| DEPL-1.04 | [REMOVED] HTTP/2 and useForwardedForHeader — Jetty-specific |
+| DEPL-1.05 | Reverse proxy required, contract in SEC-9 |
+| DEPL-1.06 | Context path of former WAR deployments, templates read from the JAR |
 | DEPL-2.01 | Docker image: metasolutions/rowstore |
-| DEPL-2.02 | Dockerfile in external repo |
-| DEPL-2.03 | Docker tags: version, major.minor, develop |
+| DEPL-2.02 | Dockerfile in the RowStore repository |
+| DEPL-2.03 | Docker tags: version, major.minor, latest, develop, major.minor-rc (release branches) |
+| DEPL-2.04 | Image runs as non-root user rowstore (10001), ROWSTORE_CONFIG_URI, JAVA_OPTS |
+| DEPL-2.05 | Image is a drop-in replacement for 1.x: port 8080, latest moves to 2.0, docker repository to build 1.x only (planned), 1.x ROWSTORE_CONFIG_URI unchanged, USE_SYSTEM_CA_CERTS |
+| DEPL-2.06 | Image distrusts the eMudhra root CAs (CVE-2026-114820) in the JDK and system truststores, build fails if one is left; apk upgrade |
 | DEPL-3.01 | Pipeline: build → test → deploy + Docker Hub |
 | DEPL-3.02 | Branch strategy: master, develop, other |
-| DEPL-3.03 | Artifacts: tarball + SHA256 + GPG |
-| DEPL-4.01 | PostgreSQL 9.4+ for JSONB |
-| DEPL-4.02 | Schema auto-created on startup |
-| DEPL-5.01 | GET /status: service, version, datasets, activeEtlProcesses |
+| DEPL-3.03 | Artifacts: executable JAR + SHA256 + GPG |
+| DEPL-4.01 | PostgreSQL 9.6+, checked at startup |
+| DEPL-4.02 | Schema managed by Flyway (baselineOnMigrate) |
+| DEPL-4.03 | Database user needs CREATE on its schema |
+| DEPL-4.04 | Rollback to 1.7 and upgrading again |
+| DEPL-5.01 | GET /status: service, version, datasets, activeEtlProcesses, queuedEtlProcesses |
 | DEPL-5.02 | GET /status?jvm: memory, processors, heap |
-| DEPL-5.03 | No built-in metrics/Prometheus/APM |
-| DEPL-6.01 | Log4j2, console only, dynamic level via CLI/config |
-| DEPL-7.01 | Graceful shutdown: interrupt ETL, deregister JDBC drivers |
+| DEPL-5.03 | Spring Boot Actuator: /actuator/health, /actuator/metrics, /actuator/info |
+| DEPL-5.04 | Not listening while waiting for the database at startup; Retry-After on 503 |
+| DEPL-6.01 | Log4j2, console only, dynamic level via config |
+| DEPL-6.02 | Access log per request in the 1.x format (AccessLogFilter) |
+| DEPL-7.01 | Graceful shutdown: EtlProcessor.shutdown() with awaitTermination |
+| DEPL-7.02 | Shutdown takes up to about 60 s; allow at least 70 s before kill |
 
 ### UIX — Web GUI
 
@@ -318,8 +411,8 @@ Current limitations relevant to this area.
 | ID | Description |
 |----|-------------|
 | TEST-1.01 | Integration tests verifying REST API end-to-end |
-| TEST-2.01 | JUnit 5, REST Assured, Testcontainers, Awaitility, AssertJ |
-| TEST-3.01 | 22 IT classes, ~137+ test methods |
+| TEST-2.01 | JUnit Jupiter 6, REST Assured, Testcontainers, Awaitility, AssertJ |
+| TEST-3.01 | 51 IT classes with 459 tests, 27 unit test classes with 442 tests |
 | TEST-3.02 | Sequential execution within classes |
 | TEST-4.01 | Default profile (regexpqueries=full) |
 | TEST-4.02 | regex-disabled profile |
@@ -329,7 +422,7 @@ Current limitations relevant to this area.
 | TEST-6.01 | Awaitility polling for async ETL |
 | TEST-7.01 | 12+ CSV test files covering encodings and edge cases |
 | TEST-8.01 | Endpoint × test spec coverage matrix |
-| TEST-9.01 | specs/tests/: 121 test cases, 9 files |
+| TEST-9.01 | specs/tests/: 375 test cases, 15 files |
 
 ### USR — User Stories
 
@@ -345,8 +438,9 @@ Current limitations relevant to this area.
 | USR-2.03 | Paginate results |
 | USR-2.04 | Use regex filters |
 | USR-2.05 | Export full dataset |
-| USR-2.06 | Use JSONP for cross-origin |
+| USR-2.06 | [REMOVED] Use JSONP for cross-origin — replaced by CORS |
 | USR-2.07 | Get OpenAPI spec |
+| USR-2.08 | Use CORS for cross-origin access |
 | USR-3.01 | Deploy standalone instance |
 | USR-3.02 | Configure rate limiting |
 | USR-3.03 | Monitor status and JVM |
@@ -370,7 +464,7 @@ Current limitations relevant to this area.
 | GLO-1.07 | ETL Status |
 | GLO-1.08 | Export |
 | GLO-1.09 | JSONB |
-| GLO-1.10 | JSONP |
+| GLO-1.10 | [REMOVED] JSONP — replaced by CORS |
 | GLO-1.11 | Pagination |
 | GLO-1.12 | Populate |
 | GLO-1.13 | Purge |
@@ -383,3 +477,4 @@ Current limitations relevant to this area.
 | GLO-1.20 | Row |
 | GLO-1.21 | RowStore |
 | GLO-1.22 | Swagger/OpenAPI |
+| GLO-1.23 | CORS |

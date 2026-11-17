@@ -7,19 +7,27 @@ This folder contains test specifications for the RowStore REST API. These specif
 | File | Description | Test Count |
 |------|-------------|------------|
 | `01-status.md` | Status endpoint (`/status`) including JVM metrics | 5 |
-| `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 2 |
-| `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases | 21 |
-| `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases | 20 |
-| `05-querying.md` | Query functionality: filters, pagination, JSONP, regex modes | 24 |
-| `06-export.md` | JSON/CSV export endpoints | 8 |
-| `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 10 |
-| `08-error-handling.md` | Error codes: 400, 404, 423, 424 | 13 |
-| `09-rate-limiting.md` | Rate limiting (429) - requires separate profile | 5 |
+| `02-datasets.md` | Datasets listing endpoint (`/datasets`) | 1 |
+| `03-dataset-lifecycle.md` | Full dataset lifecycle: create, info, queries, aliases (any Content-Type), storage schema | 24 |
+| `04-csv-formats.md` | CSV format variations: delimiters, encodings, edge cases, empty lines, byte order marks, empty and duplicate labels | 65 |
+| `05-querying.md` | Query functionality: filters, pagination, regex modes, reserved `_callback` parameter (JSONP test cases retired), query string parsing (unencoded characters, malformed encodings, trimming, tunnel parameters) | 46 |
+| `06-export.md` | JSON/CSV export endpoints | 17 |
+| `07-metadata-endpoints.md` | Swagger and WebGui endpoints | 11 |
+| `08-error-handling.md` | Error codes: 400, 404, 415, 423, 424, path parameters, upload content types, corrupt CSV, logging of unknown dataset IDs | 28 |
+| `09-rate-limiting.md` | Rate limiting (429), client address via trusted proxies - requires separate profiles | 11 |
+| `10-configuration.md` | rowstore.json validation, data source settings and the PostgreSQL version check (unit and integration tests) | 15 |
+| `11-etl-processing.md` | ETL scheduling, shutdown, failure handling, atomic replaces and column name cleanup (unit and integration tests) | 68 |
+| `12-connection-limits.md` | Connection budgets: FIFO waiting, wait timeouts (503), usage in `/status`, one connection per request, lock timeouts, health checks, startup without a reachable database, 503 responses (unit and integration tests) | 36 |
+| `13-deployment.md` | Command line and configuration location checks, access log (unit and integration tests) | 11 |
+| `14-http-compatibility.md` | Content negotiation without 406, writes to `/dataset/{id}/json`, method tunnelling and compressed request bodies as in 1.x, `Range` ignored | 26 |
+| `15-cors.md` | CORS headers and preflight requests, rejection of origins that are not listed (TC-CORS-007 is in `09-rate-limiting.md`) | 11 |
+
+Test counts are the number of test case IDs per file; a heading that covers a range (e.g. `TC-CSV-017 to TC-CSV-022`) counts each ID, and test cases marked `[REMOVED]` are not counted.
 
 ## Prerequisites
 
 - Running RowStore instance (default: `http://localhost:8282/`)
-- Test data files in `webapp/src/test/resources/data/`
+- Test data files in `src/test/resources/data/` (some test cases use inline CSV content instead)
 - Docker (for Testcontainers-based tests)
 - For rate limiting tests: instance with rate limiting configured
 
@@ -39,6 +47,7 @@ This folder contains test specifications for the RowStore REST API. These specif
 | `whitespace_headers.csv` | UTF-8 | Comma | 2 | Whitespace in headers |
 | `quoted_delim.csv` | UTF-8 | Comma | 2 | Delimiters in quoted fields |
 | `dataset_query_edge.csv` | UTF-8 | Comma | 5 | Edge case data for queries |
+| `dataset_export_edge.csv` | UTF-8 | Comma | 3 | Duplicate cell values, short row, empty cells (export) |
 
 ## Test Profiles
 
@@ -46,10 +55,16 @@ Tests are organized into profiles based on server configuration:
 
 | Profile | Configuration | Description |
 |---------|---------------|-------------|
-| Default | `regexpqueries=full` | Standard tests (105 tests) |
-| `regex-disabled` | `regexpqueries=disabled` | Regex disabled mode (4 tests) |
-| `regex-simple` | `regexpqueries=simple` | Simple regex mode (4 tests) |
-| `ratelimit` | Rate limiting enabled | Rate limit tests (5 tests) |
+| Default | `regexpqueries=full` | Standard tests |
+| `regex-disabled` | `regexpqueries=disabled` | Regex disabled mode (TC-REGEX-DIS-*) |
+| `regex-simple` | `regexpqueries=simple` | Simple regex mode (TC-REGEX-SIM-*) |
+| `ratelimit` | Rate limiting enabled | Rate limit tests (09-rate-limiting.md) |
+| `legacy-parser` | `legacyparser=true` | CSV tests repeated with the legacy parser (TC-CSV-017 to TC-CSV-022, TC-CSV-030 to TC-CSV-036, TC-CSV-044 to TC-CSV-046, TC-CSV-052 to TC-CSV-056) |
+| `cors-restricted` | `cors.allowedorigins=["https://app.example.com"]` | Restricted origins (TC-CORS-008 to TC-CORS-012) |
+| `upload-size-limit` | `maxuploadsize=4096` | Upload size limit after decoding (TC-ENCODING-007) |
+| `connection-pool` | `connectionPoolMax=3`, separate `queryDatabase` | HikariCP pools (TC-POOL-*, TC-EXPORT-014) |
+| Connection limits | small `maxQueryConnections`, `maxExportConnections`, `maxetlprocesses` and wait timeouts | Connection budgets (integration test cases of 12-connection-limits.md) |
+| Unit tests | none (no server, no Docker) | `*Test.java` classes, e.g. TC-CFG-*, TC-DS-*, TC-CSV-037 to TC-CSV-040 and the unit test cases of 11-etl-processing.md and 12-connection-limits.md |
 
 ### Running Different Profiles
 
@@ -58,7 +73,7 @@ Tests are organized into profiles based on server configuration:
 mvn verify
 
 # Exclude non-default profile tests
-mvn verify -DexcludedGroups="regex-disabled,regex-simple,ratelimit"
+mvn verify -DexcludedGroups="regex-disabled,regex-simple,ratelimit,cors-restricted"
 
 # Run specific profile (requires matching server config)
 mvn verify -Dgroups=regex-disabled
@@ -126,17 +141,23 @@ Dataset creation and modification are asynchronous. Tests should:
 | Category | Test Count |
 |----------|------------|
 | Status | 5 |
-| Datasets List | 2 |
-| Dataset Lifecycle | 21 |
-| CSV Formats | 20 |
-| Querying | 24 |
-| Export | 8 |
-| Metadata Endpoints | 10 |
-| Error Handling | 13 |
-| Rate Limiting | 5 |
-| **Total** | **108** |
+| Datasets List | 1 |
+| Dataset Lifecycle | 24 |
+| CSV Formats | 65 |
+| Querying | 46 |
+| Export | 17 |
+| Metadata Endpoints | 11 |
+| Error Handling | 28 |
+| Rate Limiting | 11 |
+| Configuration | 15 |
+| ETL Processing | 68 |
+| Connection Limits | 36 |
+| Deployment | 11 |
+| HTTP Compatibility | 26 |
+| CORS | 11 |
+| **Total** | **375** |
 
-Note: Some tests are shared between Java implementations (105 in default profile) and specifications (108 total including all profiles).
+Note: The specifications define 375 test cases including all profiles and unit tests. The Java implementations in `src/test/java` cover these plus additional cases.
 
 ## Implementation Notes
 

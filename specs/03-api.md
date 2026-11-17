@@ -14,9 +14,9 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-1.02** JSON is the default response format for all API endpoints.
 
-> **API-1.03** Content negotiation is supported via the `Accept` header and the `format` query parameter. The `format` parameter takes precedence over the `Accept` header.
+> **API-1.03** Content negotiation is supported via the `Accept` header ([API-4.04](#api-4-content-negotiation)) and the `media` query parameter, which replaces the `Accept` header when present ([API-4.05](#api-4-content-negotiation)). There is no `format` parameter (API-4.02).
 
-> **API-1.04** JSONP is supported via the `_callback` query parameter, which wraps JSON responses in a JavaScript function call for cross-origin browser access.
+> **API-1.04** [REMOVED] JSONP support via `_callback` parameter — replaced by CORS.
 
 ## API-2 Base URL
 
@@ -26,17 +26,26 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-3.01** `GET /status` — Returns service status including name, version, dataset count, and active ETL processes. Accepts optional `?jvm` parameter for JVM memory and processor details. **Exempt from rate limiting.**
 
+> **API-3.14** The JSON response of `GET /status` (without `?jvm`) contains, in addition to the fields of API-3.01, the field `connections` with the usage of the connection budgets ([ARCH-7](01-system-architecture.md#arch-7-database-connection-limits)) per database block (`database`, and `queryDatabase` if configured separately) and budget (`query`, `export`, `load`): `inUse` (open connections), `max` (limit) and `waiting` (requests waiting for a connection, an estimate). Example: `"connections": {"database": {"query": {"inUse": 1, "max": 10, "waiting": 0}, "export": {"inUse": 0, "max": 2, "waiting": 0}, "load": {"inUse": 0, "max": 5, "waiting": 0}}}`. The field is additive; the fields of API-3.01 are unchanged.
+
+> **API-3.15** The JSON response of `GET /status` (without `?jvm`) and the details of `/actuator/health` contain the field `queuedEtlProcesses`: the number of loads (and other ETL jobs) that are queued but have not started yet, including the next job of a dataset while it waits for an ETL permit ([ETL-8.04](04-etl-pipeline.md#etl-8-concurrency-control)). `activeEtlProcesses` counts only running jobs; in 1.x it also counted loads that waited for their dataset, so the backlog of 1.x is `activeEtlProcesses + queuedEtlProcesses` in 2.0.
+
 > **API-3.02** `GET /datasets` — Returns a JSON array of all dataset UUIDs. Status 200.
 
-> **API-3.03** `POST /datasets` — Creates a new dataset from an uploaded CSV file. Content-Type must be `text/csv`. Returns 202 Accepted with a JSON body containing `id`, `url`, `status`, and `info` URL. Sets `Location` header to the new dataset URL.
+> **API-3.03** `POST /datasets` — Creates a new dataset from an uploaded CSV file. Content-Type must be `text/csv` (case-insensitive, any parameters) or absent, as in 1.x; other content types return 415. Returns 202 Accepted with a JSON body containing `id`, `url`, `status`, and `info` URL. Sets `Location` header to the new dataset URL. An empty body returns 400, also if it is chunked, has no `Content-Length` or is empty after decoding a `Content-Encoding` (API-3.17).
 
 > **API-3.04** `GET /dataset/{id}` and `GET /dataset/{id}/json` — Queries a dataset with column-name query parameters as filters. Returns a JSON response envelope with `results`, `limit`, `offset`, `resultCount`, `queryTime`, `prev`, and `next`. The `{id}` can be a UUID or an alias. See [05-querying.md](05-querying.md) for filter details.
 
-> **API-3.05** `POST /dataset/{id}` — Appends CSV data to an existing dataset. Column structure must match. Returns 202 Accepted.
+> **API-3.05** `POST /dataset/{id}` — Appends CSV data to an existing dataset. Column structure must match. Content-Type and empty bodies (400) as for API-3.03. Returns 202 Accepted.
 
-> **API-3.06** `PUT /dataset/{id}` — Replaces all data in an existing dataset with new CSV data. Truncates the data table before loading. Returns 202 Accepted.
+> **API-3.06** `PUT /dataset/{id}` — Replaces all data in an existing dataset with new CSV data. The previous data is served until the new data has been loaded successfully and is kept if the load fails (see ETL-6.02, ETL-6.03). Content-Type and empty bodies (400) as for API-3.03. Returns 202 Accepted. A chunked empty body was accepted by 1.x with 202 and then failed the load (status 4).
 
-> **API-3.07** `DELETE /dataset/{id}` — Deletes a dataset, its data table, and all aliases. Only permitted when status is AVAILABLE (3) or ERROR (4). Returns 200 on success, 423 Locked if dataset is still processing.
+> **API-3.07** `DELETE /dataset/{id}` — Deletes a dataset, its data table, and all aliases. Only permitted when status is AVAILABLE (3) or ERROR (4). Returns **204 No Content** on success, 423 Locked if dataset is still processing, 404 if it does not exist (`{id}` may be an alias).
+> The status check and the deletion of the dataset's row in `datasets` and of its rows in `aliases` are one short transaction on the query budget (ARCH-7), which takes only row locks: the request does not wait for readers of the data table (e.g. a long export or `pg_dump`) and answers 204 right away. From then on, the dataset does not exist for requests: queries, `/info`, `/aliases`, `/export`, uploads and further deletes get 404, and its aliases are free for other datasets (DOM-2.04). Requests that were already reading the data table, e.g. an export, finish normally. The data table is dropped in the background once no reader holds it (ETL-12.01), so its disk space is released only then. This applies to exports on the primary; an export running on a `queryDatabase` read replica does not hold the table on the primary, so the drop does not wait for it, and the replica, as in 1.x, cancels the export when it replays the `DROP TABLE` if the export still reads the table after `max_standby_streaming_delay`. Database connectivity failures and lock or statement timeouts of the transaction (e.g. waiting longer than `queryLockTimeout` for a concurrent status change) return 503 and delete nothing. 1.x executed `DROP TABLE` within the request: the DELETE waited without limit for readers of the data table, and new queries of the dataset queued behind it; 2.0 snapshots before ROWS-174 returned 503 after `queryLockTimeout` instead. 1.x and 2.0 snapshots before ROWS-174 left the aliases of a deleted dataset behind, which kept them reserved.
+
+> **API-3.16** `PUT`, `POST` and `DELETE /dataset/{id}/json` — Same as on `/dataset/{id}` (API-3.06, API-3.05, API-3.07), as in 1.x, where both paths were routed to the same resource: same status codes and response body, and the `Location` header of a replace or append is `/dataset/{id}` (without `/json`). The method tunnel applies as on `/dataset/{id}` (API-4.06, e.g. `POST /dataset/{id}/json?method=DELETE`), and `OPTIONS` lists the same methods for both paths.
+
+> **API-3.17** Request bodies with a `Content-Encoding` header are decoded before they are read, as by the DecoderService of Restlet in 1.x: `gzip` and `x-gzip`, `deflate` (zlib format), `deflate-no-wrap` (raw deflate), `zip` (the first entry of the archive) and `identity`. Codings are case-insensitive and may be stacked in one or several header lines (e.g. `gzip, identity`); they are decoded in reverse order of application. This applies to the bodies of `POST` and `PUT` requests (the method after the method tunnel, API-4.06), the only request bodies that RowStore reads: uploads (API-3.03, API-3.05, API-3.06) and alias updates (API-3.09); requests with other methods are passed on unchanged, also with an unsupported coding, as in 1.x. The decoded request has neither `Content-Encoding` nor `Content-Length`. A request body with any other coding (e.g. `br`, `zstd`) is rejected with **415** before anything is read or stored (1.x ignored such codings and loaded the body as sent, deliberate difference, ROWS-173). So is a request body with more than two codings other than `identity`, or more than eight codings including `identity`, counted over all header lines (e.g. `gzip, gzip, gzip`; 1.x decoded any number). The 415 response carries `Accept-Encoding: gzip, x-gzip, deflate, deflate-no-wrap, zip, identity` (RFC 9110, section 12.5.3). Compressed data that cannot be decoded (e.g. a truncated gzip body, data that is not in the declared format, or a zip archive without entries) is rejected with **400** while the upload is written to its temp file, i.e., before the 202 (1.x: 500 for a truncated gzip body). `maxuploadsize` limits the decoded size of an upload (ETL-9.02) and the input of each decoder, so that nested codings cannot make the decoders inflate much more than `maxuploadsize` bytes (413 as well). The name of the first zip entry is ignored; names that are not flagged as UTF-8 (e.g. in the code page of Windows Explorer) are read as ISO-8859-1, so that they cannot fail the decoding. A request with `Content-Length: 0` is passed on unchanged; a body of unknown length (neither `Content-Length` nor `Transfer-Encoding`, e.g. with HTTP/2) may be empty and stays empty after decoding. An upload that is empty after decoding (e.g. a valid gzip stream of an empty file, or a zip archive whose first entry is a directory) is rejected with 400 like any empty upload (API-3.03). The decoding is done by `RequestDecodingFilter`, after the CORS filter (415 responses carry CORS headers) and the rate limit; it closes the decoders when the request has been handled.
 
 > **API-3.08** `GET /dataset/{id}/info` — Returns dataset metadata in JSON-LD format: status, created timestamp, column names, row count, identifier, aliases, `@context`, and `@id`.
 
@@ -47,26 +56,56 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 > - **DELETE**: Removes all aliases
 >
 > Aliases must be alphanumeric only. Invalid aliases return 400.
+>
+> The body of PUT and POST is a JSON array of aliases, read regardless of the Content-Type, as in 1.x (e.g., `fetch()` sends `text/plain` and jQuery `application/x-www-form-urlencoded` by default). A body that is not a JSON array returns 400. A body larger than 1 MiB (1048576 bytes), measured after decoding a `Content-Encoding` (API-3.17), returns **413** before the dataset is looked up and before more than 1 MiB plus one byte is read, so that a small compressed body cannot exhaust the memory (1.x had no limit).
 
-> **API-3.10** `GET /dataset/{id}/export` — Exports the full dataset. Content negotiation determines format:
-> - `Accept: application/json` → JSON array, streamed, flushed every 10,000 rows
-> - `Accept: text/csv` → CSV file, multi-threaded writing, flushed every 10,000 rows
+> **API-3.10** `GET /dataset/{id}/export` — Exports the full dataset. Content negotiation determines format (API-4.04, API-4.05, e.g. `?media=csv`):
+> - `Accept: application/json` → JSON array, streamed, flushed every 10,000 rows (the default, e.g. without Accept header or with `*/*`)
+> - `Accept: text/csv` → CSV file, streamed, flushed every 10,000 rows (also for other text types, e.g. `text/plain` or `text/html`, as in 1.x)
 >
 > Sets `Content-Disposition` header with filename. Returns 404 if not found, 424 if status is CREATED.
+>
+> CSV rows have one cell per header column in header order; cells missing in a stored row are exported as empty values.
+> If the rows cannot be read from the database, 500 is returned. A CSV export also returns 500 if the dataset has rows but its column names
+> (taken from the first row) cannot be read, instead of exporting rows without cells; a dataset without rows is
+> exported with an empty header. A failure after streaming has started (status and
+> headers already sent) aborts the connection without completing the response, e.g. a JSON export lacks the closing `]`.
+> Exports have no overall time limit, as in 1.x: the async request timeout is disabled (`spring.mvc.async.request-timeout=-1`),
+> so slow clients or large datasets are not cut off after the servlet container's default of 30 seconds. A client that
+> makes no reading progress for the connector's `connectionTimeout` (Tomcat default 60 seconds) is disconnected.
 
 > **API-3.11** `GET /dataset/{id}/swagger` — Returns a dynamically generated OpenAPI specification for the dataset, with query parameters derived from column names and server configuration.
 
-> **API-3.12** `GET /dataset/{id}/html` — Returns the web GUI for browsing the dataset. Supports `?embed` parameter for minimal iframe-friendly rendering. See [09-ui-ux.md](09-ui-ux.md).
+> **API-3.12** `GET /dataset/{id}/html` — Returns the web GUI for browsing the dataset. Supports `?embed` parameter for minimal iframe-friendly rendering. Always served as `text/html;charset=UTF-8`, regardless of the `Accept` header. See [09-ui-ux.md](09-ui-ux.md).
 
 > **API-3.13** `GET /` — Returns 404 (no root resource).
 
 ## API-4 Content Negotiation
 
-> **API-4.01** The `Accept` header determines the response format. JSON is the default.
+> **API-4.01** The `Accept` header determines the response format. JSON is the default: it is selected without `Accept` header, for `*/*` and for `Accept` headers that match no representation (API-4.04).
 
-> **API-4.02** The `format` query parameter overrides the `Accept` header when present.
+> **API-4.02** [REMOVED] The `format` query parameter overrides the `Accept` header when present — never implemented, neither in 1.x nor in 2.0: `format` is treated like any other query parameter, i.e. as a column filter (400 if the dataset has no such column). Use the `Accept` header or the `media` parameter ([API-4.05](#api-4-content-negotiation)).
 
 > **API-4.03** `GET /dataset/{id}` with `Accept: text/html` responds with a **303 See Other** redirect to `/dataset/{id}/html`.
+
+> **API-4.04** Requests are never answered with 406 Not Acceptable, as in 1.x. Resources with one representation respond with it regardless of the `Accept` header: the JSON resources (`/status`, `/datasets`, `/dataset/{id}/json`, `/info`, `/aliases`, `/swagger`) with `application/json` (e.g., also for `Accept: application/ld+json`, `text/plain` or `text/html`) and `/dataset/{id}/html` with `text/html`. For resources with two representations (`/dataset/{id}`: JSON and HTML redirect; `/dataset/{id}/export`: JSON and CSV), the representation is selected as by the flexible content negotiation of Restlet in 1.x (`FlexibleConneg`). Each representation scores the highest quality of the media ranges that include it, where the `Accept` header is extended by ranges with a low quality: the parent of each range (`type/*` for `type/subtype`, `*/*` for `type/*`, `type/subtype` for a range with parameters other than `q`) with 0.005 + 0.001 × its quality, `application/*` with 0.002, and `*/*` with 0.001, which replaces any `*/*` of the client. Parents equal to a range sent with `q=0` are not added; ranges with `q=0` themselves still match with quality 0. The representation with the highest score is selected, on equal scores the first one listed here, which is JSON for both resources. In practice:
+> 1. A representation named by its media type or by `type/*` wins over one that is only matched by a range of the same top-level type (e.g., `text/html` for `text/csv`, `application/xml` for `application/json`), unless its quality is below about 0.006; between matches of the same kind, the higher quality wins (`text/plain;q=0.9, application/json;q=0.5` → JSON, `application/json;q=0.1, text/*;q=0.5` → HTML).
+> 2. A range of the same top-level type wins over `*/*`, whatever its quality (`text/html;q=0.5, */*` → HTML; `text/plain;q=0.3, */*;q=0.5` → HTML redirect or CSV export).
+> 3. JSON is selected without `Accept` header, for `*/*`, for headers that match neither representation (e.g. `image/png`, `image/png, */*;q=0.2`) and on equal quality (`text/html, application/json` → JSON).
+>
+> The `Accept` headers are read as by Restlet's `PreferenceReader`: parameters before `q` belong to the media range, parameters after `q` are accept extensions and ignored (`application/json;q=1;foo=bar` matches JSON, `application/json;foo=bar` does not). A type without subtype (`text`, `text/`) is read as `text/*`. Semicolons and commas in quoted parameter values do not separate parameters or ranges, and a quoted quality is read without its quotes (`text/html;q="0.9"`). Unparseable ranges and empty ranges between commas are skipped. An invalid quality (not a number from 0 to 1, or `q` without value) and parameters without media type (e.g. `;q=0.5` or `;`) end the reading: the ranges before it are used, the following ones and further `Accept` headers are ignored (`text/html, application/json;q=2` → HTML; `application/json;q=2, text/html` → JSON).
+>
+> In 1.x, the order of the representations on equal scores was not fixed: it followed the order in which the JVM listed the annotated methods of the resource, so `text/html, application/json` could also select HTML. 2.0 always lists JSON first. For unusual `Accept` headers, the selection can still differ from 1.x:
+> - Media types are compared case-insensitively (`TEXT/HTML` selects HTML; 1.x selected JSON).
+> - Whitespace before a `;` that follows a parameter value (`*; charset=UTF-8 ;q=1`) and around `=` in the quality (`text/html;q= 0.5`) is read as RFC 9110 allows; Restlet dropped the quality or stopped reading there. A parameter without value (`text/html;a`), a `;` after the quality (`text/html;q=0.5;`) and a type followed by `;` alone (`text;`) are also read differently.
+> - Ranges that Spring cannot parse, e.g. `text/html;charset=bogus` or `text/html;;q=0.5`, are skipped; Restlet used them.
+> - Scores that differ by less than about 10⁻⁷ are not equal; Restlet added them to a floating-point sum in which they tied. This only occurs when both representations are matched by ranges with qualities below 0.01.
+>
+> Their responses, including error responses (e.g. 404), carry `Vary: Accept`, so that caches keep the representations apart.
+
+> **API-4.05** The query parameter `media` replaces the `Accept` header, as the TunnelService of Restlet did in 1.x, e.g., `/dataset/{id}/export?media=csv` for download links. Its value is a file extension (`json`, `csv`, `html`, `htm`, `txt`, `xml`) or a media type (e.g., `text/csv`); other values are ignored. Together with `charset`, `encoding` and `language`, which were consumed by the TunnelService as well, it is not a column filter, see [QUERY-3.06](05-querying.md#query-3-special-parameters).
+
+> **API-4.06** The method of a POST request can be replaced with the query parameter `method` or the header `X-HTTP-Method-Override` (the header takes precedence), as the TunnelService of Restlet did in 1.x, e.g., `POST /dataset/{id}?method=PUT` replaces the data. Accepted values (case-insensitive) are `GET`, `HEAD`, `POST`, `PUT`, `DELETE` and `OPTIONS`; other values return 400, so that the request is not processed as a POST. The parameter is read from the query string only, not from a form body. Unlike in 1.x, the method of other requests is never replaced, since the reverse proxy authenticates all requests other than `GET` and `HEAD` ([SEC-9.05](07-security.md#sec-9-reverse-proxy-contract)). A request with an `Origin` header other than the origin of `baseurl` or an origin listed in `cors.allowedorigins` (`*` does not count) is refused with 403 (CSRF protection, SEC-9.05). Unlike in 1.x, the `method` parameter stays in the query parameters: a tunnelled `POST /dataset/{id}?method=GET` treats it as a column filter (400 unless the dataset has a column `method`).
 
 ## API-5 Response Envelope
 
@@ -85,21 +124,22 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 > - `results`: Array of JSONB row objects
 > - `limit`: Applied limit value
 > - `offset`: Applied offset value
-> - `resultCount`: Total matching rows (from window function)
+> - `resultCount`: Total matching rows (from window function); 0 if the offset is beyond the last match (as in 1.x, QUERY-6.01)
 > - `queryTime`: Execution time in milliseconds
 > - `prev`/`next`: Pagination URLs (null if not applicable)
 
 ## API-6 Error Response Conventions
 
 > **API-6.01** Success statuses:
-> - **200 OK** — Successful query, list, delete, or status request
+> - **200 OK** — Successful query, list, or status request
 > - **202 Accepted** — CSV upload accepted for async processing
-> - **204 No Content** — Successful alias update with no response body
+> - **204 No Content** — Successful alias update or dataset deletion with no response body
 
 > **API-6.02** Client error statuses:
-> - **400 Bad Request** — Invalid parameters, empty filter values, non-numeric limit/offset, invalid alias format
+> - **400 Bad Request** — Invalid parameters, empty filter values, non-numeric limit/offset, invalid alias format, compressed request bodies that cannot be decoded (API-3.17), path parameters (`;` in the request path, [SEC-4.11](07-security.md#sec-4-input-validation))
 > - **404 Not Found** — Dataset or alias not found
-> - **415 Unsupported Media Type** — Non-CSV content type for upload endpoints
+> - **413 Content Too Large** — Upload larger than `maxuploadsize`, measured after decoding a `Content-Encoding` (API-3.17, ETL-9.02); alias body larger than 1 MiB (API-3.09)
+> - **415 Unsupported Media Type** — Non-CSV content type for upload endpoints, or a request body with an unsupported `Content-Encoding` or too many codings (API-3.17)
 
 > **API-6.03** Server-side constraint statuses:
 > - **423 Locked** — DELETE attempted on a dataset that is not in AVAILABLE or ERROR state
@@ -108,28 +148,35 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 
 > **API-6.04** Server error statuses:
 > - **500 Internal Server Error** — Unexpected server-side failure
-> - **503 Service Unavailable** — Query timeout exceeded (PostgreSQL SQL state `57014`)
+> - **503 Service Unavailable** — Query timeout exceeded (PostgreSQL SQL state `57014`), or the database is unavailable (API-6.05)
+
+> **API-6.05** A database connectivity failure (e.g., the database is unreachable, no connection became available within the wait timeout, or a short operation waited longer than its lock timeout or `querytimeout`, ARCH-7.03) that occurs while handling a request, such as looking up a dataset, results in **503 Service Unavailable** with an empty body, not in 404. 404 is returned only if no dataset or alias with the given identifier exists or the identifier is not a valid UUID or alias. Other unexpected database errors result in 500. Streamed responses (export) whose status has already been sent are not affected.
+
+> **API-6.06** A request for an unknown or malformed dataset identifier (neither an existing dataset nor an alias, e.g., `/dataset/not-a-uuid` or an unknown UUID) is a client error: it is answered with 404 and recorded by the access log ([DEPL-6.02](08-deployment.md#depl-6-logging)), and logged at DEBUG level at most, never at WARN or ERROR level, so that scanners guessing URLs cannot flood the log. An alias that the database rejects as invalid input (SQL state class `22`, e.g., an invalid byte sequence) is an unknown dataset as well. Database failures while looking up a dataset are not client errors and are logged and answered as in [API-6.05](#api-6-error-response-conventions). An invalid data table name in the datasets table of an existing dataset is a server fault: it is logged at ERROR level and answered with 500 (1.x: 404).
 
 ## API-7 JSONP Support
 
-> **API-7.01** The `_callback` query parameter triggers JSONP wrapping. The JSON response is wrapped as `callbackName({...})`. Supported response MIME types: `application/json`, `application/ld+json`, `application/rdf+json`. If the parameter is present but empty, the default callback name `callback` is used.
+> **API-7.01** [REMOVED] JSONP support has been removed. Cross-origin access is now provided via CORS headers. See [SEC-6.01](07-security.md#sec-6-cors).
 
 ## API-8 Server Header
 
-> **API-8.01** All responses include a `Server` header with value `RowStore/<version>` (e.g., `RowStore/1.8-SNAPSHOT`).
+> **API-8.01** All responses include a `Server` header with value `RowStore` (configured via `server.server-header` in Spring Boot). In 1.x, the value included the version (`RowStore/<version>`).
 
 ## API-9 Per-Dataset Swagger
 
-> **API-9.01** Each dataset exposes a dynamically generated OpenAPI specification at `/dataset/{id}/swagger`. The spec includes query parameters derived from the dataset's column names and reflects the server's regex query configuration.
+> **API-9.01** Each dataset exposes a dynamically generated OpenAPI specification at `/dataset/{id}/swagger`. The spec includes query parameters derived from the dataset's column names and reflects the server's regex query configuration. Besides the column filters, it lists `_limit` and `_offset`; `_callback`, which 1.x listed for JSONP, is no longer listed (it is accepted and ignored, [QUERY-3.05](05-querying.md#query-3-special-parameters)).
+
+## API-10 Range Requests
+
+> **API-10.01** The `Range` request header is ignored by the RowStore resources (`/dataset/{id}` and its sub-resources, `/datasets`, `/status`): their responses have status 200 with the full body, as RFC 9110 (section 14.2) allows, and no `Accept-Ranges` header (section 14.3). In 1.x, Restlet answered a `Range: bytes=a-b` request with 206 Partial Content and sent `Accept-Ranges: bytes` (open-ended ranges of exports failed with 500). Neither 406 (which refers to the `Accept` header) nor 416 (only for unsatisfiable ranges of resources that support ranges) applies.
 
 ## Known Limitations
 
-- No PATCH support for partial dataset updates
+- No PATCH support for partial dataset updates: `PATCH` returns 405, also tunnelled (400, API-4.06). 1.x handled `PATCH` on `/dataset/{id}`, `/dataset/{id}/json` and `/dataset/{id}/aliases` like `PUT` (full replace)
 - No bulk operations endpoint
-- No authentication on any endpoint (see [07-security.md](07-security.md))
+- No authentication in the application; the reverse proxy authenticates the private API (see [SEC-9](07-security.md#sec-9-reverse-proxy-contract))
 - No versioning in URL path (no `/v1/` prefix)
 - `_sort` parameter is recognized but not implemented
-- JSONP uses a simple callback wrapper with no XSS sanitization of the callback name
 
 ## References
 
@@ -138,11 +185,34 @@ Covers all HTTP endpoints, their methods, request/response formats, and status c
 - [Configuration](06-configuration.md#cfg-3-application-options) — `baseurl`, `querymaxlimit` options
 - [Security](07-security.md#sec-5-rate-limiting) — Rate limiting and input validation
 - [Web GUI](09-ui-ux.md#uix-2-display-modes) — Web GUI endpoint
-- [Glossary](12-glossary.md#glo-1-terms) — JSONP, Export, Swagger/OpenAPI
-- Source: `RowStoreApplication.java` (routes), `DatasetResource.java`, `DatasetsResource.java`, `AliasResource.java`, `StatusResource.java`, `ExportResource.java`, `WebGuiResource.java`, `SwaggerResource.java`
+- [Glossary](12-glossary.md#glo-1-terms) — Export, Swagger/OpenAPI, CORS
+- Source: `DatasetController.java`, `DatasetsController.java`, `AliasController.java`, `StatusController.java`, `ExportController.java`, `WebGuiController.java`, `SwaggerController.java`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: JSONP removed, CORS added, DELETE returns 204, source references updated |
+| 2026-10-20 | API-6.05: database connectivity failures yield 503 instead of 404 |
+| 2026-10-20 | API-3.06: a replace keeps serving the previous data until it succeeds and keeps it if it fails |
+| 2026-10-21 | API-3.14: connection budget usage in `/status`; API-6.05: connection wait timeouts yield 503 |
+| 2026-10-21 | API-3.15: `queuedEtlProcesses` in `/status` and health |
+| 2026-10-23 | API-3.03, API-3.05, API-3.06: uploads without Content-Type are accepted; API-3.09: alias bodies are read regardless of the Content-Type; API-3.10, API-3.12, API-4.04: no 406, fallback negotiation as in 1.x; API-4.05, API-4.06: `media` and method tunnel (ROWS-155, ROWS-156, ROWS-158) |
+| 2026-10-23 | Correction: `DELETE /dataset/{id}` returned 204 in 1.x as well (Restlet turned the empty 200 response into 204), API-3.07 is unchanged from 1.x; API-4.02 removed (never implemented); API-8.01: version no longer in the `Server` header (ROWS-168) |
+| 2026-11-05 | API-1.03: content negotiation via `Accept` and the `media` parameter, not `format` (ROWS-168) |
+| 2026-11-05 | API-4.04: `Vary: Accept` on negotiated responses (ROWS-155) |
+| 2026-11-05 | API-4.06: tunnel refused with 403 for untrusted origins; `method` stays a query parameter (ROWS-158) |
+| 2026-11-05 | Added API-6.06: unknown and malformed dataset IDs are not logged at WARN or ERROR level (ROWS-169) |
+| 2026-11-09 | API-6.06: an invalid data table name in the datasets table answers 500 instead of 404 (ROWS-169) |
+| 2026-11-09 | API-3.04: `resultCount` is 0 for an offset beyond the last match (ROWS-170) |
+| 2026-11-09 | API-9.01: `_callback` is no longer listed in the per-dataset Swagger; added API-10.01: `Range` is ignored (ROWS-177) |
+| 2026-11-09 | API-4.01, API-4.04: selection rule of Restlet's flexible content negotiation; `/dataset/{id}` returns JSON without `Accept` and for `*/*`; `Accept` read as by Restlet (accept extensions, invalid quality, type without subtype) (ROWS-171) |
+| 2026-11-09 | Known Limitations: 1.x handled `PATCH` like `PUT`; 2.0 keeps returning 405 (ROWS-172) |
+| 2026-11-09 | Added API-3.16: `PUT`, `POST` and `DELETE` on `/dataset/{id}/json` as on `/dataset/{id}` (ROWS-172) |
+| 2026-11-09 | API-4.04: order of 1.x on equal scores, remaining differences from 1.x for unusual `Accept` headers (ROWS-171) |
+| 2026-11-09 | Added API-3.17: request bodies with `Content-Encoding` are decoded as in 1.x, unsupported codings get 415, undecodable bodies 400; API-6.02: 413 and the new 400 and 415 cases (ROWS-173) |
+| 2026-11-09 | API-3.17: only bodies of POST and PUT are decoded, bodies of unknown length are decoded; API-3.03, API-3.05, API-3.06: empty uploads (also chunked, without Content-Length or empty after decoding) return 400 (ROWS-173) |
+| 2026-11-09 | API-3.09: alias bodies larger than 1 MiB return 413; API-3.17: at most two compressions and eight codings (415 with `Accept-Encoding`), `maxuploadsize` limits the input of each decoder, zip entry names read as ISO-8859-1; API-6.02: the new 413 and 415 cases (ROWS-173) |
+| 2026-11-09 | API-3.07: DELETE answers 204 without waiting for readers of the data table, which is dropped in the background; aliases are deleted with the dataset (ROWS-174) |
+| 2026-11-09 | API-3.07: exports on a `queryDatabase` read replica can be cancelled when the replica replays the drop, as in 1.x (ROWS-174) |

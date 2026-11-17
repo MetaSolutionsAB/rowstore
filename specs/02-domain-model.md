@@ -26,6 +26,8 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 
 > **DOM-2.03** Dataset has ETL Status — A dataset's `status` field tracks its position in the ETL lifecycle (see [DOM-3](#dom-3-etl-status-lifecycle)).
 
+> **DOM-2.04** Aliases do not outlive their dataset — Deleting a dataset deletes its rows in `aliases` in the same transaction as its row in `datasets` ([API-3.07](03-api.md#api-3-endpoint-catalog)), so that its aliases can be set on other datasets right away. An alias update that races with the deletion inserts nothing ([ETL-12.04](04-etl-pipeline.md#etl-12-dropping-the-tables-of-deleted-datasets)). 1.x and 2.0 snapshots before ROWS-174 left the aliases of deleted datasets behind, which kept them reserved forever (setting such an alias on another dataset returned 400). The Flyway migration `V3__delete_orphan_aliases.sql` deletes these aliases once (`DELETE FROM aliases a WHERE NOT EXISTS (SELECT 1 FROM datasets d WHERE d.id = a.dataset_id)`), also on databases of 1.x, which Flyway baselines at version 0.
+
 ## DOM-3 ETL Status Lifecycle
 
 > **DOM-3.01** The ETL status follows a linear state machine with one branch:
@@ -65,11 +67,21 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 > **DOM-4.03** Each dataset gets a dedicated **data table**:
 > ```sql
 > CREATE TABLE IF NOT EXISTS data_<uuid_no_hyphens> (
->     rownr SERIAL PRIMARY KEY,
+>     rownr BIGSERIAL PRIMARY KEY,
 >     data JSONB NOT NULL
 > )
 > ```
 > The table name is `data_` followed by the dataset UUID with hyphens removed (32 hex characters), yielding a 37-character table name.
+> Tables created before 2.0 use `rownr SERIAL` (32-bit); they are not migrated at upgrade, but a data table becomes `BIGSERIAL` on its first replace (PUT) after the upgrade, since a replace loads into a newly created table (ETL-6.02).
+
+> **DOM-4.04** The **`maintenance_tasks`** table (Flyway migration `V2__maintenance_tasks.sql`) records one-time maintenance tasks that RowStore runs at startup, so that a task whose run has completed is skipped at later startups (e.g., the cleanup of column names, ETL-11.07):
+> ```sql
+> CREATE TABLE IF NOT EXISTS maintenance_tasks (
+>     name TEXT PRIMARY KEY,
+>     completed TIMESTAMP NOT NULL
+> )
+> ```
+> A task is identified by its name and recorded once (`MaintenanceTasks.markCompleted()`, `isCompleted()`). Deleting its row makes it run again. New one-time tasks of later versions use this table with their own name.
 
 ## DOM-5 Index Strategy
 
@@ -86,6 +98,8 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 ## DOM-6 Data Table Naming Convention
 
 > **DOM-6.01** Data table names follow the pattern `data_` + UUID with hyphens removed. For example, dataset `550e8400-e29b-41d4-a716-446655440000` gets data table `data_550e8400e29b41d4a716446655440000`.
+
+> **DOM-6.02** A replace loads into a shadow table named after the data table with the suffix `_new` (pattern `data_[a-f0-9]{32}_new`, validated separately from the data table pattern `data_[a-f0-9]{32}`). The shadow table is renamed to the data table at the end of a successful replace; its name is never stored in `datasets.data_table`. See [ETL-6.02](04-etl-pipeline.md#etl-6-append-vs-replace).
 
 ## DOM-7 JSON-LD Output
 
@@ -116,10 +130,14 @@ Covers the logical data model, entity relationships, ETL status lifecycle, physi
 - [ETL Pipeline](04-etl-pipeline.md#etl-5-batch-inserts) — ETL processing that populates data tables
 - [Query Processing](05-querying.md#query-5-sql-construction) — How data tables are queried
 - [Glossary](12-glossary.md#glo-1-terms) — Term definitions
-- Source: `PgDataset.java`, `PgDatasets.java`, `EtlStatus.java`, `DatasetInfoResource.java`
+- Source: `PgDataset.java`, `PgDatasets.java`, `EtlStatus.java`, `DatasetInfoController.java`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated source references for Spring Boot migration |
+| 2026-10-20 | Shadow table naming for replaces (DOM-6.02); pre-2.0 SERIAL data tables become BIGSERIAL on their first replace (DOM-4.03) |
+| 2026-10-21 | Table `maintenance_tasks` for one-time maintenance tasks (DOM-4.04) |
+| 2026-11-09 | Aliases are deleted with their dataset, orphan aliases removed by migration V3 (DOM-2.04, ROWS-174) |

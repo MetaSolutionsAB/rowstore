@@ -18,15 +18,21 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-2.02** Unrecognized query parameters (those not matching any column name or special parameter) cause a **400 Bad Request** response.
 
+> **QUERY-2.03** Query parameters are parsed as in 1.x: names and values are trimmed (leading and trailing characters up to U+0020, e.g. spaces sent as `%20` or `+`), parameters whose name is empty after trimming are skipped, and of a repeated parameter the last value is used. Consequently, `?Name=Bo%20` matches `Bo`, and values with leading or trailing spaces cannot be matched exactly. A filter value that is empty only after trimming (e.g. `?Name=%20`, `?Name=+`) matches the rows whose cell is empty, as in 1.x. A filter value that is empty as sent (`?Name=`, or `?Name` without `=`) returns 400; 1.x returned 400 for `?Name=` as well, but matched empty cells for `?Name`. `_limit` and `_offset` with an empty or blank value (e.g. `?_limit=%20`, `?_offset=+`, `?_offset`) return 400, as in 1.x (QUERY-3.01, QUERY-3.02). Other parameters with a value that is empty as sent are accepted, unlike in 1.x, whose parser stopped at such a parameter and returned 400: `?_callback=` and `?_sort=` are ignored, and of `?Name=&Name=McLoud` the last value is used (200).
+
 ## QUERY-3 Special Parameters
 
-> **QUERY-3.01** `_limit` — Maximum number of rows to return. Default: **100**. Maximum: configured via `querymaxlimit` (default 100). Zero and negative values are treated as the default. Non-numeric values return 400.
+> **QUERY-3.01** `_limit` — Maximum number of rows to return. Default: **100**. Maximum: configured via `querymaxlimit` (default 100). Zero, negative and values above `querymaxlimit` are treated as the default. Non-numeric values return 400.
 
 > **QUERY-3.02** `_offset` — Number of rows to skip. Default: **0**. Negative values are corrected to 0. Non-numeric values return 400.
 
-> **QUERY-3.03** `_callback` — JSONP function name. When present, the JSON response is wrapped in a function call: `callbackName({...})`. Handled by `JSCallbackFilter`.
+> **QUERY-3.03** [REMOVED] `_callback` — JSONP function name. JSONP support has been removed; use CORS for cross-origin access.
 
-> **QUERY-3.04** `format` — Response format override. Takes precedence over the `Accept` header for content negotiation.
+> **QUERY-3.04** [REMOVED] `format` — Response format override — never implemented, neither in 1.x nor in 2.0; see [API-4.02](03-api.md#api-4-content-negotiation).
+
+> **QUERY-3.05** `_callback` — Reserved parameter kept for compatibility with 1.x clients. It is accepted and ignored: it is not treated as a column filter and the response is plain JSON (JSONP wrapping was removed in 2.0, see [QUERY-3.03](#query-3-special-parameters)). Like other non-pagination parameters, it is carried over to the `prev`/`next` URLs ([QUERY-6.02](#query-6-pagination)).
+
+> **QUERY-3.06** `media`, `charset`, `encoding` and `language` — Parameters of the TunnelService of Restlet in 1.x, which consumed them for content negotiation ([API-4.05](03-api.md#api-4-content-negotiation)). They are not column filters and not carried over to the `prev`/`next` URLs, unless the dataset has a column of that name, in which case they filter it (in 1.x, such a filter was dropped silently and all rows were returned). On `/dataset/{id}`, a `media` value that is a media type or file extension still replaces the `Accept` header as well (e.g. `?media=html` redirects to `/dataset/{id}/html`); `/dataset/{id}/json` ignores the `Accept` header and can be used to filter such a column.
 
 ## QUERY-4 Regex Modes
 
@@ -39,8 +45,12 @@ Covers the read path from query parameter parsing through SQL execution to respo
 > 2. **Explicit prefix**: Values starting with `~` are treated as regex (the `~` is stripped before use)
 >
 > Values that don't trigger either mechanism use exact match as an optimization.
+>
+> As in 1.x, the `~` prefix is not evaluated per value: from the first value with `~` on, all filters that follow in the (unspecified) iteration order of the filters, which is not the order in the query string, are matched as regular expressions, also without `~` and without regex characters, and a leading `~` is stripped from every value. A query that combines a `~` value with other filters can therefore match those filters as regular expressions (ROWS-178).
 
 > **QUERY-4.04** The heuristic detection checks for the presence of these characters: `` ^ $ ( | [ * + { ? / ``. This is implemented in `DatasetUtil.isRegExpString()`.
+
+> **QUERY-4.05** Regular expressions are passed to PostgreSQL without further validation, as in 1.x; their length and structure are not restricted (see [SEC-4.08](07-security.md#sec-4-input-validation), removed). PostgreSQL's regex engine does not backtrack catastrophically like backtracking engines; the run time of a query is limited by `querytimeout` ([QUERY-7.01](#query-7-query-timeout)) only if it is configured; by default, there is no limit (ROWS-118). An invalid regular expression returns **400 Bad Request**.
 
 ## QUERY-5 SQL Construction
 
@@ -57,11 +67,15 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 ## QUERY-6 Pagination
 
-> **QUERY-6.01** Total result count is obtained via the `count(*) OVER()` PostgreSQL window function, which computes the count across the full result set while returning only the current page.
+> **QUERY-6.01** Total result count is obtained via the `count(*) OVER()` PostgreSQL window function, which computes the count across the full result set while returning only the current page. The count is read from the returned rows, so an offset beyond the last match returns `resultCount` 0 (as in 1.x).
 
 > **QUERY-6.02** The response envelope includes `prev` and `next` URLs when applicable. These URLs preserve the original query parameters and adjust `_limit` and `_offset`:
-> - `next`: present when `offset + limit < resultCount`
-> - `prev`: present when `offset > 0`
+> - `next`: present when `offset + limit <= resultCount`, so a last page that is exactly full links to an empty page (e.g., `_limit=5` on 5 matching rows)
+> - `prev`: present when `offset >= limit`, so a page with a smaller offset than its limit has no `prev` (e.g., `_offset=1&_limit=2`)
+>
+> These conditions are those of 1.x and are kept for compatibility.
+>
+> A filter value that is empty only after trimming ([QUERY-2.03](#query-2-filter-mechanics)) is carried over as a space (`col=+`), so that the links match empty cells as well; 1.x carried it over as `col=`, which returned 400. A value that is empty as sent (e.g. `_callback=`) is carried over empty.
 
 ## QUERY-7 Query Timeout
 
@@ -77,6 +91,10 @@ Covers the read path from query parameter parsing through SQL execution to respo
 
 > **QUERY-9.02** Non-numeric `_limit` or `_offset` values return **400 Bad Request**.
 
+> **QUERY-9.03** The characters `` ^ | [ ] { } \ " < > ` `` are accepted unencoded in the query string, as in 1.x (Jetty), since browsers and tools such as curl send them unencoded, e.g. in `?name=^Ber` (`server.tomcat.relaxed-query-chars`). Non-ASCII characters must be percent-encoded (as browsers do); Tomcat rejects them unencoded with 400. In the request path, these characters are not relaxed (unencoded, Tomcat rejects them with 400). An encoded slash or backslash (`%2F`, `%5C`) in a dataset ID is passed through undecoded and remains part of the ID, so e.g. `/dataset/a%2Fb` and `/dataset/x%2F..%2Fstatus` return 404 for the unknown dataset, as in 1.x (Tomcat's default is 400).
+
+> **QUERY-9.04** A query string that cannot be decoded, e.g. because of a malformed percent-encoding such as `?column=100%` or `?column=%zz`, or a percent-encoding that is not valid UTF-8 such as `?column=%C5` (ISO-8859-1), returns **400 Bad Request** (`ParameterParsingFilter`), so that a filter is never dropped silently and non-matching rows returned. In 1.x, such queries returned 0 rows or 500.
+
 ## Known Limitations
 
 - No support for `_sort` parameter (present in code as a TODO, parameter is recognized but not implemented)
@@ -84,6 +102,7 @@ Covers the read path from query parameter parsing through SQL execution to respo
 - No support for null/missing value queries
 - No full-text search (only exact match or regex)
 - Regex matching uses PostgreSQL `~` operator (POSIX regex), not LIKE patterns
+- In `full` regex mode, a `~` value also switches the filters that follow it to regex matching ([QUERY-4.03](#query-4-regex-modes), ROWS-178)
 
 ## References
 
@@ -91,10 +110,22 @@ Covers the read path from query parameter parsing through SQL execution to respo
 - [Domain Model](02-domain-model.md#dom-5-index-strategy) — Data table schema and indexes
 - [Configuration](06-configuration.md#cfg-3-application-options) — `regexpqueries`, `querytimeout`, `querymaxlimit`
 - [Glossary](12-glossary.md#glo-1-terms) — Query, Regex Mode, Pagination
-- Source: `DatasetResource.java`, `PgDataset.java` (query method), `DatasetUtil.java`
+- Source: `DatasetController.java`, `PgDataset.java` (query method), `DatasetUtil.java`, `ParameterParsingFilter.java`, `TunnelFilter.java`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: JSONP _callback removed, source references updated |
+| 2026-10-20 | QUERY-3.01: values above `querymaxlimit` fall back to the default |
+| 2026-10-21 | Added QUERY-3.05: `_callback` accepted and ignored instead of rejected with 400 (ROWS-147) |
+| 2026-10-23 | Added QUERY-2.03 (trimming, ROWS-157), QUERY-3.06 (tunnel parameters, ROWS-158), QUERY-4.05 (no regex validation, ROWS-153), QUERY-9.03 (unencoded characters, ROWS-151), QUERY-9.04 (malformed encodings, ROWS-152) |
+| 2026-10-23 | QUERY-3.04 removed, the `format` parameter was never implemented (ROWS-168) |
+| 2026-11-05 | QUERY-3.06: `media` still selects the representation on `/dataset/{id}`; QUERY-4.05: run time only limited if `querytimeout` is configured |
+| 2026-11-05 | QUERY-9.03: `%2F` and `%5C` in dataset IDs return 404, path characters are not relaxed (ROWS-151) |
+| 2026-11-09 | QUERY-6.01: `resultCount` is 0 for an offset beyond the last match, as in 1.x (ROWS-170) |
+| 2026-11-09 | QUERY-9.04: percent-encodings that are not UTF-8 return 400 with Tomcat 11 (ROWS-143) |
+| 2026-11-09 | QUERY-6.02: conditions of `prev` and `next` as implemented in 1.x and 2.0; QUERY-4.03: a `~` value switches the following filters to regex matching, also listed under Known Limitations (ROWS-177) |
+| 2026-11-09 | QUERY-2.03: a value that is empty only after trimming matches empty cells, a value that is empty as sent returns 400 (ROWS-175) |
+| 2026-11-09 | QUERY-2.03: empty `_callback`, `_sort` and overridden values are accepted (1.x: 400); QUERY-6.02: blank filter values are carried over to the page links as a space (ROWS-175) |

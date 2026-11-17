@@ -1,0 +1,127 @@
+/*
+ * Copyright (c) 2011-2026 MetaSolutions AB <info@metasolutions.se>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.entrystore.rowstore.resources;
+
+import jakarta.servlet.http.HttpServletRequest;
+import org.entrystore.rowstore.etl.EtlResource;
+import org.entrystore.rowstore.etl.EtlStatus;
+import org.entrystore.rowstore.filters.RequestDecodingFilter;
+import org.entrystore.rowstore.resources.model.DatasetAcceptedResponse;
+import org.entrystore.rowstore.store.Dataset;
+import org.entrystore.rowstore.store.RowStore;
+import org.entrystore.rowstore.util.DatasetUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.List;
+import java.util.Set;
+
+@RestController
+public class DatasetsController {
+
+	private static final Logger log = LoggerFactory.getLogger(DatasetsController.class);
+
+	private final RowStore rowStore;
+
+	public DatasetsController(RowStore rowStore) {
+		this.rowStore = rowStore;
+	}
+
+	@GetMapping(value = "/datasets")
+	public ResponseEntity<List<String>> listDatasets() {
+		Set<Dataset> datasets = rowStore.getDatasets().getAll();
+		if (datasets == null) {
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+		}
+		List<String> result = datasets.stream()
+				.map(Dataset::getId)
+				.toList();
+		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result);
+	}
+
+	@PostMapping(value = "/datasets")
+	public ResponseEntity<?> acceptCSV(HttpServletRequest request) {
+		if (!DatasetUtil.isCsvContentType(request.getContentType())) {
+			return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).build();
+		}
+
+		if (request.getContentLength() == 0) {
+			return ResponseEntity.badRequest().build();
+		}
+
+		File tmpFile = null;
+		boolean accepted = false;
+		try {
+			try {
+				tmpFile = DatasetUtil.writeTempFile(request.getInputStream(), rowStore.getConfig().getMaxUploadSize());
+			} catch (DatasetUtil.PayloadTooLargeException ptle) {
+				log.warn(ptle.getMessage());
+				return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).build();
+			} catch (RequestDecodingFilter.MalformedContentException mce) {
+				// e.g., truncated gzip data (API-3.17)
+				log.info(mce.getMessage());
+				return ResponseEntity.badRequest().build();
+			} catch (IOException ioe) {
+				log.error(ioe.getMessage());
+				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+			}
+
+			// Check if the temp file is empty (contentLength was -1 but stream had no data)
+			if (tmpFile.length() == 0) {
+				return ResponseEntity.badRequest().build();
+			}
+
+			Dataset newDataset = rowStore.getDatasets().createDataset();
+			if (newDataset == null) {
+				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+			}
+			newDataset.setStatus(EtlStatus.ACCEPTED_DATA);
+			EtlResource etlResource = new EtlResource(newDataset, tmpFile, "text/csv", true);
+			rowStore.getEtlProcessor().submit(etlResource);
+
+			String datasetURL = DatasetUtil.buildDatasetURL(rowStore.getConfig().getBaseURL(), newDataset.getId());
+
+			DatasetAcceptedResponse body = new DatasetAcceptedResponse(
+					newDataset.getId(),
+					datasetURL,
+					EtlStatus.ACCEPTED_DATA,
+					datasetURL + "/info"
+			);
+
+			accepted = true;
+			HttpHeaders headers = new HttpHeaders();
+			headers.add(HttpHeaders.LOCATION, datasetURL);
+			headers.add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+			return new ResponseEntity<>(body, headers, HttpStatus.ACCEPTED);
+		} finally {
+			if (tmpFile != null && !accepted) {
+				log.info("Deleting temporary file " + tmpFile);
+				tmpFile.delete();
+			}
+		}
+	}
+
+}

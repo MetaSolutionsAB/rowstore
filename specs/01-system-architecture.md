@@ -29,58 +29,107 @@ Covers the system from a structural and architectural perspective. For detailed 
 ## ARCH-3 Technology Stack
 
 > **ARCH-3.01** Core technologies:
-> - **Java 21** — Runtime and language level
-> - **Restlet 2.5.1** — REST framework
+> - **Java 25** — Runtime and language level
+> - **Spring Boot 4.1.2** — Application framework with embedded Tomcat 11
 > - **PostgreSQL** — Data storage (JSONB)
-> - **Jetty 9.4.57** — Embedded HTTP server (standalone mode)
+> - **HikariCP** — Optional JDBC connection pooling, used only when `connectionPoolMax` > 0 ([CFG-4.03](06-configuration.md#cfg-4-database-configuration)); by default, connections are opened per operation with the driver's `PGSimpleDataSource`
+> - **Flyway** — Database schema migration
 
 > **ARCH-3.02** Key libraries:
 > - **OpenCSV 5.11.2** — CSV parsing (RFC4180 and legacy modes)
 > - **Guava 33.4.8-jre** — Rate limiting (`RateLimiter`), caching, utilities
-> - **Log4j2 2.25.0** — Logging (via SLF4J 2.0.17)
+> - **Log4j2** — Logging (via SLF4J)
 > - **juniversalchardet** — Primary charset detection
 > - **ICU4J** — Fallback charset detection
-> - **PostgreSQL JDBC 42.7.7** — Database driver
+> - **PostgreSQL JDBC** — Database driver (managed by Spring Boot)
 > - **JSON-org 20250517** — JSON processing
+> - **Spring Boot Actuator** — Health checks and metrics
 
 ## ARCH-4 Module Structure
 
-> **ARCH-4.01** **`webapp`** — Core application module. Contains the Restlet-based REST API, ETL pipeline, PostgreSQL storage layer, web GUI templates, and all resource handlers. Produces a WAR artifact.
+> **ARCH-4.01** RowStore is a **single Maven module** producing an executable JAR via the `spring-boot-maven-plugin`. All source code (REST controllers, ETL pipeline, store layer, configuration, filters) resides in one module.
 
-> **ARCH-4.02** **`standalone/jetty`** — Embedded Jetty server for standalone deployment. Wraps the webapp module with CLI argument parsing, HTTP/2 support, and connector configuration. Produces a distributable tarball.
+> **ARCH-4.02** [REMOVED] `standalone/jetty` — Replaced by Spring Boot's embedded Tomcat server.
 
-> **ARCH-4.03** **`standalone/common`** — Shared standalone utilities used by the Jetty module for configuration resolution and application bootstrap.
+> **ARCH-4.03** [REMOVED] `standalone/common` — Replaced by Spring Boot's embedded Tomcat server.
 
 ## ARCH-5 Component Architecture
 
 > **ARCH-5.01** The request processing chain:
 > ```
-> HTTP Request
->   → JSCallbackFilter (JSONP wrapping)
->     → RateLimitFilter (optional, if configured)
->       → Router
->         → Resource handler
+> HTTP Request (from the reverse proxy, see SEC-9)
+>   → AccessLogFilter (one log line per request after its completion, DEPL-6.02)
+>     → PathParameterFilter (400 for ";" in the request path, SEC-4.11)
+>       → CorsFilter (CORS headers, preflight requests)
+>         → ParameterParsingFilter (400 for a query string that cannot be decoded, QUERY-9.04)
+>           → TrustedProxyFilter (client address from X-Forwarded-For if the peer is a trusted proxy, by default any peer)
+>             → TunnelFilter (media parameter replaces Accept, method tunnel of POST requests, API-4.05, API-4.06)
+>               → RateLimitFilter (optional, if configured)
+>                 → RequestDecodingFilter (decodes request bodies by Content-Encoding, 415 for unsupported codings, API-3.17)
+>                   → DispatcherServlet
+>                     → Controller handler method
 > ```
-> The JSCallbackFilter is the outermost filter. The RateLimitFilter is only attached when rate limiting is enabled (timerange > 0 AND (global > 0 OR dataset > 0)).
+> The `RateLimitFilter` is only active when rate limiting is enabled (timerange > 0 AND (global > 0 OR dataset > 0)). `CorsFilter` runs before it, so `429` responses carry CORS headers. `RequestDecodingFilter` runs after both, so that its `415` responses carry CORS headers and requests rejected by the rate limit are not inspected; it only wraps the request, the body is decoded while the controllers read it. There is no authentication filter; authentication is done by the reverse proxy ([SEC-9](07-security.md#sec-9-reverse-proxy-contract)).
 
-> **ARCH-5.02** Read path (query): `GET /dataset/{id}?col=value` → `DatasetResource.representJson()` → `PgDataset.query()` → PostgreSQL prepared statement → JSON response with pagination envelope.
+> **ARCH-5.02** Read path (query): `GET /dataset/{id}?col=value` → `DatasetController` → `PgDataset.query()` → PostgreSQL prepared statement → JSON response with pagination envelope.
 
-> **ARCH-5.03** Write path (upload): `POST /datasets` with CSV body → `DatasetsResource.acceptCSV()` → temp file creation → `EtlProcessor.submit()` → 202 response → async `DatasetSubmitter` poll → `DatasetLoader` thread → `PgDataset.populate()`.
+> **ARCH-5.03** Write path (upload): `POST /datasets` with CSV body → `DatasetsController` → temp file creation → `EtlProcessor.submit()` → 202 response → virtual thread with Semaphore permit → `PgDataset.populate()`.
 
 ## ARCH-6 Key Design Decisions
 
 > **ARCH-6.01** **JSONB storage**: Each row is stored as a JSONB object rather than in a normalized relational schema. This enables schemaless operation (no DDL changes when column structures differ between datasets), per-column `text_pattern_ops` indexing, and flexible regex querying.
 
-> **ARCH-6.02** **Queue-based async ETL**: CSV processing happens asynchronously via a `ConcurrentLinkedQueue` with configurable concurrency (`maxetlprocesses`, default 5). This decouples upload latency from processing time and prevents resource exhaustion from concurrent large uploads.
+> **ARCH-6.02** **Virtual-thread ETL with Semaphore**: CSV processing happens asynchronously via virtual threads with a `Semaphore` for concurrency limiting (`maxetlprocesses`, default 5). Tasks are dispatched immediately (no polling delay), and the Semaphore blocks virtual threads cheaply until a permit is available.
 
-> **ARCH-6.03** **Restlet framework**: RowStore uses Restlet as its REST framework, providing resource-oriented routing, content negotiation, and filter chains. Each endpoint is a `ServerResource` subclass with annotated HTTP method handlers.
+> **ARCH-6.03** **Spring Boot framework**: RowStore uses Spring Boot as its application framework, providing embedded Tomcat, optional HikariCP connection pooling (RowStore uses `PGSimpleDataSource` without a pool by default), Flyway schema migration, Actuator health/metrics endpoints, virtual thread support, and a large ecosystem of tooling and documentation.
+
+## ARCH-7 Database Connection Limits
+
+> **ARCH-7.01** By default, RowStore does not pool database connections: a connection is opened for a database operation and closed right afterwards, so an idle instance holds no connections (as in 1.x). Since requests run on virtual threads, the number of concurrent requests is not limited by a thread pool; instead, the number of open connections per instance is limited by **connection budgets** at the level of the data sources. This applies equally to direct JDBC connections and to `JdbcTemplate` usage, and also when the HikariCP pool is enabled (ARCH-7.07).
+
+> **ARCH-7.02** There are three budgets, so that operations that hold a connection for a long time never use up the connections of short operations:
+> - **query** — short operations of requests: queries, dataset and alias lookups and changes, status changes by requests, dataset creation and deletion, health and status checks. Limited by `maxQueryConnections` (default 10, CFG-4.05).
+> - **export** — streamed exports (`GET /dataset/{id}/export`), which hold their connection while the export is transferred. Limited by `maxExportConnections` (default 2, CFG-4.06).
+> - **load** — ETL jobs: loads (append and replace) and column name cleanups (ETL-11), which hold their connection for the whole job, and all other database operations of ETL jobs, in particular the status writes of a load (PROCESSING at the start, the final status, also when it is retried) and the reads of a cleanup before it obtains its connection. Limited by `maxetlprocesses` (CFG-3.03); since ETL jobs are already limited to `maxetlprocesses` (ARCH-6.02) and hold at most one load connection each at any time, they never wait for a load connection. Therefore a load finishes (and writes its final status) even if all query connections are in use for a long time.
+>
+> The budgets apply per database block: `database` has a query and a load budget, and an export budget if there is no `queryDatabase`; a separate `queryDatabase` (CFG-5.01) has its own query budget (for queries) and the export budget.
+
+> **ARCH-7.03** A request for a connection of a budget whose connections are all in use waits; waiting requests get connections in FIFO order. The wait is limited by `connectionWaitTimeout` (default `querytimeout` if configured, otherwise 30 seconds, CFG-4.07). Only if no connection becomes free within that time, the request fails with **503 Service Unavailable** (like a database connectivity failure, API-6.05), unless the response status has already been sent (export). The defaults are meant to absorb normal bursts by waiting, so that clients practically never get 503.
+>
+> How long a request occupies a query connection is bounded, so that requests that are slow or blocked cannot use up the query connections of all other requests:
+> - If `querytimeout` is configured (CFG-3.06), it applies to the dataset query and to all statements that short operations execute through the JdbcTemplates of the query budgets (e.g., the lookups of datasets and aliases, the column names that precede every query, row counts); a statement cancelled by it results in 503. Statements of short operations that change data (dataset creation and deletion, alias changes) are not limited by it.
+> - All connections of the query budgets wait at most `queryLockTimeout` (default half of `connectionWaitTimeout`, CFG-4.08) for a lock (PostgreSQL `lock_timeout`, set when a connection is obtained); a lock timeout results in 503. This applies, e.g., to requests for a dataset whose data table is locked for a long time outside of RowStore (e.g., a manual `LOCK TABLE`): such requests get 503 after the lock timeout instead of occupying their query connections without limit. Each of them still holds a query connection for up to the lock timeout, so if more than about `maxQueryConnections` requests per `queryLockTimeout` target the locked dataset, they use up the query connections, and requests for other datasets wait as well and may get 503 after their wait timeout. A replace or a column name cleanup that waits for a long reader of the data table blocks requests for the dataset for at most 3 seconds at a time (ETL-6.04); such requests are delayed but succeed if `queryLockTimeout` is longer than 3 seconds (e.g., the default with a `connectionWaitTimeout` of 7 seconds or more) or 0. With a lock timeout of 3 seconds or less, requests arriving during an attempt may get 503; a WARN is logged at startup for each database block with such a lock timeout. In 1.x, such requests waited without limit. Half the wait timeout is used so that requests that wait for a connection behind requests blocked by a lock still get one within their wait timeout. Exports and ETL jobs keep the default lock timeout of the database (normally none). With `queryLockTimeout` 0, RowStore sets no lock timeout; then a request for a dataset blocked behind a long exclusive lock occupies its query connection until the lock is released or `querytimeout` cancels it, and requests waiting behind such requests may get 503 after their wait timeout.
+
+> **ARCH-7.04** A request or ETL job holds at most one connection at a time: all reads that belong to an operation that holds a connection (e.g., the existing column names of an append, the availability of aliases while they are changed) use that connection, or happen before or after it is held. Otherwise requests could wait for each other until the wait timeout when a budget is exhausted.
+
+> **ARCH-7.05** Waits for a connection longer than 1 second and wait timeouts are logged at WARN level, aggregated per budget to at most one message per minute (with the number of slow waits and timeouts since the last message, the longest wait and the current usage). The current usage of each budget (connections in use, maximum, waiting requests) is reported by `GET /status` (API-3.14) and in the details of the health indicator (`/actuator/health`, if details are shown).
+>
+> The `db` health indicator of Spring Boot Actuator is disabled, since it would open connections outside the budgets; the RowStore health indicator checks the primary database and, if configured separately, the query database, one after the other, with connections of their query budgets. Health and status checks wait at most 2 seconds (or the wait timeout, if shorter) for a connection, so that they answer promptly when all connections are in use: the health indicator then reports the database as `BUSY` (in use, hence reachable) and the health as UP; `GET /status` reports `datasets` as -1. The health is DOWN only if a database is not reachable.
+
+> **ARCH-7.06** **Sizing.** The maximum number of connections of one instance is, per database:
+> - without `queryDatabase`: `maxQueryConnections + maxExportConnections + maxetlprocesses` (default 10 + 2 + 5 = 17)
+> - with `queryDatabase`: `database.maxQueryConnections + maxetlprocesses` on the primary database and `queryDatabase.maxQueryConnections + queryDatabase.maxExportConnections` on the query database
+>
+> The sum over all instances that use the same PostgreSQL cluster must stay below its `max_connections` minus the connections reserved for administration and other clients. For deployments with many instances (e.g., 80 instances x 17 = 1360 connections in the worst case), either lower the limits per instance or put a connection pooler such as **PgBouncer** in transaction pooling mode between the instances and the cluster, which multiplexes the client connections onto a small number of server connections. RowStore uses session state only within transactions (`SET LOCAL`), except for the `lock_timeout` of query connections (ARCH-7.03), which is set with `SET` when a connection is obtained, outside a transaction. With transaction pooling, such a `SET` is executed on an arbitrary server connection and stays there for other clients (including the export and load connections of other instances), while the following statements may run on another server connection without it. Therefore, with PgBouncer transaction pooling:
+> - set `queryLockTimeout` to `0` in `database` and `queryDatabase` (CFG-4.08), so that RowStore changes no session state, and
+> - configure the lock timeout on the server side, preferably for a separate database user of the query database, e.g., `ALTER ROLE rowstore_query SET lock_timeout = '15s'` (half of `connectionWaitTimeout`, see above). If the same user is used for loads and exports, such a setting applies to them as well: replaces set their own lock timeouts (ETL-6), but an export blocked behind an exclusive lock for longer than it fails. PgBouncer's `track_extra_parameters` (1.20+) cannot make the `SET` of query connections safe: PgBouncer only tracks `SET` changes of parameters that PostgreSQL reports to the client, and `lock_timeout` is not one of them, so under transaction pooling `queryLockTimeout` must be 0.
+>
+> Without any lock timeout, requests for a dataset blocked behind a long exclusive lock occupy their query connections until the lock is released or `querytimeout` cancels them, and requests waiting for these connections may get 503 after their wait timeout (see ARCH-7.03).
+>
+> The JDBC driver uses server-side prepared statements after 5 executions of a statement; with transaction pooling, this requires PgBouncer 1.21 or later with `max_prepared_statements` > 0, otherwise `prepareThreshold=0` has to be set for the driver.
+>
+> How long connections are occupied is bounded by `querytimeout` and the lock timeout (ARCH-7.03) for the query budgets; without `querytimeout`, a slow query occupies its connection until it completes.
+
+> **ARCH-7.07** **HikariCP.** When `connectionPoolMax` > 0 (CFG-4.03), connections are pooled (and idle connections are kept, unlike the default); the budgets apply on top of the pool with the same semantics and usage reporting. The pool should be at least as large as the sum of the budgets of its database (ARCH-7.06), otherwise budgets compete for pooled connections and a connection may wait for the pool instead (with the pool's own timeout); a warning is logged at startup in that case. Since 1.x never pooled the connections of `database`, and those of `queryDatabase` only if both `connectionPoolInit` and `connectionPoolMax` were greater than 0, a WARN is logged at startup whenever 2.0 pools connections that 1.x would not have pooled, so that a `connectionPoolMax` carried over from a 1.x configuration does not go unnoticed. Leak detection of HikariCP is disabled, since exports and loads legitimately hold their connections for longer than any fixed threshold. The pool does not connect when it is created (`initializationFailTimeout` -1), so that a database that is not reachable at startup is waited for (ARCH-7.08).
+
+> **ARCH-7.08** **Database not reachable at startup.** If the database is not reachable at startup (e.g., during a restart or a failover of the cluster), RowStore waits for it instead of failing: the schema migration (Flyway) and the startup maintenance (the version check of DEPL-4.01, ETL-8.06, ETL-6.05) are retried with a delay of 1 second, doubled per attempt up to 60 seconds, without limit; each failed attempt is logged at WARN level with its cause. Retried are connectivity failures only, decided by the first SQL state in the cause chain: connection exceptions (SQL state class 08, including timeouts of connection attempts), a database that is shutting down or starting up (57P01, 57P02, 57P03) and too many connections (53300); only if no SQL state is present, failed connection attempts of the network or a connection pool. Other failures end the startup as before, e.g., wrong credentials (28P01), a missing database (3D000), a full disk (53100) or a failing migration, also when a connection pool (HikariCP, ARCH-7.07) reports them as a failure to obtain a connection. The retries run before the web server accepts connections, so RowStore does not listen on its port until the database is reachable; a shutdown of the JVM (e.g., SIGTERM) meanwhile ends the startup. In 1.x, RowStore started without the database and answered requests with errors until it was reachable; in 2.0 before ROWS-160, the startup failed.
+
+> **ARCH-7.09** **503 responses.** Responses with 503 because the database is busy or unavailable (API-6.05: no connection within the wait timeout, a lock or statement timeout of a short operation, an unreachable database) carry `Retry-After: 5` (seconds). Connectivity failures are logged at ERROR level per request. Requests that got no connection within the wait timeout are logged at DEBUG level only, since the budget logs aggregated warnings (ARCH-7.05), and lock and statement timeouts of short operations are logged at WARN level at most once per minute, with the number of such responses since the last warning, so that an overloaded instance does not flood its log. The 503 of a cancelled dataset query (QUERY-7.01) is unchanged.
 
 ## Known Limitations
 
 - Single-process architecture (no clustering or horizontal scaling)
-- No built-in metrics or APM integration
 - No WebSocket or Server-Sent Events for ETL progress notifications
-- Jetty 9.x (Jakarta EE 8, not Jakarta EE 9+)
 
 ## References
 
@@ -90,10 +139,25 @@ Covers the system from a structural and architectural perspective. For detailed 
 - [Query Processing](05-querying.md#query-1-query-overview) — Query processing
 - [Configuration](06-configuration.md#cfg-3-application-options) — Configuration options
 - [Glossary](12-glossary.md#glo-1-terms) — Term definitions
-- Source: `RowStoreApplication.java`, `PgRowStore.java`
+- Source: `RowStoreApplication.java`, `PgRowStore.java`, `LimitedDataSource.java`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot 3.5.10 migration (Java 25, Tomcat, HikariCP, Flyway, virtual threads) |
+| 2026-10-20 | ARCH-5.01: ApiKeyFilter removed, TrustedProxyFilter added, actual filter order documented |
+| 2026-10-20 | ARCH-5.01: PathParameterFilter added; CorsFilter moved before RateLimitFilter |
+| 2026-10-20 | ARCH-3.01, ARCH-6.03: HikariCP is optional, `PGSimpleDataSource` without pool by default |
+| 2026-10-21 | ARCH-7: connection budgets per instance (query, export, load), one connection per request at a time, sizing |
+| 2026-10-21 | ARCH-7.02: status writes of ETL jobs use the load budget; ARCH-7.03: querytimeout and lock timeout bound query connections; ARCH-7.05: health checks of both databases with a short wait |
+| 2026-10-21 | ARCH-7.03, ARCH-7.06: configurable lock timeout of query connections (queryLockTimeout), configuration for PgBouncer transaction pooling |
+| 2026-10-21 | ARCH-5.01: TrustedProxyFilter trusts the connecting peer by default |
+| 2026-10-23 | ARCH-7.03: a replace blocks requests for the dataset for at most one short lock attempt (ETL-6.04, ROWS-159); ARCH-7.07: warning when 2.0 pools where 1.x did not, no leak detection; ARCH-7.08: waiting for the database at startup (ROWS-160); ARCH-7.09: Retry-After and logging of 503 responses (ROWS-167) |
+| 2026-10-23 | ARCH-5.01: AccessLogFilter first (ROWS-166) |
+| 2026-10-23 | ARCH-5.01: ParameterParsingFilter and TunnelFilter added (ROWS-152, ROWS-158) |
+| 2026-11-05 | ARCH-7.03: requests blocked by a long lock on one dataset can use up the query connections if they arrive faster than the lock timeout releases them (ROWS-168) |
+| 2026-11-05 | ARCH-7.03: condition under which requests behind a swap lock attempt succeed, startup warning otherwise; ARCH-7.08: the first SQL state decides which failures are retried, also behind a connection pool |
+| 2026-11-09 | ARCH-3.01: Spring Boot 4.1.2 (ROWS-143) |
+| 2026-11-09 | ARCH-5.01: RequestDecodingFilter added (ROWS-173) |

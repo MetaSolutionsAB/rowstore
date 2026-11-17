@@ -12,14 +12,26 @@ Covers the JSON configuration file format, all application and database options,
 
 > **CFG-1.01** Configuration is specified as a JSON file. The file must be valid JSON with a single root object.
 
+> **CFG-1.02** The configuration is validated at startup and RowStore refuses to start if it is invalid. The first error log line names the offending key (e.g. `rowstore.json: missing required key 'database.host'`). Startup fails when:
+> - a required key is missing: `baseurl`, `database`, `database.host`, `database.database`, `database.user`, `database.password` (and the same four keys in `queryDatabase` when that block is present); an empty password is allowed
+> - `database`, `queryDatabase`, `ratelimit` or `cors` is present but not a JSON object, or `cors.allowedorigins` is present but not an array of strings
+> - `trustedproxies` is present but not an array of strings, or one of its entries is not an IP address or CIDR range
+> - a value cannot be read as the expected type (e.g. `baseurl` is not a string)
+> - `querymaxlimit` or `maxuploadsize` is not greater than 0
+> - a connection limit of `database` or `queryDatabase` is invalid: `maxQueryConnections`, `maxExportConnections` or `connectionWaitTimeout` is not a number greater than 0, or `queryLockTimeout` is not a number greater than or equal to 0 (CFG-4.05 to CFG-4.08)
+>
+> Unknown keys are ignored.
+
+> **CFG-1.03** If no configuration is found, if it cannot be read (e.g., the file does not exist), or if it is invalid (CFG-1.02), RowStore logs one error message naming the problem, without a stack trace (`RowStoreConfigFailureAnalyzer`), and exits with code 1.
+
 ## CFG-2 Resolution Order
 
 > **CFG-2.01** The configuration file is resolved in this order:
-> 1. Explicit URI via `-c`/`--config` CLI argument
+> 1. `--rowstore.config.uri=<URI>` Spring Boot property (command line)
 > 2. `ROWSTORE_CONFIG_URI` environment variable
 > 3. `rowstore.json` from the classpath (fallback)
 
-> **CFG-2.02** The URI supports these schemes: `file://`, `http://`, `https://`. Relative file paths are resolved against the working directory.
+> **CFG-2.02** The location is a URI with the scheme `file://`, `http://` or `https://`, or a file path (e.g. `/etc/rowstore/rowstore.json`, `conf/rowstore.json`). Relative file paths are resolved against the working directory.
 
 ## CFG-3 Application Options
 
@@ -32,17 +44,25 @@ Covers the JSON configuration file format, all application and database options,
 >
 > See [QUERY-4](05-querying.md#query-4-regex-modes) for details.
 
-> **CFG-3.03** `maxetlprocesses` (int, default `5`) — Maximum number of concurrent ETL processing threads. Controls how many CSV files can be parsed and loaded simultaneously. See [ETL-2.02](04-etl-pipeline.md#etl-2-queue-mechanics).
+> **CFG-3.03** `maxetlprocesses` (int, default `5`) — Maximum number of concurrent ETL processing tasks. Controls the Semaphore permit count for virtual thread concurrency. See [ETL-2.02](04-etl-pipeline.md#etl-2-concurrency-mechanism).
 
-> **CFG-3.04** `loglevel` (String, default `"info"`) — Log level for the application. Valid values: `DEBUG`, `INFO`, `WARN`, `ERROR` (case-insensitive). Can be overridden by the `-l` CLI argument.
+> **CFG-3.04** `loglevel` (String, default `"info"`) — Log level for the application. Valid values: `DEBUG`, `INFO`, `WARN`, `ERROR` (case-insensitive).
 
 > **CFG-3.05** `legacyparser` (boolean, default `false`) — When `true`, uses OpenCSV's `CSVParserBuilder` instead of `RFC4180ParserBuilder` for CSV parsing. See [ETL-4.03](04-etl-pipeline.md#etl-4-csv-processing).
 
-> **CFG-3.06** `querytimeout` (int, default `-1`) — Query timeout in seconds. When > 0, applied via `setQueryTimeout()` on the JDBC statement. Timed-out queries return 503. See [QUERY-7.01](05-querying.md#query-7-query-timeout).
+> **CFG-3.06** `querytimeout` (int, default `-1`) — Query timeout in seconds. When > 0, applied via `setQueryTimeout()` on the JDBC statement of a query and on the statements that short operations execute through the JdbcTemplates of the query budget, e.g., dataset lookups, column names and row counts (ARCH-7.03). Timed-out queries return 503. See [QUERY-7.01](05-querying.md#query-7-query-timeout).
 
-> **CFG-3.07** `querymaxlimit` (int, default `100`) — Maximum value allowed for the `_limit` query parameter. Client-requested limits exceeding this value are capped. See [QUERY-3.01](05-querying.md#query-3-special-parameters).
+> **CFG-3.07** `querymaxlimit` (int, default `100`) — Maximum value allowed for the `_limit` query parameter. Client-requested limits exceeding this value are not used; the default limit of 100 applies instead (QUERY-3.01). Must be greater than 0. See [QUERY-3.01](05-querying.md#query-3-special-parameters).
 
-> **CFG-3.08** `exportpagesize` (int, default `100000`) — Number of rows fetched per internal database query during export operations. Controls memory usage for large exports.
+> **CFG-3.08** [REMOVED] `exportpagesize` — Was never used by the export implementation. The key is ignored if present.
+
+> **CFG-3.09** `maxuploadsize` (long, default `104857600`) — Maximum CSV upload size in bytes (default 100 MB), measured after decoding a `Content-Encoding` ([ETL-9.02](04-etl-pipeline.md#etl-9-temp-file-lifecycle)). Uploads exceeding this limit are rejected. Must be greater than 0; there is no setting for unlimited uploads (RowStore 1.x had no limit), so set a large value instead. See [SEC-4.09](07-security.md#sec-4-input-validation).
+
+> **CFG-3.10** `cors.allowedorigins` (JSON array, default `["*"]`) — List of allowed origins for CORS. When set to `["*"]`, all origins are permitted. See [SEC-6.01](07-security.md#sec-6-cors).
+
+> **CFG-3.11** `trustedproxies` (JSON array of strings) — IP addresses (`"192.0.2.10"`, `"::1"`) and CIDR ranges (`"10.0.0.0/8"`, `"fd00::/8"`) of reverse proxies whose `X-Forwarded-For` header is trusted for determining the client address (per-client-IP rate limit). Only IP literals are accepted, no host names. When absent (default), the connecting peer is trusted as the reverse proxy, since RowStore must only be reachable through it ([SEC-9.01](07-security.md#sec-9-reverse-proxy-contract)), and the last `X-Forwarded-For` entry is the client address. A list is needed if requests pass through more than one proxy whose addresses are not resolved before RowStore (e.g. a load balancer in front of nginx without nginx's real IP module), or to accept `X-Forwarded-For` only from known proxies. An empty array `[]` trusts nobody: `X-Forwarded-For` is always ignored. See [SEC-5.05](07-security.md#sec-5-rate-limiting) and [SEC-5.06](07-security.md#sec-5-rate-limiting).
+
+> **CFG-3.12** `accesslog` (boolean, default `true`) — Logs one line per request at INFO level in the format of 1.x (DEPL-6.02). `false` turns the access log off.
 
 ## CFG-4 Database Configuration
 
@@ -57,20 +77,34 @@ Covers the JSON configuration file format, all application and database options,
 > | `user` | String | — | Database user (required) |
 > | `password` | String | — | Database password (required) |
 
-> **CFG-4.02** `ssl` (boolean, default `false`) — Enables SSL for the PostgreSQL connection.
+> **CFG-4.02** `ssl` (boolean, optional) — SSL for the PostgreSQL connection, with and without connection pool. `true` sets the driver's `sslmode=require`, `false` sets `sslmode=disable`. When `ssl` is not set, the pgjdbc default `sslmode=prefer` applies (SSL if the server offers it), as in RowStore 1.7.
 
-> **CFG-4.03** Connection pool settings:
-> - `connectionPoolInit` (int, default `-1`) — Initial pool size. `-1` disables pooling.
-> - `connectionPoolMax` (int, default `-1`) — Maximum pool size. `-1` disables pooling.
+> **CFG-4.03** Connection pool settings (HikariCP):
+> - `connectionPoolMax` (int, default `-1`) — Maximum pool size (`maximumPoolSize`). A HikariCP pool is used only if the value is greater than 0; otherwise (the default) no pool is used and connections are opened per operation with `PGSimpleDataSource`.
+> - `connectionPoolInit` (int, default `-1`) — Minimum idle connections (`minimumIdle`), only effective with a pool. Values <= 0 mean `0`.
+>
+> 1.x never pooled the connections of `database` and pooled those of `queryDatabase` only if both values were greater than 0. A WARN is logged at startup when 2.0 pools connections that 1.x would not have pooled ([ARCH-7.07](01-system-architecture.md#arch-7-database-connection-limits)).
 
 > **CFG-4.04** Timeout settings (all in seconds):
 > - `socketTimeout` (int, default `0`) — Socket read timeout. `0` means no timeout.
 > - `connectTimeout` (int, default `5`) — Connection establishment timeout.
 > - `loginTimeout` (int, default `5`) — Authentication timeout.
+>
+> Values >= 0 are passed to the PostgreSQL driver, with and without connection pool (`0` means no timeout, as in 1.x). With HikariCP, `connectTimeout` additionally sets the pool's `connectionTimeout` (maximum wait for a pooled connection).
+
+> **CFG-4.05** `maxQueryConnections` (int, default `10`) — Maximum number of connections of the database that are open at the same time for short operations (query budget, see [ARCH-7.02](01-system-architecture.md#arch-7-database-connection-limits)).
+
+> **CFG-4.06** `maxExportConnections` (int, default `2`) — Maximum number of connections of the database that are open at the same time for exports (export budget). Only used for the database that serves queries: `queryDatabase` if configured, otherwise `database`.
+
+> **CFG-4.07** `connectionWaitTimeout` (int, seconds) — Maximum time a request waits for a connection of a budget before it fails with 503 ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)). Defaults to `querytimeout` (CFG-3.06) if that is greater than 0, otherwise to `30`.
+
+> **CFG-4.08** `queryLockTimeout` (int, seconds) — Maximum time a connection of the query budget waits for a lock ([ARCH-7.03](01-system-architecture.md#arch-7-database-connection-limits)), set as PostgreSQL `lock_timeout` when the connection is obtained. Defaults to half of `connectionWaitTimeout`. A lock timeout greater than 0 and at most 3 seconds (also the default with a `connectionWaitTimeout` of 6 seconds or less) is warned about at startup, since requests that arrive while a replace tries to lock the data table may then get 503 ([ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace)). `0` disables it: RowStore then changes no session state of any connection (no `SET lock_timeout` for query connections and no `RESET lock_timeout` for pooled export and load connections), which is required with PgBouncer transaction pooling; the lock timeout should then be configured on the server side ([ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits)). Negative or non-numeric values are rejected at startup (`rowstore.json: 'database.queryLockTimeout' must be a number greater than or equal to 0`).
+>
+> The load budget of the `database` is limited by `maxetlprocesses` (CFG-3.03). Values of CFG-4.05 to CFG-4.07 that are not numbers greater than 0 are rejected at startup with an error naming the key (e.g., `rowstore.json: 'database.maxQueryConnections' must be a number greater than 0`); there is no "unlimited" value. See [ARCH-7.06](01-system-architecture.md#arch-7-database-connection-limits) for sizing the limits of many instances that share a PostgreSQL cluster.
 
 ## CFG-5 Read Replica Configuration
 
-> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection for read queries. It accepts the same properties as `database`. When not configured, all queries use the primary `database` connection. See [QUERY-8.01](05-querying.md#query-8-read-replica-routing).
+> **CFG-5.01** The `queryDatabase` object (optional) configures a separate PostgreSQL connection pool for read queries. It accepts the same properties as `database`, including its own connection limits (CFG-4.05 to CFG-4.08) for the queries and exports it serves. When not configured, all queries use the primary `database` connection. Connections to `queryDatabase` are read-only also in auto-commit mode (driver `readOnlyMode=always`), with and without connection pool. The driver sets this as session state (`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`), which PgBouncer cannot track, so behind PgBouncer `queryDatabase` must use its own database user, never the user of `database` (ARCH-7.06). See [QUERY-8.01](05-querying.md#query-8-read-replica-routing). Replica queries of a dataset may be cancelled when a replace of the dataset is replayed, see [ETL-6.04](04-etl-pipeline.md#etl-6-append-vs-replace). If `queryDatabase` uses a separate database user, it should be granted read access with `ALTER DEFAULT PRIVILEGES` (for tables created by the RowStore user), since every new dataset creates a new data table; privileges granted on an existing data table are kept by replaces (ETL-6.02).
 
 ## CFG-6 Rate Limit Configuration
 
@@ -83,25 +117,27 @@ Covers the JSON configuration file format, all application and database options,
 > **CFG-6.03** `ratelimit.global`, `ratelimit.dataset`, `ratelimit.clientip` (int, default `-1`) — Maximum requests per `timerange` for each scope:
 > - `global` — Single limiter for all requests
 > - `dataset` — One limiter per dataset URL path
-> - `clientip` — One limiter per client IP (from `X-Forwarded-For` header)
+> - `clientip` — One limiter per client IP: the client address from `X-Forwarded-For` if the connecting peer is a trusted proxy (by default any peer), otherwise the address of the connecting peer ([CFG-3.11](#cfg-3-application-options), [SEC-5.05](07-security.md#sec-5-rate-limiting))
 
-> **CFG-6.04** Rate limiting is enabled when: `timerange > 0 AND (global > 0 OR dataset > 0)`. If these conditions are not met, the `RateLimitFilter` is not attached to the filter chain. See [SEC-5](07-security.md#sec-5-rate-limiting).
+> **CFG-6.04** Rate limiting is enabled when: `timerange > 0 AND (global > 0 OR dataset > 0)`. If these conditions are not met, the `RateLimitFilter` is not active. See [SEC-5](07-security.md#sec-5-rate-limiting).
 
 ## CFG-7 CLI Options
 
-> **CFG-7.01** `-c, --config <URI>` — Configuration file URI. Required if `ROWSTORE_CONFIG_URI` is not set.
+> **CFG-7.01** `--rowstore.config.uri=<URI>` — Configuration file URI (Spring Boot property). Example: `--rowstore.config.uri=file:///etc/rowstore/config.json`.
 
-> **CFG-7.02** `-p, --port <PORT>` — HTTP listen port. Default: `8282`.
+> **CFG-7.02** `--server.port=<PORT>` — HTTP listen port. Default: `8282`; the Docker image sets `8080` with the environment variable `SERVER_PORT` ([DEPL-2.05](08-deployment.md#depl-2-docker)), which `--server.port` overrides. Standard Spring Boot property.
 
-> **CFG-7.03** `-l, --log-level <LEVEL>` — Log level override. Overrides the `loglevel` config option.
+> **CFG-7.03** [REMOVED] `-l, --log-level` — CLI log level override. The log level is set with `loglevel` in rowstore.json ([CFG-3.04](#cfg-3-application-options)); it is applied to the root logger when the configuration is loaded and overrides `logging.level.root`.
 
-> **CFG-7.04** `--connector-params <SETTINGS>` — Jetty connector parameters as comma-separated `key=value` pairs. Used for thread pool tuning and other Jetty-specific settings.
+> **CFG-7.04** [REMOVED] `--connector-params` — Jetty connector parameters. Jetty has been replaced by embedded Tomcat.
+
+> **CFG-7.05** RowStore only takes arguments of the form `--name=value` (or `--name`). Any other argument prevents the startup with a message on standard error and exit code 1, so that options of 1.x are not ignored silently: `-c`/`--config`, `-p`/`--port`, `-l`/`--log-level`, `--connector-params` and `-h`/`--help` name their replacement (`--rowstore.config.uri`, `--server.port`, `loglevel`, `maxQueryConnections`), other arguments (e.g. a bare port or URI) the expected form.
 
 ## CFG-8 Environment Variables
 
-> **CFG-8.01** `ROWSTORE_CONFIG_URI` — Configuration file URI. Used when no `-c` CLI argument is provided.
+> **CFG-8.01** `ROWSTORE_CONFIG_URI` — Configuration file URI. Used when no `--rowstore.config.uri` property is provided.
 
-> **CFG-8.02** `ROWSTORE_CONNECTOR_PARAMS` — Jetty connector parameters. Alternative to `--connector-params` CLI argument.
+> **CFG-8.02** [REMOVED] `ROWSTORE_CONNECTOR_PARAMS` — Jetty connector parameters. Jetty has been replaced by embedded Tomcat. If the variable is set, a WARN is logged at startup that it is ignored.
 
 ## CFG-9 Annotated Example
 
@@ -115,7 +151,11 @@ Covers the JSON configuration file format, all application and database options,
 >     "legacyparser": false,
 >     "querytimeout": 30,
 >     "querymaxlimit": 500,
->     "exportpagesize": 50000,
+>     "maxuploadsize": 209715200,
+>     "cors": {
+>         "allowedorigins": ["https://example.com", "https://app.example.com"]
+>     },
+>     "trustedproxies": ["10.0.0.5", "fd00:1::/64"],
 >     "database": {
 >         "type": "postgresql",
 >         "host": "db-primary.example.com",
@@ -152,21 +192,35 @@ Covers the JSON configuration file format, all application and database options,
 ## Known Limitations
 
 - No hot-reload of configuration (requires restart)
-- No configuration validation at startup beyond JSON parsing (missing required fields cause runtime errors)
+- Validation covers required keys, block types and positive limits only (CFG-1.02); a scalar value of the wrong type for an optional key (e.g. `"querytimeout": "abc"`) still falls back to the default
 - Database password is stored in plaintext (no vault or secrets manager integration)
 - No support for environment variable substitution within the JSON config file
 
 ## References
 
 - [Query Processing](05-querying.md#query-4-regex-modes) — `regexpqueries`, `querytimeout`, `querymaxlimit` behavior
-- [ETL Pipeline](04-etl-pipeline.md#etl-2-queue-mechanics) — `maxetlprocesses`, `legacyparser` behavior
-- [Security](07-security.md#sec-5-rate-limiting) — Rate limit behavior
-- [Deployment](08-deployment.md#depl-1-standalone-jetty) — CLI usage and deployment
-- [Glossary](12-glossary.md#glo-1-terms) — Read Replica, Rate Limit
-- Source: `RowStoreConfig.java`, `RowStoreApplicationStandalone.java`
+- [ETL Pipeline](04-etl-pipeline.md#etl-2-concurrency-mechanism) — `maxetlprocesses`, `legacyparser` behavior
+- [Security](07-security.md#sec-5-rate-limiting) — Rate limit behavior, trusted proxies
+- [Deployment](08-deployment.md#depl-1-spring-boot-standalone) — CLI usage and deployment
+- [Glossary](12-glossary.md#glo-1-terms) — Read Replica, Rate Limit, CORS
+- Source: `RowStoreConfig.java`, `RowStoreConfigLoader.java`, `RowStoreConfigFailureAnalyzer.java`, `RowStoreApplication.java`, `TrustedProxyFilter.java`
 
 ## Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-02-06 | Initial version |
+| 2026-02-09 | Updated for Spring Boot migration: CLI args changed, Jetty params removed, maxuploadsize and cors.allowedorigins added |
+| 2026-10-20 | CFG-5.01: replica queries may be cancelled by replayed replaces |
+| 2026-10-20 | Added CFG-1.02 (fail fast on invalid config), CFG-3.08 removed (exportpagesize unused); CFG-4.02, CFG-4.04, CFG-5.01 clarified for driver settings with HikariCP |
+| 2026-10-20 | Added CFG-3.11 (`trustedproxies`); CFG-1.02 and CFG-6.03 updated: `X-Forwarded-For` only from trusted proxies |
+| 2026-10-20 | CFG-4.03: no pool unless `connectionPoolMax` > 0; CFG-3.07: limits above `querymaxlimit` fall back to the default |
+| 2026-10-21 | CFG-4.05 to CFG-4.07: connection limits per database block |
+| 2026-10-21 | CFG-3.06: querytimeout applies to all statements of short operations; CFG-4.07: lock timeout of query connections |
+| 2026-10-21 | CFG-4.08: queryLockTimeout; CFG-3.06: querytimeout applies to the JdbcTemplate statements of short operations |
+| 2026-10-21 | CFG-4.02: sslmode prefer when `ssl` is not set (as in 1.7); CFG-3.09: no unlimited upload size |
+| 2026-10-21 | CFG-3.11: without `trustedproxies`, the connecting peer is trusted and the last `X-Forwarded-For` entry is the client (was: private ranges); CFG-6.03 accordingly |
+| 2026-10-23 | CFG-4.03: warning when pooling where 1.x did not (ROWS-167) |
+| 2026-10-23 | Added CFG-1.03 (configuration failures without stack trace), CFG-3.12 (`accesslog`), CFG-7.05 (unsupported arguments); CFG-2.02: file paths; CFG-7.03: `loglevel` replaces `-l`; CFG-8.02: warning if set (ROWS-161, ROWS-166) |
+| 2026-11-05 | CFG-4.08: startup warning for a lock timeout of 3 seconds or less (ETL-6.04) |
+| 2026-11-09 | CFG-7.02: port 8080 in the Docker image (DEPL-2.05, ROWS-176) |

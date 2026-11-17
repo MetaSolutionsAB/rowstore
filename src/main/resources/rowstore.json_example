@@ -1,0 +1,37 @@
+{
+  "baseurl": "https://domain.com/rowstore/",
+  "regexpqueries": true,
+  "maxetlprocesses": 5,
+  "querytimeout": 15,
+  "querymaxlimit": 250,
+  "database": {
+    "type": "postgresql",
+    "host": "localhost",
+    "port": 5432,
+    "database": "rowstore",
+    "user": "rowstore",
+    "password": "",
+    "ssl": true
+  },
+  "queryDatabase": {
+    "type": "postgresql",
+    "host": "read-replica",
+    "port": 5432,
+    "database": "rowstore",
+    "user": "rowstore",
+    "password": "",
+    "ssl": false
+  },
+  "maxuploadsize": 104857600,
+  "cors": {
+    "allowedorigins": ["*"]
+  },
+  "ratelimit": {
+    "type": "slidingwindow",
+    "timerange": 60,
+    "dataset": 150,
+    "global": 300,
+    "clientip": 30
+  },
+  "loglevel": "debug"
+}

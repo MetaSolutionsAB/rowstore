@@ -27,6 +27,7 @@ Tests for the `/status` endpoint which returns information about the RowStore in
     "service": "<string>",
     "datasets": <number>,
     "activeEtlProcesses": <number>,
+    "queuedEtlProcesses": <number>,
     "version": "<string>"
   }
   ```
@@ -37,7 +38,8 @@ Tests for the `/status` endpoint which returns information about the RowStore in
 3. Response body contains `service` field of type String equal to "RowStore"
 4. Response body contains `datasets` field of type Number >= 0
 5. Response body contains `activeEtlProcesses` field of type Number >= 0
-6. Response body contains `version` field of type String
+6. Response body contains `queuedEtlProcesses` field of type Number >= 0
+7. Response body contains `version` field of type String
 
 ---
 
