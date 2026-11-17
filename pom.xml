@@ -21,7 +21,7 @@
         <java.version>25</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <opencsv.version>5.11.2</opencsv.version>
-        <jsonorg.version>20250517</jsonorg.version>
+        <jsonorg.version>20260719</jsonorg.version>
         <guava.version>33.8.0-jre</guava.version>
         <icu4j.version>77.1</icu4j.version>
         <juniversalchardet.version>2.5.0</juniversalchardet.version>
