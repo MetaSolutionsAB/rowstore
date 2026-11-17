@@ -33,8 +33,13 @@ USER rowstore
 # container definitions set ROWSTORE_CONFIG_URI (1.x required it or -c), e.g. to file:///srv/rowstore/etc/rowstore.json
 ENV ROWSTORE_CONFIG_URI=file:///srv/rowstore/rowstore.json
 
-# JVM options, e.g. -Xmx2g or -Duser.timezone=Europe/Stockholm; options in JAVA_OPTS take precedence over the
-# default heap of 75% of the container memory
+# Default heap: 75% of the container memory. A JAVA_TOOL_OPTIONS set at runtime replaces this default, as with
+# EntryStore, whose image sets no JVM options (the deployment tooling sizes the heap of both this way). The JVM prints
+# "Picked up JAVA_TOOL_OPTIONS: ..." to stderr at startup
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75"
+
+# JVM options, e.g. -Xmx2g or -Duser.timezone=Europe/Stockholm, as with the 1.x start script; they are passed on the
+# java command line and so take precedence over JAVA_TOOL_OPTIONS
 ENV JAVA_OPTS=""
 
 # Port 8080 as in the 1.x images (the JAR's own default is 8282); --server.port=<port> passed to "docker run" takes
@@ -44,8 +49,9 @@ ENV SERVER_PORT=8080
 EXPOSE 8080
 
 # The base image's entrypoint imports the certificates in /certificates/*.crt into a truststore of the JVM if
-# USE_SYSTEM_CA_CERTS is set (as non-root, into a copy in /tmp), then runs java. Arguments of "docker run" are passed
-# to RowStore (e.g. --server.port=9000). JAVA_OPTS is split into words but not glob-expanded (set -f). Both shells are
+# USE_SYSTEM_CA_CERTS is set (as non-root, into a copy in /tmp, whose trustStore options it appends to
+# JAVA_TOOL_OPTIONS, so that the heap setting is kept), then runs java. Arguments of "docker run" are passed to
+# RowStore (e.g. --server.port=9000). JAVA_OPTS is split into words but not glob-expanded (set -f). Both shells are
 # replaced by java (exec), so that java receives the stop signal; give it at least 70 seconds to stop
 # (docker stop -t 70, stop_grace_period: 70s)
-ENTRYPOINT ["/__cacert_entrypoint.sh", "sh", "-c", "set -f; exec java -XX:MaxRAMPercentage=75 $JAVA_OPTS -jar /srv/rowstore/rowstore.jar \"$@\"", "rowstore"]
+ENTRYPOINT ["/__cacert_entrypoint.sh", "sh", "-c", "set -f; exec java $JAVA_OPTS -jar /srv/rowstore/rowstore.jar \"$@\"", "rowstore"]
