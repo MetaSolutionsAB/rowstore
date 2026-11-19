@@ -38,7 +38,8 @@ docker run -p 8080:8080 -v /path/to/rowstore.json:/srv/rowstore/rowstore.json --
 The image reads its configuration from `/srv/rowstore/rowstore.json` (`ENV ROWSTORE_CONFIG_URI`; 1.x container
 definitions set the variable, since 1.x required it or `-c`), starts java behind the base image's
 `/__cacert_entrypoint.sh` for `USE_SYSTEM_CA_CERTS` (DEPL-2.05), runs as the non-root user `rowstore` (UID 10001),
-honours `JAVA_OPTS` and passes `docker run` arguments to RowStore (DEPL-2.04).
+sets the default heap of 75% of the container memory in `JAVA_TOOL_OPTIONS` (a `JAVA_TOOL_OPTIONS` set at runtime
+replaces it), honours `JAVA_OPTS` (takes precedence) and passes `docker run` arguments to RowStore (DEPL-2.04).
 It listens on 8080 like the 1.x images (`ENV SERVER_PORT=8080`; `--server.port=<port>` overrides it), while the JAR
 defaults to 8282. The Docker Hub step of `bitbucket-pipelines.yml` pushes `<version>`, `develop` (develop) and
 `<major.minor>` and `latest` (master, only for versions without a `-` suffix; DEPL-2.03, DEPL-2.05), and only
